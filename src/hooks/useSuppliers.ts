@@ -1,0 +1,52 @@
+import { useState, useEffect } from 'react';
+import { collection, onSnapshot, query, orderBy, doc, setDoc, updateDoc } from 'firebase/firestore';
+import { db } from '../firebase/firebase';
+import { DatabaseMapper } from '../mappers/databaseMapper';
+import type { Supplier } from '../types/database';
+
+export const useSuppliers = () => {
+  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [error, setError] = useState<any>(null);
+
+  useEffect(() => {
+    setLoading(true);
+    const q = query(collection(db, 'suppliers'), orderBy('name', 'asc'));
+    const unsubscribe = onSnapshot(
+      q,
+      (snapshot) => {
+        const list: Supplier[] = [];
+        snapshot.forEach((doc) => {
+          list.push(DatabaseMapper.toDomainSupplier(doc.data(), doc.id));
+        });
+        setSuppliers(list);
+        setError(null);
+        setLoading(false);
+      },
+      (err) => {
+        console.error(err);
+        setError(err);
+        setSuppliers([]);
+        setLoading(false);
+      }
+    );
+    return () => unsubscribe();
+  }, []);
+
+  const saveSupplier = async (supplier: Omit<Supplier, 'id' | 'createdAt' | 'updatedAt'>, id?: string) => {
+    try {
+      if (id) {
+        const ref = doc(db, 'suppliers', id);
+        await updateDoc(ref, { ...supplier, updatedAt: Date.now() } as any);
+      } else {
+        const ref = doc(collection(db, 'suppliers'));
+        await setDoc(ref, { ...supplier, createdAt: Date.now(), updatedAt: Date.now() } as any);
+      }
+    } catch (err: any) {
+      console.error(err);
+      throw err;
+    }
+  };
+
+  return { suppliers, loading, error, saveSupplier };
+};

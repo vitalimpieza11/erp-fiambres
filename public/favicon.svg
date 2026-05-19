@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="100%" height="100%">
+  <defs>
+    <linearGradient id="redGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FF525B" />
+      <stop offset="100%" stop-color="#E63946" />
+    </linearGradient>
+    <linearGradient id="pinkGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FFF0F1" />
+      <stop offset="100%" stop-color="#FFB3B8" />
+    </linearGradient>
+  </defs>
+  
+  <!-- Outer tail and main body (curving down-left) -->
+  <path d="M 58,12 C 84,12 95,36 92,60 C 89,78 72,90 52,86 C 34,81 20,58 12,88 C 11,88 6,52 26,32 C 34,24 45,12 58,12 Z" fill="url(#redGrad)" />
+  
+  <!-- Spiral circular face -->
+  <ellipse cx="62" cy="46" rx="27" ry="24" fill="#E63946" transform="rotate(-15 62 46)" />
+  
+  <!-- Nested swirls of the roll/comet -->
+  <path d="M 62,46 C 67,46 72,50 70,56 C 67,63 54,63 50,53 C 46,43 54,33 64,32 C 77,30 84,43 82,56 C 79,70 62,76 50,72 C 36,68 30,48 37,34 C 44,20 64,16 80,23 C 94,30 98,53 88,70" stroke="url(#pinkGrad)" stroke-width="4.5" stroke-linecap="round" fill="none" />
+</svg>

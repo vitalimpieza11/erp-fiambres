@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 220 220" width="100%" height="100%">
+  <defs>
+    <!-- Curve for top text AL VACÍO -->
+    <path id="topTextCurve" d="M 32 110 A 78 78 0 0 1 188 110" fill="none" />
+    <!-- Curve for bottom text ALIMENTOS ENVASADOS -->
+    <path id="bottomTextCurve" d="M 188 110 A 78 78 0 0 1 32 110" fill="none" />
+    
+    <linearGradient id="stampRedGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FF525B" />
+      <stop offset="100%" stop-color="#E63946" />
+    </linearGradient>
+    <linearGradient id="stampPinkGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FFF0F1" />
+      <stop offset="100%" stop-color="#FFB3B8" />
+    </linearGradient>
+  </defs>
+
+  <!-- Outer thick border -->
+  <circle cx="110" cy="110" r="102" fill="none" stroke="#212529" stroke-width="4.5" />
+  <!-- Inner thin border -->
+  <circle cx="110" cy="110" r="95" fill="none" stroke="#212529" stroke-width="1.8" />
+  <!-- Central inner border framing the red roll -->
+  <circle cx="110" cy="110" r="66" fill="none" stroke="#212529" stroke-width="1.8" />
+
+  <!-- Top Text: AL VACÍO in Montserrat-style black bold text -->
+  <text font-family="'Montserrat', sans-serif" font-weight="900" font-size="21.5" fill="#212529" letter-spacing="3.5">
+    <textPath href="#topTextCurve" startOffset="50%" text-anchor="middle">AL VACÍO</textPath>
+  </text>
+
+  <!-- Bottom Text: ALIMENTOS ENVASADOS in Montserrat-style black bold text -->
+  <text font-family="'Montserrat', sans-serif" font-weight="800" font-size="11.5" fill="#212529" letter-spacing="2.2">
+    <textPath href="#bottomTextCurve" startOffset="50%" text-anchor="middle">ALIMENTOS ENVASADOS</textPath>
+  </text>
+
+  <!-- Scaled center icon (Image 1) -->
+  <g transform="translate(68, 68) scale(0.84)">
+    <path d="M 58,12 C 84,12 95,36 92,60 C 89,78 72,90 52,86 C 34,81 20,58 12,88 C 11,88 6,52 26,32 C 34,24 45,12 58,12 Z" fill="url(#stampRedGrad)" />
+    <ellipse cx="62" cy="46" rx="27" ry="24" fill="#E63946" transform="rotate(-15 62 46)" />
+    <path d="M 62,46 C 67,46 72,50 70,56 C 67,63 54,63 50,53 C 46,43 54,33 64,32 C 77,30 84,43 82,56 C 79,70 62,76 50,72 C 36,68 30,48 37,34 C 44,20 64,16 80,23 C 94,30 98,53 88,70" stroke="url(#stampPinkGrad)" stroke-width="4.5" stroke-linecap="round" fill="none" />
+  </g>
+</svg>
