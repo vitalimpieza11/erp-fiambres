@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { doc, onSnapshot, setDoc } from 'firebase/firestore';
 import { db } from '../firebase/firebase';
+import { useAuth } from '../contexts/AuthContext';
 
 export interface SystemSettings {
   empresa_nombre: string;
@@ -89,11 +90,17 @@ const defaultSettings: SystemSettings = {
 };
 
 export const useSettings = () => {
+  const { currentUser } = useAuth();
   const [settings, setSettings] = useState<SystemSettings>(defaultSettings);
   const [loading, setLoading] = useState<boolean>(true);
-  const [error, setError] = useState<any>(null);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (!currentUser) {
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
     const ref = doc(db, 'settings', 'global');
     const unsubscribe = onSnapshot(
@@ -102,7 +109,6 @@ export const useSettings = () => {
         if (snap.exists()) {
           setSettings({ ...defaultSettings, ...snap.data() } as SystemSettings);
         } else {
-          setDoc(ref, defaultSettings);
           setSettings(defaultSettings);
         }
         setError(null);
@@ -110,13 +116,13 @@ export const useSettings = () => {
       },
       (err) => {
         console.error(err);
-        setError(err);
+        setError(err.message);
         setSettings(defaultSettings);
         setLoading(false);
       }
     );
     return () => unsubscribe();
-  }, []);
+  }, [currentUser]);
 
   const saveSettings = async (newSettings: SystemSettings) => {
     const ref = doc(db, 'settings', 'global');
@@ -125,3 +131,4 @@ export const useSettings = () => {
 
   return { settings, saveSettings, loading, error };
 };
+export default useSettings;

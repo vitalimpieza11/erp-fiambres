@@ -21,7 +21,14 @@ import {
   LogOut
 } from 'lucide-react';
 
-export const Sidebar = () => {
+import { X } from 'lucide-react';
+
+interface SidebarProps {
+  isOpen?: boolean;
+  onClose?: () => void;
+}
+
+export const Sidebar = ({ isOpen, onClose }: SidebarProps) => {
   const { logout } = useAuth();
   const [logoutHover, setLogoutHover] = useState(false);
   
@@ -75,9 +82,14 @@ export const Sidebar = () => {
   ];
 
   return (
-    <aside className="sidebar">
-      <div className="sidebar-header" style={{ display: 'flex', justifyContent: 'center', padding: '14px 10px', backgroundColor: '#FFFFFF', borderRadius: '12px', margin: '20px 16px 16px 16px', boxShadow: '0 4px 12px rgba(0,0,0,0.08)' }}>
-        <img src="/logo_principal.png" alt="Al Vacío Logo" style={{ width: '215px', height: 'auto', objectFit: 'contain' }} />
+    <aside className={`sidebar ${isOpen ? 'open' : ''}`}>
+      <div className="sidebar-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '14px 10px', backgroundColor: '#FFFFFF', borderRadius: '12px', margin: '20px 16px 16px 16px', boxShadow: '0 4px 12px rgba(0,0,0,0.08)' }}>
+        <img src="/logo_principal.png" alt="Al Vacío Logo" style={{ width: '180px', height: 'auto', objectFit: 'contain' }} />
+        {onClose && (
+          <button className="icon-btn mobile-close-sidebar" onClick={onClose} style={{ color: '#000', marginLeft: '8px' }}>
+            <X size={20} />
+          </button>
+        )}
       </div>
       
       <nav className="sidebar-nav">

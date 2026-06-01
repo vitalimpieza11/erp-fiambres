@@ -17,6 +17,7 @@ import autoTable from 'jspdf-autotable';
 import { useCustomers } from '../hooks/useCustomers';
 import { calculateSaleTotals } from '../core/calculations';
 import { StockService } from '../services/StockService';
+import { usePriceLists } from '../hooks/usePriceLists';
 
 interface SaleFormItem {
   id: number;
@@ -32,8 +33,9 @@ export const Ventas = () => {
   const { sales, loading: loadingSales, error: errorSales, createSale } = useSales();
   const { products, loading: loadingProducts, error: errorProducts } = useProducts();
   const { customers, loading: loadingCustomers, error: errorCustomers } = useCustomers();
+  const { priceLists, loading: loadingLists, error: errorLists } = usePriceLists();
 
-  const globalError = errorSales || errorProducts || errorCustomers;
+  const globalError = errorSales || errorProducts || errorCustomers || errorLists;
 
 
   const [isCreating, setIsCreating] = useState(false);
@@ -52,16 +54,48 @@ export const Ventas = () => {
   const [items, setItems] = useState<SaleFormItem[]>([]);
   const [descuentoStr, setDescuentoStr] = useState('0');
   const [costoEnvioStr, setCostoEnvioStr] = useState('0');
+  const [priceListId, setPriceListId] = useState('');
   
   const [isSaving, setIsSaving] = useState(false);
+
+  useEffect(() => {
+    if (priceLists.length > 0 && !priceListId) {
+      const activeList = priceLists.find(l => l.isActive);
+      if (activeList) {
+        setPriceListId(activeList.id!);
+      }
+    }
+  }, [priceLists, priceListId]);
+
+  const handlePriceListChange = (newListId: string) => {
+    setPriceListId(newListId);
+    const selectedListObj = priceLists.find(l => l.id === newListId);
+    if (!selectedListObj) return;
+
+    setItems(prevItems => prevItems.map(item => {
+      if (!item.productId) return item;
+      const prod = products.find(p => p.id === item.productId);
+      if (!prod) return item;
+
+      const pesoHorma = prod.pesoHorma || 1;
+      const kgNetos = pesoHorma * (1 - (prod.mermaEstimada || 0) / 100);
+      const paqEstimados = prod.gramajeVenta > 0 ? Math.floor((kgNetos * 1000) / prod.gramajeVenta) : 1;
+      const costoMateriaPrimaPorPaq = paqEstimados > 0 ? prod.costoHorma / paqEstimados : 0;
+      const costoTotalPaquete = costoMateriaPrimaPorPaq + (prod.costoBolsa || 0) + (prod.costoEtiqueta || 0) + (prod.manoObra || 0);
+
+      const margin = selectedListObj?.productOverrides?.[item.productId]?.margin ?? selectedListObj?.margin ?? 40;
+      const newPrice = costoTotalPaquete * (1 + margin / 100);
+
+      return {
+        ...item,
+        precioUnitario: newPrice
+      };
+    }));
+  };
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   
   // Real-time stock status cache for UI warnings
   const [stockCache, setStockCache] = useState<Record<string, number>>({});
-
-  if (globalError) {
-    return <ErrorState message={globalError} />;
-  }
 
   useEffect(() => {
     // Pre-populate customers details when customer selection changes
@@ -91,6 +125,10 @@ export const Ventas = () => {
     }
   }, [items]);
 
+  if (globalError) {
+    return <ErrorState message={globalError} />;
+  }
+
   const discountPercent = parseNumber(descuentoStr);
   const shippingCost = parseNumber(costoEnvioStr);
 
@@ -102,15 +140,15 @@ export const Ventas = () => {
     const prod = products.find(p => p.id === prodId);
     if (!prod) return;
     
-    // In our system, product prices are calculated or entered manually
-    // Let's get the sale price
-    const precio = prod.precioManual > 0 ? prod.precioManual : (prod.costoHorma * 1.4); // Suggested or manual
-    // Cost per package (materia prima + empaque + mano obra)
     const pesoHorma = prod.pesoHorma || 1;
     const kgNetos = pesoHorma * (1 - (prod.mermaEstimada || 0) / 100);
     const paqEstimados = prod.gramajeVenta > 0 ? Math.floor((kgNetos * 1000) / prod.gramajeVenta) : 1;
     const costoMateriaPrimaPorPaq = paqEstimados > 0 ? prod.costoHorma / paqEstimados : 0;
     const costoTotalPaquete = costoMateriaPrimaPorPaq + (prod.costoBolsa || 0) + (prod.costoEtiqueta || 0) + (prod.manoObra || 0);
+
+    const selectedListObj = priceLists.find(l => l.id === priceListId);
+    const margin = selectedListObj?.productOverrides?.[prodId]?.margin ?? selectedListObj?.margin ?? 40;
+    const precio = costoTotalPaquete * (1 + margin / 100);
 
     setItems(items.map(item => item.id === id ? {
       ...item,
@@ -209,14 +247,63 @@ export const Ventas = () => {
     }
   };
 
+  const getLogoPngDataUrl = async (): Promise<string> => {
+    try {
+      const svgUrl = '/logo_stamp.svg';
+      const response = await fetch(svgUrl);
+      if (response.ok) {
+        const svgText = await response.text();
+        const svgBlob = new Blob([svgText], { type: 'image/svg+xml;charset=utf-8' });
+        const blobUrl = URL.createObjectURL(svgBlob);
+
+        const img = new Image();
+        img.src = blobUrl;
+        
+        const pngUrl = await new Promise<string>((resolve) => {
+          img.onload = () => {
+            const canvas = document.createElement('canvas');
+            canvas.width = 512;
+            canvas.height = 512;
+            const ctx = canvas.getContext('2d');
+            if (ctx) {
+              ctx.drawImage(img, 0, 0, 512, 512);
+              const dataUrl = canvas.toDataURL('image/png');
+              URL.revokeObjectURL(blobUrl);
+              resolve(dataUrl);
+            } else {
+              URL.revokeObjectURL(blobUrl);
+              resolve('');
+            }
+          };
+          img.onerror = () => {
+            URL.revokeObjectURL(blobUrl);
+            resolve('');
+          };
+        });
+
+        if (pngUrl) return pngUrl;
+      }
+    } catch (e) {
+      console.error("Error converting stamp SVG to PNG", e);
+    }
+
+    try {
+      const res = await fetch('/logo_circular.png');
+      const blob = await res.blob();
+      return new Promise<string>((resolve) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result as string || '');
+        reader.onerror = () => resolve('');
+        reader.readAsDataURL(blob);
+      });
+    } catch (e) {
+      console.error("Error loading fallback PNG logo", e);
+    }
+    return '';
+  };
+
   const exportRemitoPDF = async (sale: any) => {
-    // Preload circular stamp image
-    const img = new Image();
-    img.src = '/logo_circular.png';
-    await new Promise((resolve) => {
-      img.onload = resolve;
-      img.onerror = resolve; // fallback in case of errors
-    });
+    const logoPngDataUrl = await getLogoPngDataUrl();
 
     const doc = new jsPDF({
       orientation: 'portrait',
@@ -224,105 +311,117 @@ export const Ventas = () => {
       format: 'a4'
     });
 
-    const primaryColor: [number, number, number] = [230, 57, 70]; // Rojo Tomate Vivo #E63946
-    const darkColor = [33, 37, 41]; // Negro Carbón #212529
-    const lightColor = [248, 249, 250]; // Blanco Puro #F8F9FA
-
-    // Header Background - Negro Carbón
-    doc.setFillColor(33, 37, 41);
-    doc.rect(0, 0, 210, 42, 'F');
-
-    // Add Logo Circular Image - high quality brand image
-    try {
-      doc.addImage(img, 'PNG', 15, 6, 30, 30);
-    } catch (e) {
-      // Fallback seal vector if image error
-      doc.setDrawColor(255, 255, 255);
-      doc.setLineWidth(0.6);
-      doc.circle(30, 21, 13, 'S'); // Outer circle
-      doc.setLineWidth(0.2);
-      doc.circle(30, 21, 12, 'S'); // Inner circle
-      doc.circle(30, 21, 8.5, 'S'); // Central frame
-      doc.setFillColor(255, 255, 255);
-      doc.rect(27, 18, 6, 6, 'F');
+    // Draw White A4 Sheet with 15mm margins
+    // Left: Logo Stamp
+    if (logoPngDataUrl) {
+      try {
+        doc.addImage(logoPngDataUrl, 'PNG', 15, 15, 16, 16);
+      } catch (e) {
+        console.error("Error loading stamp image", e);
+      }
     }
 
-    // Logo text
-    doc.setTextColor(255, 255, 255);
+    // Title text
+    doc.setTextColor(33, 37, 41); // #212529
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(24);
-    doc.text('Al Vacío', 50, 20);
+    doc.setFontSize(20);
+    doc.text('Al Vacío', 34, 21);
     
+    doc.setTextColor(73, 80, 87); // #495057
     doc.setFont('helvetica', 'normal');
-    doc.setFontSize(9.5);
-    doc.text('DISTRIBUIDORA MAYORISTA • ALIMENTOS ENVASADOS', 50, 26);
-    doc.text('Frescura y Calidad de Origen Garantizada', 50, 31);
+    doc.setFontSize(9);
+    doc.text('Distribuidora Mayorista • Alimentos Envasados', 34, 26);
 
     // Right side document type
+    doc.setTextColor(0, 0, 0);
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(16);
-    doc.text('REMITO COMERCIAL', 195, 18, { align: 'right' });
+    doc.text('REMITO', 195, 21, { align: 'right' });
     
+    doc.setTextColor(68, 68, 68); // #444
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(10);
+    doc.text(sale.remitoNumber || 'REM-0001', 195, 26, { align: 'right' });
+    
+    doc.setTextColor(102, 102, 102); // #666
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(9);
-    doc.text(`Comprobante Nº: ${sale.remitoNumber || 'REM-0001'}`, 195, 24, { align: 'right' });
-    doc.text(`Fecha: ${new Date(sale.date).toLocaleDateString()}`, 195, 28, { align: 'right' });
+    doc.text(`Fecha: ${new Date(sale.date).toLocaleDateString()}`, 195, 30, { align: 'right' });
+
+    // Divider line: 2px solid black (we use 0.6mm thickness)
+    doc.setDrawColor(0, 0, 0);
+    doc.setLineWidth(0.6);
+    doc.line(15, 35, 195, 35);
 
     // Client section
-    doc.setFillColor(248, 250, 252);
-    doc.roundedRect(15, 48, 180, 26, 3, 3, 'F');
-    doc.setDrawColor(226, 232, 240);
-    doc.setLineWidth(0.5);
-    doc.roundedRect(15, 48, 180, 26, 3, 3, 'S');
+    doc.setFillColor(248, 250, 252); // #f8fafc
+    doc.roundedRect(15, 42, 180, 24, 2, 2, 'F');
+    doc.setDrawColor(226, 232, 240); // #e2e8f0
+    doc.setLineWidth(0.3);
+    doc.roundedRect(15, 42, 180, 24, 2, 2, 'S');
 
-    doc.setTextColor(15, 23, 42);
+    doc.setTextColor(0, 0, 0);
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(10);
-    doc.text('DATOS DEL CLIENTE', 20, 54);
+    doc.text('DATOS DEL CLIENTE', 20, 48);
 
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(9);
-    doc.text(`Razón Social: ${sale.customerName}`, 20, 60);
-    doc.text(`Condición Pago: ${sale.paymentMethod === 'cc' ? 'Cuenta Corriente' : 'Contado / Transferencia'}`, 20, 65);
-    
-    doc.text(`Estado Cobro: ${sale.paymentStatus === 'paid' ? 'Cobrado / Liquidado' : 'Pendiente en CC'}`, 110, 60);
-    doc.text(`Comprobante: ${sale.remitoNumber}`, 110, 65);
+    doc.text(`Razón Social: ${sale.customerName}`, 20, 54);
+    doc.text(`Estado Pago: ${sale.paymentStatus === 'paid' ? 'Pagado/Cobrado' : 'Pendiente'}`, 20, 59);
+    doc.text(`Método Pago: ${sale.paymentMethod === 'cc' ? 'Cuenta Corriente' : 'Contado/Transferencia'}`, 110, 54);
 
     // Products Table
     const tableItems = sale.items || [];
     const tableRows = tableItems.map((item: any) => [
       `${item.quantity} paq.`,
       item.productName,
-      `$${item.price.toFixed(2)}`,
-      `$${(item.quantity * item.price).toFixed(2)}`
+      formatCurrency(item.price),
+      formatCurrency(item.quantity * item.price)
     ]);
 
     autoTable(doc, {
-      startY: 80,
-      head: [['Cant.', 'Descripción del Producto', 'Precio Unit.', 'Subtotal']],
+      startY: 72,
+      head: [['Cant.', 'Descripción', 'Precio Unit.', 'Subtotal']],
       body: tableRows,
-      theme: 'striped',
+      theme: 'plain',
       headStyles: {
-        fillColor: primaryColor,
-        textColor: [255, 255, 255],
+        fillColor: [241, 245, 249], // #f1f5f9
+        textColor: [0, 0, 0],
         fontStyle: 'bold',
-        fontSize: 10
+        fontSize: 9
       },
       styles: {
         font: 'helvetica',
         fontSize: 9,
-        cellPadding: 4
+        cellPadding: 4,
+        textColor: [0, 0, 0]
       },
       columnStyles: {
-        0: { cellWidth: 25 },
-        1: { cellWidth: 95 },
+        0: { cellWidth: 20 },
+        1: { cellWidth: 100 },
         2: { cellWidth: 30, halign: 'right' },
         3: { cellWidth: 30, halign: 'right' }
       },
-      margin: { left: 15, right: 15 }
+      margin: { left: 15, right: 15 },
+      didDrawCell: (data) => {
+        if (data.section === 'head') {
+          const yTop = data.cell.y;
+          const yBottom = data.cell.y + data.cell.height;
+          doc.setDrawColor(0, 0, 0);
+          doc.setLineWidth(0.4);
+          doc.line(data.cell.x, yTop, data.cell.x + data.cell.width, yTop);
+          doc.line(data.cell.x, yBottom, data.cell.x + data.cell.width, yBottom);
+        } else if (data.section === 'body') {
+          const yBottom = data.cell.y + data.cell.height;
+          doc.setDrawColor(226, 232, 240); // #e2e8f0
+          doc.setLineWidth(0.2);
+          doc.line(data.cell.x, yBottom, data.cell.x + data.cell.width, yBottom);
+        }
+      }
     });
 
-    const currentY = (doc as any).lastAutoTable.finalY + 10;
+    const currentY = (doc as any).lastAutoTable.finalY + 8;
 
     // Totals section
     const subtotal = sale.subtotal || sale.total || 0;
@@ -332,32 +431,39 @@ export const Ventas = () => {
 
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(9);
-    doc.text('Subtotal:', 140, currentY);
-    doc.text(`$${subtotal.toFixed(2)}`, 195, currentY, { align: 'right' });
+    doc.text('Subtotal:', 125, currentY);
+    doc.text(formatCurrency(subtotal), 195, currentY, { align: 'right' });
 
-    doc.text(`Descuento (${discount}%):`, 140, currentY + 5);
-    doc.text(`-$${discountAmount.toFixed(2)}`, 195, currentY + 5, { align: 'right' });
+    doc.text(`Descuento (${discount}%):`, 125, currentY + 5);
+    doc.text(`- ${formatCurrency(discountAmount)}`, 195, currentY + 5, { align: 'right' });
 
-    doc.setDrawColor(230, 57, 70);
+    doc.setDrawColor(0, 0, 0);
     doc.setLineWidth(0.5);
-    doc.line(135, currentY + 8, 195, currentY + 8);
+    doc.line(120, currentY + 8, 195, currentY + 8);
 
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(12);
-    doc.text('TOTAL FINAL:', 140, currentY + 14);
-    doc.text(`$${total.toFixed(2)}`, 195, currentY + 14, { align: 'right' });
+    doc.text('TOTAL:', 125, currentY + 14);
+    doc.text(formatCurrency(total), 195, currentY + 14, { align: 'right' });
 
-    // Signature and footer space
-    const signatureY = currentY + 36;
+    // Footer section
+    const footerY = currentY + 32;
     doc.setFont('helvetica', 'normal');
-    doc.setFontSize(8);
-    doc.setTextColor(100, 116, 139);
-    doc.text('Observaciones: La mercadería viaja por cuenta y orden del comprador.', 15, signatureY);
+    doc.setFontSize(9);
+    doc.setTextColor(102, 102, 102); // #666
+    doc.text('Observaciones:', 15, footerY);
+    doc.setTextColor(0, 0, 0);
+    doc.text('La mercadería viaja por cuenta y orden del comprador.', 15, footerY + 5);
 
-    doc.setDrawColor(148, 163, 184);
-    doc.setLineWidth(0.5);
-    doc.line(130, signatureY + 8, 195, signatureY + 8);
-    doc.text('Firma y Aclaración - Recibí Conforme', 162.5, signatureY + 12, { align: 'center' });
+    doc.setDrawColor(0, 0, 0);
+    doc.setLineWidth(0.3);
+    doc.setLineDashPattern([1, 1], 0);
+    doc.line(120, footerY + 4, 195, footerY + 4);
+    doc.setLineDashPattern([], 0); // clear dash pattern
+
+    doc.setFontSize(9);
+    doc.setTextColor(102, 102, 102); // #666
+    doc.text('Firma y Aclaración - Recibí Conforme', 157.5, footerY + 9, { align: 'center' });
 
     // Save PDF
     doc.save(`remito-${sale.remitoNumber.toLowerCase()}.pdf`);
@@ -533,6 +639,15 @@ export const Ventas = () => {
                     { value: 'minorista', label: 'Minorista' },
                     { value: 'almacen', label: 'Almacén' }
                   ]} 
+                />
+                <Select 
+                  label="Lista de Precios" 
+                  value={priceListId}
+                  onChange={e => handlePriceListChange(e.target.value)}
+                  options={[
+                    { value: '', label: 'Seleccionar Lista...' },
+                    ...priceLists.filter(l => l.isActive).map(l => ({ value: l.id!, label: l.name }))
+                  ]}
                 />
                 <Input label="Teléfono" value={telefono} onChange={e => setTelefono(e.target.value)} placeholder="Ej: 341-555-0192" />
                 <Input label="Dirección de Entrega" value={direccion} onChange={e => setDireccion(e.target.value)} placeholder="Av. Pellegrini 1234" />

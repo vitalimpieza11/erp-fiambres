@@ -1,17 +1,24 @@
 import { useState, useEffect } from 'react';
 import { collection, onSnapshot, doc, setDoc, updateDoc, query, orderBy } from 'firebase/firestore';
 import { db } from '../firebase/firebase';
+import { useAuth } from '../contexts/AuthContext';
 import { DatabaseMapper } from '../mappers/databaseMapper';
 import type { Product } from '../types/database';
 
 export type { Product };
 
 export const useProducts = () => {
+  const { currentUser } = useAuth();
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
-  const [error, setError] = useState<any>(null);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (!currentUser) {
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
     const q = query(collection(db, 'products'), orderBy('createdAt', 'desc'));
     const unsubscribe = onSnapshot(
@@ -27,26 +34,21 @@ export const useProducts = () => {
       },
       (err) => {
         console.error(err);
-        setError(err);
+        setError(err.message);
         setProducts([]);
         setLoading(false);
       }
     );
     return () => unsubscribe();
-  }, []);
+  }, [currentUser]);
 
   const saveProduct = async (product: Omit<Product, 'id'>, id?: string) => {
-    try {
-      if (id) {
-        const ref = doc(db, 'products', id);
-        await updateDoc(ref, { ...product, updatedAt: Date.now() });
-      } else {
-        const ref = doc(collection(db, 'products'));
-        await setDoc(ref, { ...product, createdAt: Date.now(), updatedAt: Date.now() });
-      }
-    } catch (err: any) {
-      console.error(err);
-      throw err;
+    if (id) {
+      const ref = doc(db, 'products', id);
+      await updateDoc(ref, { ...product, updatedAt: Date.now() });
+    } else {
+      const ref = doc(collection(db, 'products'));
+      await setDoc(ref, { ...product, createdAt: Date.now(), updatedAt: Date.now() });
     }
   };
 

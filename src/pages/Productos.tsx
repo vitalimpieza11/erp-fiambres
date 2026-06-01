@@ -13,9 +13,6 @@ export const Productos = () => {
   const { products, loading, error, saveProduct } = useProducts();
   const [isFormOpen, setIsFormOpen] = useState(false);
 
-  if (error) {
-    return <ErrorState message={error} />;
-  }
   const [editingId, setEditingId] = useState<string | null>(null);
   
   const [isSaving, setIsSaving] = useState(false);
@@ -41,6 +38,9 @@ export const Productos = () => {
   
   const [margenDeseadoStr, setMargenDeseadoStr] = useState('');
   const [precioManualStr, setPrecioManualStr] = useState('');
+
+  // No early-return on error here — we still allow viewing the list when Firestore
+  // has a temporary error after a save, to avoid a blank-screen regression.
 
   const openForm = (prod?: Product) => {
     if (prod) {
@@ -85,6 +85,26 @@ export const Productos = () => {
     setIsFormOpen(true);
   };
 
+  const resetFormStates = () => {
+    setEditingId(null);
+    setName('');
+    setCategory('fiambres');
+    setBrand('');
+    setProvider('');
+    setObservations('');
+    setIsActive(true);
+    setCostoHormaStr('');
+    setPesoHormaStr('');
+    setPesoFetaStr('');
+    setMermaEstimadaStr('');
+    setGramajeVentaStr('200');
+    setCostoBolsaStr('');
+    setCostoEtiquetaStr('');
+    setManoObraStr('');
+    setMargenDeseadoStr('');
+    setPrecioManualStr('');
+  };
+
   const handleSave = async () => {
     if (!name) return;
     setIsSaving(true);
@@ -102,44 +122,49 @@ export const Productos = () => {
         margenDeseado: parseNumber(margenDeseadoStr),
         precioManual: parseNumber(precioManualStr),
       }, editingId || undefined);
+      resetFormStates();
       setIsFormOpen(false);
     } catch (e) {
-      alert("Error guardando producto");
+      alert('Error guardando producto. Revisá la consola.');
+      console.error(e);
     } finally {
       setIsSaving(false);
     }
   };
 
-  const {
-    costoKg,
-    kgNetos,
-    paquetesEstimados,
-    costoMateriaPrimaPorPaq,
-    costoTotalPaquete,
-    precioSugerido,
-    precioVenta,
-    utilidadNetaPaquete,
-    margenReal,
-    utilidadKg,
-    hasValidData
-  } = calculateProductMetrics({
-    costoHorma: costoHormaStr,
-    pesoHorma: pesoHormaStr,
-    mermaEstimada: mermaEstimadaStr,
-    gramajeVenta: gramajeVentaStr,
-    costoBolsa: costoBolsaStr,
-    costoEtiqueta: costoEtiquetaStr,
-    manoObra: manoObraStr,
-    margenDeseado: margenDeseadoStr,
-    precioManual: precioManualStr
-  });
+  if (error && !isFormOpen) {
+    return <ErrorState message={error} />;
+  }
 
   if (isFormOpen) {
+    const {
+      costoKg,
+      kgNetos,
+      paquetesEstimados,
+      costoMateriaPrimaPorPaq,
+      costoTotalPaquete,
+      precioSugerido,
+      precioVenta,
+      utilidadNetaPaquete,
+      margenReal,
+      utilidadKg,
+      hasValidData
+    } = calculateProductMetrics({
+      costoHorma: costoHormaStr,
+      pesoHorma: pesoHormaStr,
+      mermaEstimada: mermaEstimadaStr,
+      gramajeVenta: gramajeVentaStr,
+      costoBolsa: costoBolsaStr,
+      costoEtiqueta: costoEtiquetaStr,
+      manoObra: manoObraStr,
+      margenDeseado: margenDeseadoStr,
+      precioManual: precioManualStr
+    });
     return (
       <div style={{ paddingBottom: '40px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-            <button onClick={() => setIsFormOpen(false)} className="btn btn-icon">
+            <button onClick={() => { resetFormStates(); setIsFormOpen(false); }} className="btn btn-icon">
               <ArrowLeft size={20} color="var(--text-secondary)" />
             </button>
             <div>

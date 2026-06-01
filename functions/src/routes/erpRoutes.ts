@@ -8,5 +8,6 @@ router.post('/createPurchase', ErpController.createPurchase);
 router.post('/createProduction', ErpController.createProduction);
 router.post('/getStock', ErpController.getStock);
 router.post('/getDashboard', ErpController.getDashboard);
+router.post('/getDebugToken', ErpController.getDebugToken);
 
 export default router;

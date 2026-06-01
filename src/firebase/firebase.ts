@@ -12,7 +12,10 @@ const firebaseConfig = {
 };
 
 const app = initializeApp(firebaseConfig);
+
 export const auth = getAuth(app);
-export const db = getFirestore(app);
+
+// TU BASE REAL SE LLAMA "default"
+export const db = getFirestore(app, 'default');
 
 export default app;

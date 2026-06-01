@@ -5,7 +5,7 @@ import {
   ArrowUpRight, ArrowDownRight, Wallet, Truck, MapPin, 
   CheckCircle2, CreditCard, Box, Map, Star
 } from 'lucide-react';
-import { PageHeader } from '../components/EmptyState';
+import { PageHeader, EmptyState } from '../components/EmptyState';
 import { Card, CardHeader } from '../components/ui/Card';
 import { LoadingSpinner, ErrorState } from '../components/AsyncState';
 import { useSales } from '../hooks/useSales';
@@ -48,6 +48,21 @@ export const Dashboard = () => {
 
   if (loading) {
     return <LoadingSpinner message="Sincronizando Centro Operativo con Firestore..." />;
+  }
+
+  if (sales.length === 0 && purchases.length === 0 && productions.length === 0 && products.length === 0 && movements.length === 0) {
+    return (
+      <div style={{ padding: '40px', maxWidth: '600px', margin: '0 auto', textAlign: 'center' }}>
+        <PageHeader title="Panel Control Operativo" description="Resumen consolidado en tiempo real" />
+        <div style={{ marginTop: '48px' }}>
+          <EmptyState 
+            icon={Activity} 
+            title="Aún no hay movimientos registrados" 
+            description="Registre productos, ventas, compras y producción para comenzar a ver métricas reales." 
+          />
+        </div>
+      </div>
+    );
   }
 
   // 1. Calculations & Stats

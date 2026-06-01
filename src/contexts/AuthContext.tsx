@@ -1,58 +1,64 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
-import { 
-  signInWithEmailAndPassword, 
-  signOut as firebaseSignOut, 
-  onAuthStateChanged, 
-  type User 
-} from 'firebase/auth';
-import { auth } from '../firebase/firebase';
+import React, {
+  createContext,
+  useContext,
+  useState
+} from 'react';
 
 interface AuthContextType {
-  currentUser: User | null;
+  currentUser: any;
   loading: boolean;
-  login: (email: string, pass: string) => Promise<void>;
+  login: (
+    email: string,
+    pass: string
+  ) => Promise<void>;
   logout: () => Promise<void>;
 }
 
-const AuthContext = createContext<AuthContextType | undefined>(undefined);
+const AuthContext = createContext<
+  AuthContextType | undefined
+>(undefined);
 
 export function useAuth() {
   const context = useContext(AuthContext);
-  if (!context) throw new Error('useAuth must be used within an AuthProvider');
+
+  if (!context) {
+    throw new Error(
+      'useAuth must be used within AuthProvider'
+    );
+  }
+
   return context;
 }
 
-export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [currentUser, setCurrentUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
+export function AuthProvider({
+  children
+}: {
+  children: React.ReactNode;
+}) {
+  // USUARIO FALSO PARA DEBUG
+  const [currentUser] = useState({
+    uid: 'debug-user',
+    email: 'debug@local.com'
+  });
 
-  async function login(email: string, pass: string) {
-    await signInWithEmailAndPassword(auth, email, pass);
+  async function login() {
+    return;
   }
 
   async function logout() {
-    await firebaseSignOut(auth);
+    return;
   }
-
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
-      setCurrentUser(user);
-      setLoading(false);
-    });
-
-    return unsubscribe;
-  }, []);
 
   const value = {
     currentUser,
-    loading,
+    loading: false,
     login,
     logout
   };
 
   return (
     <AuthContext.Provider value={value}>
-      {!loading && children}
+      {children}
     </AuthContext.Provider>
   );
 }

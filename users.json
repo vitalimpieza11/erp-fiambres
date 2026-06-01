@@ -1,0 +1,12 @@
+{"users": [
+{
+  "localId": "bKkM6ypnQVSIwJyVPcEqgxkk49P2",
+  "email": "luquitaspaterno11@gmail.com",
+  "emailVerified": false,
+  "passwordHash": "lF4Qpav4ykIvwb2v57hLOactl1l74E7i3FfwZ/lwgqbY5CyzGz15gd3K0dCSN2VUbVkPtDhrNjIMnIUfD+p0Ew==",
+  "salt": "S7bjFDBrbsbm2A==",
+  "lastSignedInAt": "1779237507358",
+  "createdAt": "1779147419434",
+  "disabled": false,
+  "providerUserInfo": []
+}]}

@@ -1,15 +1,22 @@
 import { useState, useEffect } from 'react';
 import { collection, onSnapshot, query, orderBy, addDoc } from 'firebase/firestore';
 import { db } from '../firebase/firebase';
+import { useAuth } from '../contexts/AuthContext';
 import { parseNumber } from '../utils/format';
 import type { CashMovement } from '../types/database';
 
 export const useCashMovements = () => {
+  const { currentUser } = useAuth();
   const [movements, setMovements] = useState<CashMovement[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
-  const [error, setError] = useState<any>(null);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (!currentUser) {
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
     const q = query(collection(db, 'cash_movements'), orderBy('date', 'desc'));
     const unsubscribe = onSnapshot(
@@ -36,24 +43,19 @@ export const useCashMovements = () => {
       },
       (err) => {
         console.error(err);
-        setError(err);
+        setError(err.message);
         setMovements([]);
         setLoading(false);
       }
     );
     return () => unsubscribe();
-  }, []);
+  }, [currentUser]);
 
   const createMovement = async (movement: Omit<CashMovement, 'id' | 'createdAt'>) => {
-    try {
-      await addDoc(collection(db, 'cash_movements'), {
-        ...movement,
-        createdAt: Date.now()
-      });
-    } catch (err: any) {
-      console.error(err);
-      throw err;
-    }
+    await addDoc(collection(db, 'cash_movements'), {
+      ...movement,
+      createdAt: Date.now()
+    });
   };
 
   // Aggregates
@@ -113,3 +115,4 @@ export const useCashMovements = () => {
     }
   };
 };
+export default useCashMovements;

@@ -108,7 +108,7 @@ export const Clientes = () => {
             </button>
             <div>
               <h1 style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--text-primary)' }}>Cuenta Corriente</h1>
-              <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>{selectedCustomer.commerce}</p>
+              <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>{selectedCustomer.commerce || selectedCustomer.name || 'Cliente'}</p>
             </div>
           </div>
           <div style={{ display: 'flex', gap: '12px' }}>
@@ -448,7 +448,7 @@ export const Clientes = () => {
               {
                 header: '',
                 accessor: (item) => (
-                  <button onClick={() => handleOpenCC(item)} style={{ display: 'flex', alignItems: 'center', gap: '4px', background: 'none', border: 'none', color: 'var(--primary-color)', fontWeight: 600, cursor: 'pointer', fontSize: '0.875rem' }}>
+                  <button onClick={(e) => { e.stopPropagation(); handleOpenCC(item); }} style={{ display: 'flex', alignItems: 'center', gap: '4px', background: 'none', border: 'none', color: 'var(--primary-color)', fontWeight: 600, cursor: 'pointer', fontSize: '0.875rem' }}>
                     Ver CC <ArrowRight size={14} />
                   </button>
                 ),

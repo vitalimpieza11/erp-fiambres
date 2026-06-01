@@ -36,12 +36,7 @@ export { Login } from './Login';
 export { CajaBancos } from './CajaBancos';
 export { Proveedores } from './Proveedores';
 
-export const CuentaCorriente = () => (
-  <>
-    <PageHeader title="Cuenta Corriente" description="Saldos de clientes" />
-    <EmptyState icon={Wallet} title="Cuentas Corrientes" description="Gestiona cobros y deudas de clientes." />
-  </>
-);
+export { CuentaCorriente } from './CuentaCorriente';
 
 // --- Rentabilidad moved to Rentabilidad.tsx ---
 

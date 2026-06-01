@@ -19,36 +19,6 @@ class ErpEngine {
         const { type, payload, userId, extra } = params;
         const eventLogRef = db.collection('erp_event_log').doc(eventId);
         const affectedCollections = [];
-        // Helper to fetch stock within a transaction to guarantee consistency
-        const getStockTx = async (productId, transaction) => {
-            const q = db.collection('stock_movements').where('productId', '==', productId);
-            const snap = await transaction.get(q);
-            let totalStock = 0;
-            snap.forEach((doc) => {
-                totalStock += Number(doc.data().quantity || 0);
-            });
-            return Number(totalStock.toFixed(3));
-        };
-        // Helper to evaluate and apply logical soft lock inside a transaction
-        const evaluateSoftLockTx = async (productId, transaction) => {
-            const lockRef = db.collection('locks').doc(productId);
-            const lockSnap = await transaction.get(lockRef);
-            if (lockSnap.exists) {
-                const lockData = lockSnap.data();
-                if (lockData && Date.now() - Number(lockData.timestamp) < 15000) {
-                    // Locked within 15 seconds by another transaction
-                    throw new Error(`Producto bloqueado temporalmente por control de concurrencia. Reintente en unos segundos.`);
-                }
-            }
-            // Apply the lock
-            transaction.set(lockRef, {
-                productId,
-                lockedBy: userId,
-                timestamp: Date.now()
-            });
-            if (!affectedCollections.includes('locks'))
-                affectedCollections.push('locks');
-        };
         try {
             let resultId = '';
             const snapshotsBefore = {};
@@ -58,9 +28,14 @@ class ErpEngine {
                     const salePayload = payload;
                     const discountPercent = Number(extra?.discountPercent || 0);
                     const shippingCost = Number(extra?.shippingCost || 0);
-                    // 1. READ & VALIDATE CUSTOMER STATUS
+                    // --- READS PHASE ---
                     const customerRef = db.collection('customers').doc(salePayload.customerId);
                     const customerSnap = await transaction.get(customerRef);
+                    const lockRefs = salePayload.items.map((item) => db.collection('locks').doc(item.productId));
+                    const lockSnaps = await Promise.all(lockRefs.map((ref) => transaction.get(ref)));
+                    const stockQueries = salePayload.items.map((item) => db.collection('stock_movements').where('productId', '==', item.productId));
+                    const stockSnaps = await Promise.all(stockQueries.map((q) => transaction.get(q)));
+                    // --- VALIDATIONS PHASE ---
                     if (!customerSnap.exists) {
                         throw new Error(`Validación fallida: El cliente no existe.`);
                     }
@@ -68,27 +43,47 @@ class ErpEngine {
                     if (customerData && !customerData.isActive) {
                         throw new Error(`Validación fallida: El cliente ${customerData.name} se encuentra inactivo.`);
                     }
-                    // 2. READ & VALIDATE STOCK levels + Concurrency Lock
-                    for (const item of salePayload.items) {
-                        // Apply soft lock to prevent race conditions
-                        await evaluateSoftLockTx(item.productId, transaction);
-                        // Fetch and check stock
-                        const availableStock = await getStockTx(item.productId, transaction);
-                        snapshotsBefore[item.productId] = { stock: availableStock };
+                    const availableStocks = {};
+                    for (let i = 0; i < salePayload.items.length; i++) {
+                        const item = salePayload.items[i];
+                        const lockSnap = lockSnaps[i];
+                        if (lockSnap.exists) {
+                            const lockData = lockSnap.data();
+                            if (lockData && Date.now() - Number(lockData.timestamp) < 15000) {
+                                throw new Error(`Producto bloqueado temporalmente por control de concurrencia. Reintente en unos segundos.`);
+                            }
+                        }
+                        let totalStock = 0;
+                        stockSnaps[i].forEach((doc) => {
+                            totalStock += Number(doc.data().quantity || 0);
+                        });
+                        const availableStock = Number(totalStock.toFixed(3));
+                        availableStocks[item.productId] = availableStock;
                         const qty = Number(item.quantity);
                         if (availableStock < qty) {
                             throw new Error(`Validación de stock fallida: Stock insuficiente para ${item.productName}. Disponible: ${availableStock} kg/un, Requerido: ${qty} kg/un.`);
                         }
+                        snapshotsBefore[item.productId] = { stock: availableStock };
                         snapshotsAfter[item.productId] = { stock: Number((availableStock - qty).toFixed(3)) };
                     }
-                    // 3. CALCULATE Totals
+                    // --- WRITES PHASE ---
+                    for (let i = 0; i < salePayload.items.length; i++) {
+                        const item = salePayload.items[i];
+                        const lockRef = lockRefs[i];
+                        transaction.set(lockRef, {
+                            productId: item.productId,
+                            lockedBy: userId,
+                            timestamp: Date.now()
+                        });
+                        if (!affectedCollections.includes('locks'))
+                            affectedCollections.push('locks');
+                    }
                     const normalizedItems = salePayload.items.map((item) => ({
                         quantity: Number(item.quantity),
                         price: Number(item.price),
                         cost: Number(item.cost)
                     }));
                     const calc = (0, calculations_1.calculateSaleTotals)(normalizedItems, discountPercent, shippingCost);
-                    // 4. WRITE Sale Document
                     const saleRef = db.collection('sales').doc();
                     resultId = saleRef.id;
                     affectedCollections.push('sales');
@@ -102,7 +97,6 @@ class ErpEngine {
                         updatedAt: Date.now()
                     };
                     transaction.set(saleRef, newSale);
-                    // 5. WRITE Stock Movements (outputs)
                     for (const item of salePayload.items) {
                         const stockMovRef = db.collection('stock_movements').doc();
                         affectedCollections.push('stock_movements');
@@ -119,7 +113,6 @@ class ErpEngine {
                         };
                         transaction.set(stockMovRef, movement);
                     }
-                    // 6. WRITE Cash Movement if paid/completed
                     if (salePayload.status === 'completed' || salePayload.paymentStatus === 'paid') {
                         const cashMovRef = db.collection('cash_movements').doc();
                         affectedCollections.push('cash_movements');
@@ -138,9 +131,12 @@ class ErpEngine {
                 }
                 else if (type === 'PURCHASE') {
                     const purchasePayload = payload;
-                    // 1. READ & VALIDATE SUPPLIER STATUS
+                    // --- READS PHASE ---
                     const supplierRef = db.collection('suppliers').doc(purchasePayload.supplierId);
                     const supplierSnap = await transaction.get(supplierRef);
+                    const stockQueries = purchasePayload.items.map((item) => db.collection('stock_movements').where('productId', '==', item.productId));
+                    const stockSnaps = await Promise.all(stockQueries.map((q) => transaction.get(q)));
+                    // --- VALIDATIONS PHASE ---
                     if (!supplierSnap.exists) {
                         throw new Error(`Validación fallida: El proveedor no existe.`);
                     }
@@ -148,7 +144,19 @@ class ErpEngine {
                     if (supplierData && !supplierData.isActive) {
                         throw new Error(`Validación fallida: El proveedor ${supplierData.name} se encuentra inactivo.`);
                     }
-                    // 2. WRITE Purchase Document
+                    const currentStocks = {};
+                    for (let i = 0; i < purchasePayload.items.length; i++) {
+                        const item = purchasePayload.items[i];
+                        let totalStock = 0;
+                        stockSnaps[i].forEach((doc) => {
+                            totalStock += Number(doc.data().quantity || 0);
+                        });
+                        const currentStock = Number(totalStock.toFixed(3));
+                        currentStocks[item.productId] = currentStock;
+                        snapshotsBefore[item.productId] = { stock: currentStock };
+                        snapshotsAfter[item.productId] = { stock: Number((currentStock + Number(item.quantity)).toFixed(3)) };
+                    }
+                    // --- WRITES PHASE ---
                     const purchaseRef = db.collection('purchases').doc();
                     resultId = purchaseRef.id;
                     affectedCollections.push('purchases');
@@ -160,13 +168,9 @@ class ErpEngine {
                         updatedAt: Date.now()
                     };
                     transaction.set(purchaseRef, newPurchase);
-                    // 3. WRITE Stock Movements (inputs)
                     for (const item of purchasePayload.items) {
                         const stockMovRef = db.collection('stock_movements').doc();
                         affectedCollections.push('stock_movements');
-                        const currentStock = await getStockTx(item.productId, transaction);
-                        snapshotsBefore[item.productId] = { stock: currentStock };
-                        snapshotsAfter[item.productId] = { stock: Number((currentStock + Number(item.quantity)).toFixed(3)) };
                         const movement = {
                             productId: item.productId,
                             productName: item.productName,
@@ -180,7 +184,6 @@ class ErpEngine {
                         };
                         transaction.set(stockMovRef, movement);
                     }
-                    // 4. WRITE Cash Movement (egreso) if completed
                     if (purchasePayload.status === 'completed') {
                         const cashMovRef = db.collection('cash_movements').doc();
                         affectedCollections.push('cash_movements');
@@ -202,19 +205,45 @@ class ErpEngine {
                     const sourceProductId = extra?.sourceProductId;
                     const sourceProductName = extra?.sourceProductName;
                     const sourceProductQtyKg = Number(extra?.sourceProductQtyKg || 0);
-                    // 1. READ & VALIDATE RAW MATERIALS STOCK + Concurrency Lock
-                    await evaluateSoftLockTx(sourceProductId, transaction);
-                    const rawStock = await getStockTx(sourceProductId, transaction);
+                    // --- READS PHASE ---
+                    const rawLockRef = db.collection('locks').doc(sourceProductId);
+                    const rawLockSnap = await transaction.get(rawLockRef);
+                    const rawStockQuery = db.collection('stock_movements').where('productId', '==', sourceProductId);
+                    const rawStockSnap = await transaction.get(rawStockQuery);
+                    const destStockQuery = db.collection('stock_movements').where('productId', '==', batchPayload.productId);
+                    const destStockSnap = await transaction.get(destStockQuery);
+                    // --- VALIDATIONS PHASE ---
+                    if (rawLockSnap.exists) {
+                        const lockData = rawLockSnap.data();
+                        if (lockData && Date.now() - Number(lockData.timestamp) < 15000) {
+                            throw new Error(`Producto bloqueado temporalmente por control de concurrencia. Reintente en unos segundos.`);
+                        }
+                    }
+                    let totalRawStock = 0;
+                    rawStockSnap.forEach((doc) => {
+                        totalRawStock += Number(doc.data().quantity || 0);
+                    });
+                    const rawStock = Number(totalRawStock.toFixed(3));
                     snapshotsBefore[sourceProductId] = { stock: rawStock };
                     if (rawStock < sourceProductQtyKg) {
                         throw new Error(`Validación de materia prima fallida: Stock insuficiente para ${sourceProductName}. Disponible: ${rawStock} kg, Requerido: ${sourceProductQtyKg} kg.`);
                     }
                     snapshotsAfter[sourceProductId] = { stock: Number((rawStock - sourceProductQtyKg).toFixed(3)) };
-                    // Get destination product stock before production
-                    const destStock = await getStockTx(batchPayload.productId, transaction);
+                    let totalDestStock = 0;
+                    destStockSnap.forEach((doc) => {
+                        totalDestStock += Number(doc.data().quantity || 0);
+                    });
+                    const destStock = Number(totalDestStock.toFixed(3));
                     snapshotsBefore[batchPayload.productId] = { stock: destStock };
                     snapshotsAfter[batchPayload.productId] = { stock: Number((destStock + Number(batchPayload.quantityProduced)).toFixed(3)) };
-                    // 2. WRITE ProductionBatch Document
+                    // --- WRITES PHASE ---
+                    transaction.set(rawLockRef, {
+                        productId: sourceProductId,
+                        lockedBy: userId,
+                        timestamp: Date.now()
+                    });
+                    if (!affectedCollections.includes('locks'))
+                        affectedCollections.push('locks');
                     const prodBatchRef = db.collection('production_batches').doc();
                     resultId = prodBatchRef.id;
                     affectedCollections.push('production_batches');
@@ -226,7 +255,6 @@ class ErpEngine {
                         updatedAt: Date.now()
                     };
                     transaction.set(prodBatchRef, newBatch);
-                    // 3. WRITE Stock Movement for raw material (decrement)
                     const sourceMovRef = db.collection('stock_movements').doc();
                     affectedCollections.push('stock_movements');
                     const sourceMovement = {
@@ -241,7 +269,6 @@ class ErpEngine {
                         createdAt: Date.now()
                     };
                     transaction.set(sourceMovRef, sourceMovement);
-                    // 4. WRITE Stock Movement for packages (increment)
                     const targetMovRef = db.collection('stock_movements').doc();
                     affectedCollections.push('stock_movements');
                     const targetMovement = {

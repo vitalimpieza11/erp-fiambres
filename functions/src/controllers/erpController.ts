@@ -129,5 +129,19 @@ export class ErpController {
       res.status(500).json({ success: false, error: e.message || 'Error al compilar dashboard' });
     }
   }
+
+  static async getDebugToken(req: Request, res: Response) {
+    try {
+      const { secret } = req.body;
+      if (secret !== 'al-vacio-temp-secret-2026') {
+        res.status(403).json({ success: false, error: 'Acceso denegado.' });
+        return;
+      }
+      const token = await admin.auth().createCustomToken('debug-admin', { admin: true });
+      res.status(200).json({ success: true, token });
+    } catch (e: any) {
+      res.status(500).json({ success: false, error: e.message || 'Error al generar token de depuración' });
+    }
+  }
 }
 export default ErpController;

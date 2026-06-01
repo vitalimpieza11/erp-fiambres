@@ -3,39 +3,38 @@ import { PageHeader, EmptyState } from '../components/EmptyState';
 import { LoadingSpinner, ErrorState, SkeletonLoader } from '../components/AsyncState';
 import { Card } from '../components/ui/Card';
 import { Table } from '../components/ui/Table';
-import { Input } from '../components/ui/Forms';
 import { 
-  ArrowLeft, Save, Tags, Percent, CheckCircle2, XCircle, FileText, Download, Table as TableIcon, Loader2
+  ArrowLeft, Save, Tags, Percent, CheckCircle2, XCircle, FileText, Download, Table as TableIcon, Loader2, Plus, Trash2
 } from 'lucide-react';
 import { formatCurrency, formatNumber, parseNumber } from '../utils/format';
 import { useProducts } from '../hooks/useProducts';
+import { usePriceLists, type PriceList } from '../hooks/usePriceLists';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
-const mockLists = [
-  { id: 'L-01', name: 'Lista Gastronómica', target: 'Bares y Restaurantes', margin: 30, items: 'Gastronomía', status: 'Activa' },
-  { id: 'L-02', name: 'Lista Kioscos', target: 'Kioscos y Minimarkets', margin: 40, items: 'Kioscos', status: 'Activa' },
-  { id: 'L-03', name: 'Lista Minorista', target: 'Consumidor Final', margin: 55, items: 'Minoristas', status: 'Activa' },
-  { id: 'L-04', name: 'Mayorista (Volumen)', target: 'Supermercados', margin: 20, items: 'Cadenas', status: 'Inactiva' },
-];
-
 export const Precios = () => {
   const { products, loading: loadingProducts, error: errorProducts } = useProducts();
+  const { priceLists, loading: loadingLists, error: errorLists, savePriceList, deletePriceList, seedPriceLists } = usePriceLists();
+  
   const [viewMode, setViewMode] = useState<'list' | 'edit'>('list');
-  const [selectedList, setSelectedList] = useState<any | null>(null);
-
-  if (errorProducts) {
-    return <ErrorState message={errorProducts} />;
-  }
+  const [selectedList, setSelectedList] = useState<PriceList | null>(null);
   
   // Edit Mode States
+  const [listNameInput, setListNameInput] = useState('');
+  const [listTargetInput, setListTargetInput] = useState('');
+  const [listActiveInput, setListActiveInput] = useState(true);
   const [generalMarginStr, setGeneralMarginStr] = useState('30');
   const [priceItems, setPriceItems] = useState<any[]>([]);
   const [isSaving, setIsSaving] = useState(false);
 
+  const globalError = errorProducts || errorLists;
+
   // When selected list or products change, set up the price items
   useEffect(() => {
     if (selectedList && products.length > 0) {
+      setListNameInput(selectedList.name);
+      setListTargetInput(selectedList.target);
+      setListActiveInput(selectedList.isActive);
       setGeneralMarginStr(selectedList.margin.toString());
       
       const items = products.map(p => {
@@ -45,19 +44,42 @@ export const Precios = () => {
         const cMat = paqEst > 0 ? p.costoHorma / paqEst : 0;
         const cTot = paqEst > 0 ? cMat + p.costoBolsa + p.costoEtiqueta + p.manoObra : 0;
 
+        const overrideMargin = selectedList.productOverrides?.[p.id!]?.margin ?? selectedList.margin;
+
         return {
-          id: p.id,
+          id: p.id!,
           name: p.name,
           brand: p.brand || 'Al Vacío',
           gramajeVenta: p.gramajeVenta,
           active: p.isActive,
           cost: cTot,
-          marginStr: selectedList.margin.toString()
+          marginStr: overrideMargin.toString()
         };
       });
       setPriceItems(items);
     }
   }, [selectedList, products]);
+
+  if (globalError) {
+    return <ErrorState message={globalError} />;
+  }
+
+  const handleCreateNewList = () => {
+    setSelectedList({
+      name: 'Nueva Lista de Precios',
+      target: 'Consumidores Especiales',
+      margin: 30,
+      isActive: true,
+      productOverrides: {},
+      createdAt: 0,
+      updatedAt: 0
+    });
+    setListNameInput('Nueva Lista de Precios');
+    setListTargetInput('Consumidores Especiales');
+    setGeneralMarginStr('30');
+    setListActiveInput(true);
+    setViewMode('edit');
+  };
 
   // When general margin changes, update all active products
   const handleGeneralMarginChange = (val: string) => {
@@ -69,17 +91,58 @@ export const Precios = () => {
     setPriceItems(priceItems.map(item => item.id === id ? { ...item, marginStr: val } : item));
   };
 
-  const handleSavePrices = () => {
+  const handleSavePrices = async () => {
+    if (!selectedList) return;
     setIsSaving(true);
-    setTimeout(() => {
-      setIsSaving(false);
+    try {
+      const overrides: Record<string, { margin: number }> = {};
+      priceItems.forEach(item => {
+        if (item.active && item.marginStr !== generalMarginStr) {
+          overrides[item.id] = { margin: parseNumber(item.marginStr) };
+        }
+      });
+
+      const updatedList = {
+        name: listNameInput,
+        target: listTargetInput,
+        margin: parseNumber(generalMarginStr),
+        isActive: listActiveInput,
+        productOverrides: overrides
+      };
+
+      await savePriceList(updatedList, selectedList.id);
       setViewMode('list');
       setSelectedList(null);
-    }, 800);
+    } catch (e) {
+      console.error(e);
+      alert("Error al guardar la lista de precios");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    if (window.confirm("¿Está seguro de que desea eliminar esta lista de precios?")) {
+      try {
+        await deletePriceList(id);
+      } catch (e) {
+        alert("Error al eliminar la lista de precios");
+      }
+    }
+  };
+
+  const getCurrentOverrides = () => {
+    const overrides: Record<string, { margin: number }> = {};
+    priceItems.forEach(item => {
+      if (item.active && item.marginStr !== generalMarginStr) {
+        overrides[item.id] = { margin: parseNumber(item.marginStr) };
+      }
+    });
+    return overrides;
   };
 
   // Helper: Get computed product prices for a list
-  const getListProducts = (margin: number) => {
+  const getListProducts = (margin: number, overrides?: any) => {
     return products.map(p => {
       const pPeso = parseNumber(p.pesoHorma);
       const pMerma = parseNumber(p.mermaEstimada);
@@ -93,26 +156,28 @@ export const Precios = () => {
       const paqEst = pGramaje > 0 ? Math.floor((kgNetos * 1000) / pGramaje) : 0;
       const cMat = paqEst > 0 ? pCostoHorma / paqEst : 0;
       const cTot = paqEst > 0 ? cMat + pCostoBolsa + pCostoEtiqueta + pManoObra : 0;
+      
+      const itemMargin = overrides?.[p.id!]?.margin ?? margin;
+      
       return {
         name: p.name || 'Sin nombre',
         brand: p.brand || 'Al Vacío',
         gramajeVenta: pGramaje,
         cost: cTot,
-        margin: margin,
-        price: cTot * (1 + margin / 100),
+        margin: itemMargin,
+        price: cTot * (1 + itemMargin / 100),
         isActive: p.isActive
       };
     }).filter(p => p.isActive);
   };
 
   // Export: PDF
-  const exportPDF = async (listName: string, margin: number) => {
-    // Preload circular stamp image
+  const exportPDF = async (listName: string, margin: number, overrides?: any) => {
     const img = new Image();
     img.src = '/logo_circular.png';
     await new Promise((resolve) => {
       img.onload = resolve;
-      img.onerror = resolve; // fallback in case of errors
+      img.onerror = resolve; 
     });
 
     const doc = new jsPDF({
@@ -121,17 +186,14 @@ export const Precios = () => {
       format: 'a4'
     });
 
-    const activeProducts = getListProducts(margin);
+    const activeProducts = getListProducts(margin, overrides);
     
-    // Header styling - Warm Rojo Tomate Vivo #E63946 (instead of Negro Carbón)
     doc.setFillColor(230, 57, 70);
     doc.rect(0, 0, 210, 38, 'F');
 
-    // Add Logo Circular Image - high quality brand image
     try {
       doc.addImage(img, 'PNG', 15, 4, 30, 30);
     } catch (e) {
-      // Fallback seal vector if image error
       doc.setDrawColor(255, 255, 255);
       doc.setLineWidth(0.6);
       doc.circle(30, 19, 12, 'S');
@@ -139,7 +201,6 @@ export const Precios = () => {
       doc.rect(27, 16, 6, 6, 'F');
     }
 
-    // Logo title
     doc.setTextColor(255, 255, 255);
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(24);
@@ -149,7 +210,6 @@ export const Precios = () => {
     doc.setFontSize(9.5);
     doc.text('ALIMENTOS ENVASADOS • DISTRIBUCIÓN', 50, 26);
 
-    // List header
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(14);
     doc.text(listName.toUpperCase(), 195, 16, { align: 'right' });
@@ -158,7 +218,6 @@ export const Precios = () => {
     doc.setFontSize(9);
     doc.text(`Fecha Emisión: ${new Date().toLocaleDateString()}`, 195, 22, { align: 'right' });
 
-    // Title
     doc.setTextColor(15, 23, 42);
     doc.setFontSize(14);
     doc.setFont('helvetica', 'bold');
@@ -168,7 +227,6 @@ export const Precios = () => {
     doc.setLineWidth(0.5);
     doc.line(15, 51, 195, 51);
 
-    // Table rows - strictly external comercial columns (Product, Brand, Gramaje, Sale Price!)
     const tableRows = activeProducts.map(p => [
       p.name,
       p.brand,
@@ -182,7 +240,7 @@ export const Precios = () => {
       body: tableRows,
       theme: 'striped',
       headStyles: {
-        fillColor: [33, 37, 41], // Negro Carbón for high-contrast legible table headers!
+        fillColor: [33, 37, 41], 
         textColor: [255, 255, 255],
         fontStyle: 'bold',
         fontSize: 10
@@ -212,9 +270,9 @@ export const Precios = () => {
     doc.save(`lista-precios-${listName.toLowerCase().replace(/\s+/g, '-')}.pdf`);
   };
 
-  // Export: Excel (CSV with UTF-8 BOM for perfect Excel compatibility)
-  const exportExcel = (listName: string, margin: number) => {
-    const activeProducts = getListProducts(margin);
+  // Export: Excel (CSV with UTF-8 BOM)
+  const exportExcel = (listName: string, margin: number, overrides?: any) => {
+    const activeProducts = getListProducts(margin, overrides);
     
     const headers = ['Producto', 'Marca', 'Gramaje', 'Costo Base ($)', 'Margen (%)', 'Precio Final ($)'];
     const rows = activeProducts.map(p => [
@@ -226,7 +284,7 @@ export const Precios = () => {
       p.price.toFixed(2)
     ]);
 
-    const csvContent = "\uFEFF" // UTF-8 BOM
+    const csvContent = "\uFEFF" 
       + [headers.join(';'), ...rows.map(r => r.join(';'))].join('\r\n');
 
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
@@ -251,15 +309,15 @@ export const Precios = () => {
               <ArrowLeft size={20} color="var(--text-secondary)" />
             </button>
             <div>
-              <h1 style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--text-primary)' }}>{selectedList.name}</h1>
+              <h1 style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--text-primary)' }}>{listNameInput || 'Nueva Lista'}</h1>
               <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>Configuración de precios y márgenes comerciales</p>
             </div>
           </div>
           <div style={{ display: 'flex', gap: '12px' }}>
-            <button onClick={() => exportPDF(selectedList.name, parseNumber(generalMarginStr))} className="btn btn-secondary" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+            <button onClick={() => exportPDF(listNameInput, parseNumber(generalMarginStr), getCurrentOverrides())} className="btn btn-secondary" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
               <FileText size={18} /> Exportar PDF
             </button>
-            <button onClick={() => exportExcel(selectedList.name, parseNumber(generalMarginStr))} className="btn btn-secondary" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+            <button onClick={() => exportExcel(listNameInput, parseNumber(generalMarginStr), getCurrentOverrides())} className="btn btn-secondary" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
               <TableIcon size={18} /> Exportar Excel
             </button>
             <button onClick={handleSavePrices} disabled={isSaving} className="btn btn-primary">
@@ -270,18 +328,29 @@ export const Precios = () => {
         </div>
 
         <Card style={{ marginBottom: '24px' }}>
-          <div style={{ display: 'flex', gap: '24px', alignItems: 'center' }}>
-            <div style={{ flex: 1 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr 1fr 1fr', gap: '16px', alignItems: 'end' }}>
+            <div>
               <div style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '6px' }}>Nombre de la Lista</div>
               <input 
                 type="text" 
-                defaultValue={selectedList.name} 
+                value={listNameInput} 
+                onChange={e => setListNameInput(e.target.value)}
                 className="form-input" 
-                style={{ width: '100%', padding: '10px 12px', border: '1px solid var(--border-color)', borderRadius: '8px', outline: 'none' }}
+                style={{ width: '100%', padding: '10px 12px', border: '1px solid var(--border-color)', borderRadius: '8px', outline: 'none', backgroundColor: 'var(--bg-primary)', color: 'var(--text-primary)' }}
               />
             </div>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '6px' }}>Margen General de la Lista (%)</div>
+            <div>
+              <div style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '6px' }}>Segmento / Destino</div>
+              <input 
+                type="text" 
+                value={listTargetInput} 
+                onChange={e => setListTargetInput(e.target.value)}
+                className="form-input" 
+                style={{ width: '100%', padding: '10px 12px', border: '1px solid var(--border-color)', borderRadius: '8px', outline: 'none', backgroundColor: 'var(--bg-primary)', color: 'var(--text-primary)' }}
+              />
+            </div>
+            <div>
+              <div style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '6px' }}>Margen General (%)</div>
               <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
                 <Percent size={16} color="var(--text-secondary)" style={{ position: 'absolute', left: '12px' }} />
                 <input 
@@ -289,13 +358,28 @@ export const Precios = () => {
                   value={generalMarginStr} 
                   onChange={e => handleGeneralMarginChange(e.target.value)} 
                   className="form-input" 
-                  style={{ width: '100%', padding: '10px 12px 10px 36px', border: '1px solid var(--border-color)', borderRadius: '8px', outline: 'none' }}
+                  style={{ width: '100%', padding: '10px 12px 10px 36px', border: '1px solid var(--border-color)', borderRadius: '8px', outline: 'none', backgroundColor: 'var(--bg-primary)', color: 'var(--text-primary)' }}
                 />
               </div>
             </div>
-            <div style={{ padding: '16px', backgroundColor: 'var(--primary-light)', border: '1px solid rgba(230, 57, 70, 0.2)', borderRadius: '12px', width: '280px' }}>
-              <span style={{ display: 'block', fontSize: '0.75rem', color: 'var(--primary-color)', fontWeight: 700, letterSpacing: '0.05em', marginBottom: '4px' }}>APLICACIÓN AUTOMÁTICA</span>
-              <span style={{ fontSize: '0.8rem', color: 'var(--text-primary)', lineHeight: 1.4 }}>El margen general se aplicará sobre el costo base de todos los productos del catálogo comercial.</span>
+            <div>
+              <div style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '6px' }}>Estado</div>
+              <select
+                value={listActiveInput ? 'active' : 'inactive'}
+                onChange={e => setListActiveInput(e.target.value === 'active')}
+                style={{
+                  width: '100%',
+                  padding: '10px 12px',
+                  borderRadius: '8px',
+                  border: '1px solid var(--border-color)',
+                  backgroundColor: 'var(--bg-primary)',
+                  color: 'var(--text-primary)',
+                  outline: 'none'
+                }}
+              >
+                <option value="active">Activa</option>
+                <option value="inactive">Inactiva</option>
+              </select>
             </div>
           </div>
         </Card>
@@ -344,7 +428,7 @@ export const Precios = () => {
                         value={item.marginStr} 
                         onChange={e => updateItemMargin(item.id, e.target.value)} 
                         className="form-input"
-                        style={{ width: '80px', margin: '0 0 0 auto', textAlign: 'right', padding: '6px 8px' }} 
+                        style={{ width: '80px', margin: '0 0 0 auto', textAlign: 'right', padding: '6px 8px', backgroundColor: 'var(--bg-primary)', color: 'var(--text-primary)', border: '1px solid var(--border-color)', borderRadius: '8px' }} 
                       />
                     </td>
                     <td style={{ padding: '16px 20px', textAlign: 'right', fontWeight: 700, fontSize: '1.05rem', color: item.active ? 'var(--primary-color)' : 'var(--text-secondary)' }}>
@@ -364,13 +448,31 @@ export const Precios = () => {
     <>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '24px' }}>
         <PageHeader title="Listas de Precios" description="Administración y exportación de listas de precios comerciales por segmento" />
+        <div style={{ display: 'flex', gap: '12px' }}>
+          {priceLists.length === 0 && !loadingLists && (
+            <button onClick={seedPriceLists} className="btn btn-secondary" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <Tags size={18} /> Inicializar Listas por Defecto
+            </button>
+          )}
+          <button onClick={handleCreateNewList} className="btn btn-primary" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <Plus size={18} /> Nueva Lista
+          </button>
+        </div>
       </div>
 
-      {loadingProducts ? (
+      {loadingLists || loadingProducts ? (
         <LoadingSpinner message="Cargando catálogos de precios..." />
+      ) : priceLists.length === 0 ? (
+        <Card padding="lg">
+          <EmptyState 
+            icon={Tags} 
+            title="No hay listas de precios" 
+            description="Crea una nueva lista de precios o inicializa las listas predeterminadas." 
+          />
+        </Card>
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '24px' }}>
-          {mockLists.map((list) => (
+          {priceLists.map((list) => (
             <Card key={list.id} style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
@@ -382,13 +484,36 @@ export const Precios = () => {
                     <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontWeight: 500 }}>{list.target}</span>
                   </div>
                 </div>
-                <span style={{ 
-                  padding: '4px 12px', borderRadius: '9999px', fontSize: '0.75rem', fontWeight: 600,
-                  backgroundColor: list.status === 'Activa' ? '#dcfce7' : '#f1f5f9',
-                  color: list.status === 'Activa' ? '#166534' : '#475569'
-                }}>
-                  {list.status}
-                </span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span 
+                    onClick={async (e) => {
+                      e.stopPropagation();
+                      await savePriceList({
+                        name: list.name,
+                        target: list.target,
+                        margin: list.margin,
+                        isActive: !list.isActive,
+                        productOverrides: list.productOverrides || {}
+                      }, list.id);
+                    }}
+                    style={{ 
+                      padding: '4px 12px', borderRadius: '9999px', fontSize: '0.75rem', fontWeight: 600,
+                      backgroundColor: list.isActive ? '#dcfce7' : '#fee2e2',
+                      color: list.isActive ? '#166534' : '#991b1b',
+                      cursor: 'pointer'
+                    }}
+                    title="Haga clic para cambiar estado"
+                  >
+                    {list.isActive ? 'Activa' : 'Inactiva'}
+                  </span>
+                  <button 
+                    onClick={() => handleDelete(list.id!)}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#ef4444', padding: '4px' }}
+                    title="Eliminar Lista"
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                </div>
               </div>
               
               <div style={{ display: 'flex', justifyContent: 'space-between', padding: '16px 0', borderTop: '1px solid var(--border-color)', borderBottom: '1px solid var(--border-color)', marginBottom: '20px' }}>
@@ -397,16 +522,16 @@ export const Precios = () => {
                   <span style={{ fontSize: '1.3rem', fontWeight: 800, color: 'var(--primary-color)' }}>{list.margin}%</span>
                 </div>
                 <div style={{ textAlign: 'right' }}>
-                  <span style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-secondary)', fontWeight: 600 }}>SEGMENTO</span>
-                  <span style={{ fontSize: '1rem', fontWeight: 600, color: 'var(--text-primary)', marginTop: '4px', display: 'block' }}>{list.items}</span>
+                  <span style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-secondary)', fontWeight: 600 }}>SOBRE COSTOS</span>
+                  <span style={{ fontSize: '1rem', fontWeight: 600, color: 'var(--text-primary)', marginTop: '4px', display: 'block' }}>Productos Activos</span>
                 </div>
               </div>
 
-              {/* Action Buttons for premium SaaS downloads */}
+              {/* Action Buttons */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: 'auto' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
                   <button 
-                    onClick={() => exportPDF(list.name, list.margin)}
+                    onClick={() => exportPDF(list.name, list.margin, list.productOverrides)}
                     className="btn btn-secondary" 
                     style={{ padding: '8px', fontSize: '0.8rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
                     title="Descargar Catálogo PDF comercial"
@@ -414,7 +539,7 @@ export const Precios = () => {
                     <FileText size={16} /> PDF
                   </button>
                   <button 
-                    onClick={() => exportExcel(list.name, list.margin)}
+                    onClick={() => exportExcel(list.name, list.margin, list.productOverrides)}
                     className="btn btn-secondary" 
                     style={{ padding: '8px', fontSize: '0.8rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
                     title="Descargar Planilla Excel"

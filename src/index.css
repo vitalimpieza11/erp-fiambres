@@ -622,3 +622,137 @@ a {
   }
 }
 
+/* Mobile responsive navigation & UI overrides */
+.mobile-bottom-nav {
+  display: none;
+}
+
+.mobile-close-sidebar {
+  display: none;
+}
+
+@media (max-width: 1024px) {
+  .mobile-close-sidebar {
+    display: flex !important;
+  }
+  .sidebar {
+    transform: translateX(-100%);
+    box-shadow: none;
+  }
+  .sidebar.open {
+    transform: translateX(0);
+    box-shadow: var(--shadow-lg);
+  }
+}
+
+@media (max-width: 768px) {
+  .mobile-bottom-nav {
+    display: flex !important;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 65px;
+    background-color: var(--bg-secondary);
+    border-top: 1px solid var(--border-color);
+    box-shadow: 0 -4px 12px rgba(0, 0, 0, 0.08);
+    z-index: 999;
+    justify-content: space-around;
+    align-items: center;
+    padding: 6px 0;
+  }
+
+  .mobile-nav-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-secondary);
+    font-size: 0.7rem;
+    font-weight: 500;
+    gap: 3px;
+    text-decoration: none;
+    flex: 1;
+    transition: color var(--transition-fast);
+  }
+
+  .mobile-nav-item.active {
+    color: var(--primary-color);
+    font-weight: 600;
+  }
+
+  .page-container {
+    padding: 16px 16px 85px 16px !important;
+  }
+  
+  .top-header {
+    padding: 0 16px !important;
+  }
+  
+  .header-logo-center {
+    display: none !important;
+  }
+  
+  .search-bar, .desktop-user-name {
+    display: none !important;
+  }
+
+  /* Force responsive grid layouts */
+  div[style*="grid-template-columns"],
+  div[style*="gridTemplateColumns"] {
+    grid-template-columns: 1fr !important;
+    gap: 12px !important;
+  }
+
+  /* Force flex containers to column layout where appropriate */
+  div[style*="flex-direction: row"],
+  div[style*="flexDirection: row"],
+  div[style*="flexDirection: 'row'"] {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 12px !important;
+  }
+
+  /* Force tables to be scrollable containers and readable */
+  .table-container {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    margin-bottom: 20px;
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+  }
+
+  /* Make header and buttons fit small viewports */
+  .page-header {
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    gap: 12px !important;
+  }
+
+  .page-header div[style*="display: flex"],
+  .page-header div[style*="display: 'flex'"] {
+    width: 100% !important;
+    flex-direction: column !important;
+    gap: 8px !important;
+  }
+
+  .page-header .btn, 
+  .page-header button {
+    width: 100% !important;
+  }
+
+  /* Cards responsiveness */
+  .card {
+    padding: 16px !important;
+    margin-bottom: 12px !important;
+  }
+
+  /* Modals */
+  div[style*="position: fixed"][style*="background-color: rgba(0,0,0"] > div {
+    width: 95% !important;
+    max-width: 95% !important;
+    margin: 10px auto !important;
+    padding: 16px !important;
+  }
+}
+

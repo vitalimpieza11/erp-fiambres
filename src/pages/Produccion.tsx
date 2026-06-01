@@ -31,17 +31,14 @@ export const Produccion = () => {
   const [sourceProductId, setSourceProductId] = useState('');
   const [targetProductId, setTargetProductId] = useState('');
   const [kgHormaStr, setKgHormaStr] = useState('');
-  const [gramajeStr, setGramajeStr] = useState('200');
+  const [gramajeInputStr, setGramajeInputStr] = useState('200');
+  const [gramajeUnit, setGramajeUnit] = useState<'g' | 'kg'>('g');
   const [mermaRealKgStr, setMermaRealKgStr] = useState('');
   const [precioVentaStr, setPrecioVentaStr] = useState('');
 
   const [sourceStock, setSourceStock] = useState<number>(0);
   const [isSaving, setIsSaving] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-
-  if (globalError) {
-    return <ErrorState message={globalError} />;
-  }
 
   // Fetch stock of source product when selected
   useEffect(() => {
@@ -56,8 +53,13 @@ export const Produccion = () => {
     fetchStock();
   }, [sourceProductId]);
 
+  if (globalError) {
+    return <ErrorState message={globalError} />;
+  }
+
   const kgHorma = parseNumber(kgHormaStr);
-  const gramaje = parseNumber(gramajeStr);
+  const gramajeValue = parseNumber(gramajeInputStr);
+  const gramaje = gramajeUnit === 'g' ? gramajeValue : gramajeValue * 1000;
   const mermaRealKg = parseNumber(mermaRealKgStr);
   const precioVenta = parseNumber(precioVentaStr);
 
@@ -65,16 +67,18 @@ export const Produccion = () => {
   const sourceProduct = products.find(p => p.id === sourceProductId);
   const targetProduct = products.find(p => p.id === targetProductId);
 
-  const costoBaseKg = sourceProduct ? (sourceProduct.costoHorma / (sourceProduct.pesoHorma || 1)) : 0;
+  const costoBaseKg = (sourceProduct && sourceProduct.pesoHorma > 0)
+    ? (sourceProduct.costoHorma / sourceProduct.pesoHorma)
+    : 0;
   const mermaPorcentaje = kgHorma > 0 ? (mermaRealKg / kgHorma) * 100 : 0;
   
   const kgUtiles = Math.max(0, kgHorma - mermaRealKg);
   const paquetes = gramaje > 0 ? Math.floor((kgUtiles * 1000) / gramaje) : 0;
 
   const costoMateriaPrima = kgHorma * costoBaseKg;
-  // Empaque and Labor costs from target product definition or system defaults
-  const costoEmpaque = paquetes * (targetProduct?.costoBolsa || 15);
-  const costoManoObra = paquetes * (targetProduct?.manoObra || 45);
+  // Use configured costs from target product; fallback to 0 to avoid inflating costs with arbitrary defaults
+  const costoEmpaque = paquetes * (targetProduct?.costoBolsa ?? 0) + paquetes * (targetProduct?.costoEtiqueta ?? 0);
+  const costoManoObra = paquetes * (targetProduct?.manoObra ?? 0);
   const costoTotalLote = costoMateriaPrima + costoEmpaque + costoManoObra;
 
   const costoXPaquete = paquetes > 0 ? costoTotalLote / paquetes : 0;
@@ -89,8 +93,12 @@ export const Produccion = () => {
       setErrorMessage("Debe seleccionar el producto origen (horma) y el producto destino (paquetes feteados).");
       return;
     }
-    if (kgHorma <= 0) {
-      setErrorMessage("Debe ingresar la cantidad de horma a utilizar.");
+    if (kgHorma <= 0 || isNaN(kgHorma)) {
+      setErrorMessage("Debe ingresar una cantidad de horma válida y mayor a 0.");
+      return;
+    }
+    if (gramaje <= 0 || isNaN(gramaje)) {
+      setErrorMessage("Debe ingresar un gramaje o peso por paquete válido y mayor a 0.");
       return;
     }
     if (sourceStock < kgHorma) {
@@ -245,13 +253,47 @@ export const Produccion = () => {
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '24px' }}>
                 <Input label="Kg de Horma a Utilizar" placeholder="Ej: 5.2" type="number" icon={<Scale size={16} />} value={kgHormaStr} onChange={e => setKgHormaStr(e.target.value)} />
-                <Select label="Gramaje por Paquete" value={gramajeStr} onChange={e => setGramajeStr(e.target.value)} options={[
-                  { value: '100', label: '100g' },
-                  { value: '150', label: '150g' },
-                  { value: '200', label: '200g' },
-                  { value: '250', label: '250g' },
-                  { value: '500', label: '500g' }
-                ]} />
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <label style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)' }}>Gramaje / Peso por Paquete</label>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <div style={{ flex: 1 }}>
+                      <input 
+                        type="number"
+                        step="any"
+                        value={gramajeInputStr}
+                        onChange={e => setGramajeInputStr(e.target.value)}
+                        placeholder={gramajeUnit === 'g' ? 'Ej: 200' : 'Ej: 0.2'}
+                        style={{
+                          width: '100%',
+                          padding: '10px 12px',
+                          borderRadius: '8px',
+                          border: '1px solid var(--border-color)',
+                          backgroundColor: 'var(--bg-primary)',
+                          color: 'var(--text-primary)',
+                          outline: 'none',
+                          fontSize: '1rem'
+                        }}
+                      />
+                    </div>
+                    <select
+                      value={gramajeUnit}
+                      onChange={e => setGramajeUnit(e.target.value as 'g' | 'kg')}
+                      style={{
+                        padding: '10px 12px',
+                        borderRadius: '8px',
+                        border: '1px solid var(--border-color)',
+                        backgroundColor: 'var(--bg-primary)',
+                        color: 'var(--text-primary)',
+                        outline: 'none',
+                        width: '80px',
+                        fontSize: '1rem'
+                      }}
+                    >
+                      <option value="g">g</option>
+                      <option value="kg">kg</option>
+                    </select>
+                  </div>
+                </div>
                 <Input label="Merma Real (kg)" placeholder="Ej: 0.25" type="number" value={mermaRealKgStr} onChange={e => setMermaRealKgStr(e.target.value)} />
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                   <label style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)' }}>Merma (%)</label>
@@ -319,7 +361,7 @@ export const Produccion = () => {
                   <span style={{ fontWeight: 600 }}>{formatCurrency(costoMateriaPrima)}</span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', paddingBottom: '8px', borderBottom: '1px solid var(--border-color)' }}>
-                  <span style={{ color: 'var(--text-secondary)' }}>Empaque ({paquetes} un.)</span>
+                  <span style={{ color: 'var(--text-secondary)' }}>Empaque (Bolsa + Etiqueta, {paquetes} un.)</span>
                   <span style={{ fontWeight: 600 }}>{formatCurrency(costoEmpaque)}</span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', paddingBottom: '8px', borderBottom: '1px solid var(--border-color)' }}>

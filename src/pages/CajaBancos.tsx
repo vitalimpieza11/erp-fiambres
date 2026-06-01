@@ -13,12 +13,6 @@ import { useCashMovements } from '../hooks/useCashMovements';
 
 export const CajaBancos = () => {
   const { movements, loading, error, createMovement, stats } = useCashMovements();
-
-  if (error) {
-    return <ErrorState message={error} />;
-  }
-
-
   const [isCreating, setIsCreating] = useState(false);
   const [tipoMovimiento, setTipoMovimiento] = useState<'in' | 'out'>('in');
 
@@ -33,6 +27,10 @@ export const CajaBancos = () => {
   const [isSaving, setIsSaving] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
+  if (error) {
+    return <ErrorState message={error} />;
+  }
+
   const handleRegisterMovement = async () => {
     const monto = Math.abs(parseFloat(montoStr));
     if (isNaN(monto) || monto <= 0) {
@@ -46,7 +44,7 @@ export const CajaBancos = () => {
     try {
       await createMovement({
         type: tipoMovimiento,
-        amount: tipoMovimiento === 'in' ? monto : -monto,
+        amount: monto,
         method: medioPago,
         description: observaciones || 'Movimiento de Caja',
         category: categoria,
@@ -252,8 +250,8 @@ export const CajaBancos = () => {
               { 
                 header: 'Monto', 
                 accessor: (item) => (
-                  <span style={{ fontWeight: 700, color: item.amount > 0 ? '#16a34a' : '#dc2626' }}>
-                    {formatCurrency(item.amount)}
+                  <span style={{ fontWeight: 700, color: item.type === 'in' ? '#16a34a' : '#dc2626' }}>
+                    {formatCurrency(Math.abs(item.amount))}
                   </span>
                 ),
                 align: 'right'
