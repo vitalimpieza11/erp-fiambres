@@ -7,15 +7,25 @@ import {
   ArrowLeft, Save, Tags, Percent, CheckCircle2, XCircle, FileText, Download, Table as TableIcon, Loader2, Plus, Trash2
 } from 'lucide-react';
 import { formatCurrency, formatNumber, parseNumber } from '../utils/format';
-import { useProducts } from '../hooks/useProducts';
 import { usePriceLists, type PriceList } from '../hooks/usePriceLists';
+import { usePresentaciones } from '../hooks/usePresentaciones';
+import { useMercaderias } from '../hooks/useMercaderias';
+import { useInsumos } from '../hooks/useInsumos';
+import { useRecipes } from '../hooks/useRecipes';
+import { calculatePresentationCost } from '../core/calculations';
+import { Edit } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
 export const Precios = () => {
-  const { products, loading: loadingProducts, error: errorProducts } = useProducts();
+  // Solo Presentaciones son la entidad de venta
   const { priceLists, loading: loadingLists, error: errorLists, savePriceList, deletePriceList, seedPriceLists } = usePriceLists();
   
+  const { presentaciones, savePresentacion, loading: loadingPres, error: errorPres } = usePresentaciones();
+  const { mercaderias, loading: loadingMerc, error: errorMerc } = useMercaderias();
+  const { insumos, loading: loadingIns, error: errorIns } = useInsumos();
+  const { recipes, loading: loadingRec, error: errorRec } = useRecipes();
+
   const [viewMode, setViewMode] = useState<'list' | 'edit'>('list');
   const [selectedList, setSelectedList] = useState<PriceList | null>(null);
   
@@ -26,43 +36,40 @@ export const Precios = () => {
   const [generalMarginStr, setGeneralMarginStr] = useState('30');
   const [priceItems, setPriceItems] = useState<any[]>([]);
   const [isSaving, setIsSaving] = useState(false);
+  const [editingPresentation, setEditingPresentation] = useState<any | null>(null);
 
-  const globalError = errorProducts || errorLists;
+  const globalError = errorLists || errorPres || errorMerc || errorIns || errorRec;
 
-  // When selected list or products change, set up the price items
+  // When selected list or presentaciones change, set up the price items from presentaciones only
   useEffect(() => {
-    if (selectedList && products.length > 0) {
+    if (selectedList && presentaciones.length > 0) {
       setListNameInput(selectedList.name);
       setListTargetInput(selectedList.target);
       setListActiveInput(selectedList.isActive);
       setGeneralMarginStr(selectedList.margin.toString());
       
-      const items = products.map(p => {
-        // Calculate standard packet cost
-        const kgNetos = p.pesoHorma * (1 - (p.mermaEstimada || 0) / 100);
-        const paqEst = p.gramajeVenta > 0 ? Math.floor((kgNetos * 1000) / p.gramajeVenta) : 0;
-        const cMat = paqEst > 0 ? p.costoHorma / paqEst : 0;
-        const cTot = paqEst > 0 ? cMat + p.costoBolsa + p.costoEtiqueta + p.manoObra : 0;
+      const items = presentaciones
+        .filter(p => p.isActive)
+        .map(p => {
+          const cTot = calculatePresentationCost(p, mercaderias, insumos, recipes);
 
-        const overrideMargin = selectedList.productOverrides?.[p.id!]?.margin ?? selectedList.margin;
+          const overrideMargin = selectedList.productOverrides?.[p.id!]?.margin ?? selectedList.margin;
+          const isExcluded = selectedList.productOverrides?.[p.id!]?.excluded ?? false;
 
-        return {
-          id: p.id!,
-          name: p.name,
-          brand: p.brand || 'Al Vacío',
-          gramajeVenta: p.gramajeVenta,
-          active: p.isActive,
-          cost: cTot,
-          marginStr: overrideMargin.toString()
-        };
-      });
+          return {
+            id: p.id!,
+            name: p.name,
+            brand: p.customerName || 'Al Vacío',
+            gramajeVenta: p.pesoObjetivoGramos,
+            active: p.isActive,
+            excluded: isExcluded,
+            cost: cTot,
+            marginStr: overrideMargin.toString()
+          };
+        });
       setPriceItems(items);
     }
-  }, [selectedList, products]);
-
-  if (globalError) {
-    return <ErrorState message={globalError} />;
-  }
+  }, [selectedList, presentaciones, mercaderias, insumos, recipes]);
 
   const handleCreateNewList = () => {
     setSelectedList({
@@ -84,21 +91,28 @@ export const Precios = () => {
   // When general margin changes, update all active products
   const handleGeneralMarginChange = (val: string) => {
     setGeneralMarginStr(val);
-    setPriceItems(priceItems.map(item => item.active ? { ...item, marginStr: val } : item));
+    setPriceItems(priceItems.map(item => !item.excluded ? { ...item, marginStr: val } : item));
   };
 
   const updateItemMargin = (id: string, val: string) => {
     setPriceItems(priceItems.map(item => item.id === id ? { ...item, marginStr: val } : item));
   };
 
+  const toggleItemExclusion = (id: string) => {
+    setPriceItems(priceItems.map(item => item.id === id ? { ...item, excluded: !item.excluded } : item));
+  };
+
   const handleSavePrices = async () => {
     if (!selectedList) return;
     setIsSaving(true);
     try {
-      const overrides: Record<string, { margin: number }> = {};
+      const overrides: Record<string, { margin: number; excluded?: boolean }> = {};
       priceItems.forEach(item => {
-        if (item.active && item.marginStr !== generalMarginStr) {
-          overrides[item.id] = { margin: parseNumber(item.marginStr) };
+        if (item.marginStr !== generalMarginStr || item.excluded) {
+          overrides[item.id] = {
+            margin: parseNumber(item.marginStr),
+            ...(item.excluded ? { excluded: true } : {})
+          };
         }
       });
 
@@ -132,43 +146,38 @@ export const Precios = () => {
   };
 
   const getCurrentOverrides = () => {
-    const overrides: Record<string, { margin: number }> = {};
+    const overrides: Record<string, { margin: number; excluded?: boolean }> = {};
     priceItems.forEach(item => {
-      if (item.active && item.marginStr !== generalMarginStr) {
-        overrides[item.id] = { margin: parseNumber(item.marginStr) };
+      if (item.marginStr !== generalMarginStr || item.excluded) {
+        overrides[item.id] = {
+          margin: parseNumber(item.marginStr),
+          ...(item.excluded ? { excluded: true } : {})
+        };
       }
     });
     return overrides;
   };
 
-  // Helper: Get computed product prices for a list
+  // Helper: Get computed presentation prices for a list
   const getListProducts = (margin: number, overrides?: any) => {
-    return products.map(p => {
-      const pPeso = parseNumber(p.pesoHorma);
-      const pMerma = parseNumber(p.mermaEstimada);
-      const pGramaje = parseNumber(p.gramajeVenta);
-      const pCostoHorma = parseNumber(p.costoHorma);
-      const pCostoBolsa = parseNumber(p.costoBolsa);
-      const pCostoEtiqueta = parseNumber(p.costoEtiqueta);
-      const pManoObra = parseNumber(p.manoObra);
-
-      const kgNetos = pPeso * (1 - (pMerma || 0) / 100);
-      const paqEst = pGramaje > 0 ? Math.floor((kgNetos * 1000) / pGramaje) : 0;
-      const cMat = paqEst > 0 ? pCostoHorma / paqEst : 0;
-      const cTot = paqEst > 0 ? cMat + pCostoBolsa + pCostoEtiqueta + pManoObra : 0;
-      
-      const itemMargin = overrides?.[p.id!]?.margin ?? margin;
-      
-      return {
-        name: p.name || 'Sin nombre',
-        brand: p.brand || 'Al Vacío',
-        gramajeVenta: pGramaje,
-        cost: cTot,
-        margin: itemMargin,
-        price: cTot * (1 + itemMargin / 100),
-        isActive: p.isActive
-      };
-    }).filter(p => p.isActive);
+    return presentaciones
+      .filter(p => p.isActive)
+      .map(p => {
+        const cTot = calculatePresentationCost(p, mercaderias, insumos, recipes);
+        
+        const itemMargin = overrides?.[p.id!]?.margin ?? margin;
+        const isExcluded = overrides?.[p.id!]?.excluded ?? false;
+        
+        return {
+          name: p.name || 'Sin nombre',
+          brand: p.customerName || 'Al Vacío',
+          gramajeVenta: p.pesoObjetivoGramos,
+          cost: cTot,
+          margin: itemMargin,
+          price: cTot * (1 + itemMargin / 100),
+          isActive: p.isActive && !isExcluded
+        };
+      }).filter(p => p.isActive);
   };
 
   // Export: PDF
@@ -392,22 +401,32 @@ export const Precios = () => {
             <thead>
               <tr style={{ backgroundColor: 'var(--bg-primary)', borderBottom: '1px solid var(--border-color)' }}>
                 <th style={{ padding: '12px 20px', textAlign: 'left', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Producto</th>
-                <th style={{ padding: '12px 20px', textAlign: 'left', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Estado</th>
+                <th style={{ padding: '12px 20px', textAlign: 'center', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Incluido en Lista</th>
+                <th style={{ padding: '12px 20px', textAlign: 'left', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Estado Global</th>
                 <th style={{ padding: '12px 20px', textAlign: 'right', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Costo Base</th>
                 <th style={{ padding: '12px 20px', textAlign: 'right', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Ajuste %</th>
                 <th style={{ padding: '12px 20px', textAlign: 'right', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Precio Final (Auto)</th>
+                <th style={{ padding: '12px 20px', textAlign: 'center', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Acciones</th>
               </tr>
             </thead>
             <tbody>
               {priceItems.map((item) => {
                 const margin = parseNumber(item.marginStr);
-                const finalPrice = item.active ? item.cost * (1 + margin / 100) : 0;
+                const finalPrice = item.active && !item.excluded ? item.cost * (1 + margin / 100) : 0;
                 
                 return (
-                  <tr key={item.id} style={{ borderBottom: '1px solid var(--border-color)', backgroundColor: item.active ? '#fff' : 'var(--bg-primary)' }}>
+                  <tr key={item.id} style={{ borderBottom: '1px solid var(--border-color)', backgroundColor: item.active && !item.excluded ? '#fff' : 'var(--bg-primary)' }}>
                     <td style={{ padding: '16px 20px' }}>
-                      <div style={{ fontWeight: 600, color: item.active ? 'var(--text-primary)' : 'var(--text-secondary)' }}>{item.name}</div>
+                      <div style={{ fontWeight: 600, color: item.active && !item.excluded ? 'var(--text-primary)' : 'var(--text-secondary)' }}>{item.name}</div>
                       <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{item.brand}</div>
+                    </td>
+                    <td style={{ padding: '16px 20px', textAlign: 'center' }}>
+                      <input 
+                        type="checkbox" 
+                        checked={!item.excluded} 
+                        onChange={() => toggleItemExclusion(item.id)}
+                        style={{ transform: 'scale(1.2)', cursor: 'pointer' }}
+                      />
                     </td>
                     <td style={{ padding: '16px 20px' }}>
                       {item.active ? (
@@ -424,15 +443,32 @@ export const Precios = () => {
                     <td style={{ padding: '16px 20px' }}>
                       <input 
                         type="number" 
-                        disabled={!item.active} 
+                        disabled={item.excluded} 
                         value={item.marginStr} 
                         onChange={e => updateItemMargin(item.id, e.target.value)} 
                         className="form-input"
                         style={{ width: '80px', margin: '0 0 0 auto', textAlign: 'right', padding: '6px 8px', backgroundColor: 'var(--bg-primary)', color: 'var(--text-primary)', border: '1px solid var(--border-color)', borderRadius: '8px' }} 
                       />
                     </td>
-                    <td style={{ padding: '16px 20px', textAlign: 'right', fontWeight: 700, fontSize: '1.05rem', color: item.active ? 'var(--primary-color)' : 'var(--text-secondary)' }}>
-                      {item.active ? formatCurrency(finalPrice) : '-'}
+                    <td style={{ padding: '16px 20px', textAlign: 'right', fontWeight: 700, fontSize: '1.05rem', color: item.active && !item.excluded ? 'var(--primary-color)' : 'var(--text-secondary)' }}>
+                      {item.active && !item.excluded ? formatCurrency(finalPrice) : '-'}
+                    </td>
+                    <td style={{ padding: '16px 20px', textAlign: 'center' }}>
+                      <button 
+                        onClick={() => {
+                          const pres = presentaciones.find(p => p.id === item.id);
+                          if (pres) {
+                            setEditingPresentation(pres);
+                          } else {
+                            alert("No se encontró la presentación para editar.");
+                          }
+                        }}
+                        className="btn btn-icon btn-sm"
+                        style={{ padding: '6px', border: '1px solid var(--border-color)', borderRadius: '6px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                        title="Editar presentación en base de datos"
+                      >
+                        <Edit size={14} /> Editar
+                      </button>
                     </td>
                   </tr>
                 );
@@ -460,7 +496,7 @@ export const Precios = () => {
         </div>
       </div>
 
-      {loadingLists || loadingProducts ? (
+      {loadingLists || loadingPres ? (
         <LoadingSpinner message="Cargando catálogos de precios..." />
       ) : priceLists.length === 0 ? (
         <Card padding="lg">
@@ -561,6 +597,148 @@ export const Precios = () => {
               </div>
             </Card>
           ))}
+        </div>
+      )}
+
+      {editingPresentation && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.6)',
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'center',
+          zIndex: 9999,
+          backdropFilter: 'blur(4px)'
+        }}>
+          <div style={{
+            backgroundColor: 'var(--bg-secondary)',
+            borderRadius: '12px',
+            border: '1px solid var(--border-color)',
+            width: '90%',
+            maxWidth: '500px',
+            padding: '24px',
+            boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.3), 0 10px 10px -5px rgba(0, 0, 0, 0.1)'
+          }}>
+            <h3 style={{ fontSize: '1.25rem', fontWeight: 700, marginBottom: '16px', color: 'var(--text-primary)' }}>
+              Editar Presentación: {editingPresentation.name}
+            </h3>
+            
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '4px' }}>
+                  Nombre de la Presentación
+                </label>
+                <input 
+                  type="text" 
+                  value={editingPresentation.name} 
+                  onChange={e => setEditingPresentation({ ...editingPresentation, name: e.target.value })}
+                  style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-primary)', color: 'var(--text-primary)' }}
+                />
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '4px' }}>
+                    Peso Objetivo (g)
+                  </label>
+                  <input 
+                    type="number" 
+                    value={editingPresentation.pesoObjetivoGramos} 
+                    onChange={e => setEditingPresentation({ ...editingPresentation, pesoObjetivoGramos: parseInt(e.target.value) || 0 })}
+                    style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-primary)', color: 'var(--text-primary)' }}
+                  />
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '4px' }}>
+                    Cant. Fetas Estimada
+                  </label>
+                  <input 
+                    type="number" 
+                    value={editingPresentation.cantidadFetasEstimada} 
+                    onChange={e => setEditingPresentation({ ...editingPresentation, cantidadFetasEstimada: parseInt(e.target.value) || 0 })}
+                    style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-primary)', color: 'var(--text-primary)' }}
+                  />
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '4px' }}>
+                    Mano de Obra ($)
+                  </label>
+                  <input 
+                    type="number" 
+                    value={editingPresentation.manoObra || 0} 
+                    onChange={e => setEditingPresentation({ ...editingPresentation, manoObra: parseFloat(e.target.value) || 0 })}
+                    style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-primary)', color: 'var(--text-primary)' }}
+                  />
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '4px' }}>
+                    Precio Venta por Kg ($)
+                  </label>
+                  <input 
+                    type="number" 
+                    value={editingPresentation.precioVentaKg} 
+                    onChange={e => setEditingPresentation({ ...editingPresentation, precioVentaKg: parseFloat(e.target.value) || 0 })}
+                    style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-primary)', color: 'var(--text-primary)' }}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '4px' }}>
+                  Estado Global (Activo en Catálogo)
+                </label>
+                <select
+                  value={editingPresentation.isActive ? 'active' : 'inactive'}
+                  onChange={e => setEditingPresentation({ ...editingPresentation, isActive: e.target.value === 'active' })}
+                  style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-primary)', color: 'var(--text-primary)' }}
+                >
+                  <option value="active">Activo</option>
+                  <option value="inactive">Inactivo</option>
+                </select>
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '4px' }}>
+                  Observaciones
+                </label>
+                <textarea 
+                  value={editingPresentation.observations || ''} 
+                  onChange={e => setEditingPresentation({ ...editingPresentation, observations: e.target.value })}
+                  style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-primary)', color: 'var(--text-primary)', minHeight: '60px' }}
+                />
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '24px' }}>
+              <button 
+                onClick={() => setEditingPresentation(null)} 
+                className="btn btn-secondary"
+              >
+                Cancelar
+              </button>
+              <button 
+                onClick={async () => {
+                  try {
+                    const { id, createdAt, updatedAt, ...rest } = editingPresentation;
+                    await savePresentacion(rest, id);
+                    setEditingPresentation(null);
+                  } catch (e: any) {
+                    alert('Error al guardar presentación: ' + e.message);
+                  }
+                }} 
+                className="btn btn-primary"
+              >
+                Guardar Cambios
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </>

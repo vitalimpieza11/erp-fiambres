@@ -12,6 +12,7 @@ export interface PriceList {
   productOverrides?: {
     [productId: string]: {
       margin: number;
+      excluded?: boolean;
     };
   };
   createdAt: number;

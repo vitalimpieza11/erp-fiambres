@@ -4,11 +4,13 @@ import { LoadingSpinner, ErrorState, SkeletonLoader } from '../components/AsyncS
 import { Card } from '../components/ui/Card';
 import { Table } from '../components/ui/Table';
 import { Input, Select, Toggle } from '../components/ui/Forms';
-import { Search, Plus, Filter, ArrowLeft, Save, Calendar, Truck, Layers, FileText, CheckCircle, AlertCircle, Trash2, Loader2 } from 'lucide-react';
+import { Search, Plus, Filter, ArrowLeft, Save, Calendar, Truck, Layers, FileText, CheckCircle, AlertCircle, Trash2, Loader2, Edit2 } from 'lucide-react';
 import { formatCurrency, formatNumber, parseNumber } from '../utils/format';
 import { usePurchases } from '../hooks/usePurchases';
-import { useProducts } from '../hooks/useProducts';
+import { useMercaderias } from '../hooks/useMercaderias';
+import { useInsumos } from '../hooks/useInsumos';
 import { useSuppliers } from '../hooks/useSuppliers';
+import { useDateFilter } from '../contexts/DateFilterContext';
 
 
 interface PurchaseFormItem {
@@ -17,17 +19,26 @@ interface PurchaseFormItem {
   productName: string;
   quantityStr: string;
   costStr: string;
+  itemType?: string;
 }
 
 export const Compras = () => {
-  const { purchases, loading: loadingPurchases, error: errorPurchases, createPurchase } = usePurchases();
-  const { products, loading: loadingProducts, error: errorProducts } = useProducts();
+  const { purchases, loading: loadingPurchases, error: errorPurchases, createPurchase, updatePurchase, deletePurchase } = usePurchases();
+  const { mercaderias, loading: loadingMerc, error: errorMerc } = useMercaderias();
+  const { insumos, loading: loadingIns, error: errorIns } = useInsumos();
+  const buyableItems = [
+    ...mercaderias.filter(m => m.isActive).map(m => ({ id: m.id, name: m.name, type: 'mercaderia' })),
+    ...insumos.filter(i => i.isActive).map(i => ({ id: i.id, name: i.name, type: 'insumo' }))
+  ];
   const { suppliers, loading: loadingSuppliers, error: errorSuppliers } = useSuppliers();
+  const { filterDate } = useDateFilter();
 
-  const globalError = errorPurchases || errorProducts || errorSuppliers;
+  const globalError = errorPurchases || errorMerc || errorIns || errorSuppliers;
+  const filteredPurchases = purchases.filter((p: any) => filterDate(p.date));
 
 
   const [isCreating, setIsCreating] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [impactStock, setImpactStock] = useState(true);
 
   // Form States
@@ -39,7 +50,7 @@ export const Compras = () => {
   const [observaciones, setObservaciones] = useState('');
   
   const [items, setItems] = useState<PurchaseFormItem[]>([
-    { id: 1, productId: '', productName: '', quantityStr: '', costStr: '' }
+    { id: 1, productId: '', productName: '', quantityStr: '', costStr: '', itemType: '' }
   ]);
 
   const [isSaving, setIsSaving] = useState(false);
@@ -51,11 +62,12 @@ export const Compras = () => {
 
   const updateItem = (id: number, field: keyof PurchaseFormItem, value: string) => {
     if (field === 'productId') {
-      const prod = products.find(p => p.id === value);
+      const prod = buyableItems.find(p => p.id === value);
       setItems(items.map(item => item.id === id ? {
         ...item,
         productId: value,
-        productName: prod?.name || ''
+        productName: prod?.name || '',
+        itemType: prod?.type || ''
       } : item));
     } else {
       setItems(items.map(item => item.id === id ? { ...item, [field]: value } : item));
@@ -63,7 +75,7 @@ export const Compras = () => {
   };
 
   const addItem = () => {
-    setItems([...items, { id: Date.now(), productId: '', productName: '', quantityStr: '', costStr: '' }]);
+    setItems([...items, { id: Date.now(), productId: '', productName: '', quantityStr: '', costStr: '', itemType: '' }]);
   };
 
   const removeItem = (id: number) => {
@@ -104,7 +116,8 @@ export const Compras = () => {
           productId: item.productId,
           productName: item.productName,
           quantity: parseNumber(item.quantityStr),
-          cost: parseNumber(item.costStr) / (parseNumber(item.quantityStr) || 1) // Cost per Unit/Kg
+          cost: parseNumber(item.costStr) / (parseNumber(item.quantityStr) || 1), // Cost per Unit/Kg
+          itemType: item.itemType
         })),
         total: totals.costo,
         status: 'completed' as const, // Automatically completes and impacts stock
@@ -112,10 +125,15 @@ export const Compras = () => {
         date: new Date(fecha).getTime()
       };
 
-      await createPurchase(purchaseData);
+      if (editingId) {
+        await updatePurchase(editingId, purchaseData);
+      } else {
+        await createPurchase(purchaseData);
+      }
       
       setIsCreating(false);
-      setItems([{ id: Date.now(), productId: '', productName: '', quantityStr: '', costStr: '' }]);
+      setEditingId(null);
+      setItems([{ id: Date.now(), productId: '', productName: '', quantityStr: '', costStr: '', itemType: '' }]);
       setSupplierId('');
       setInvoiceNumber('');
     } catch (e: any) {
@@ -123,6 +141,35 @@ export const Compras = () => {
       setErrorMessage(e.message || "Error al registrar la compra.");
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const handleEditPurchase = (item: any) => {
+    setEditingId(item.id);
+    setSupplierId(item.supplierId);
+    setInvoiceNumber(item.invoiceNumber || '');
+    setFecha(new Date(item.date).toISOString().split('T')[0]);
+    
+    const loadedItems = item.items.map((i: any, idx: number) => ({
+      id: Date.now() + idx,
+      productId: i.productId,
+      productName: i.productName,
+      quantityStr: i.quantity.toString(),
+      costStr: (i.cost * i.quantity).toString(),
+      itemType: i.itemType || ''
+    }));
+    setItems(loadedItems);
+    setErrorMessage(null);
+    setIsCreating(true);
+  };
+
+  const handleDeletePurchase = async (item: any) => {
+    if (window.confirm('¿Estás seguro de eliminar esta compra?')) {
+      try {
+        await deletePurchase(item.id);
+      } catch (e: any) {
+        alert(e.message || "Error al eliminar la compra.");
+      }
     }
   };
 
@@ -138,13 +185,13 @@ export const Compras = () => {
               <ArrowLeft size={20} color="var(--text-secondary)" />
             </button>
             <div>
-              <h1 style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--text-primary)' }}>Nueva Compra</h1>
+              <h1 style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--text-primary)' }}>{editingId ? 'Editar Compra' : 'Nueva Compra'}</h1>
               <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>Ingreso de hormas e insumos en tiempo real</p>
             </div>
           </div>
           <button onClick={handleRegisterPurchase} disabled={isSaving} className="btn btn-primary">
             {isSaving ? <Loader2 className="animate-spin" size={18} /> : <Save size={18} />}
-            Registrar Compra
+            {editingId ? 'Guardar Cambios' : 'Registrar Compra'}
           </button>
         </div>
 
@@ -217,7 +264,7 @@ export const Compras = () => {
                             onChange={e => updateItem(item.id, 'productId', e.target.value)}
                             options={[
                               { value: '', label: 'Seleccionar Producto...' },
-                              ...products.map(p => ({ value: p.id!, label: p.name }))
+                              ...buyableItems.map(p => ({ value: p.id!, label: `${p.name} (${p.type === 'mercaderia' ? 'MP' : 'Ins'})` }))
                             ]} 
                           />
                         </td>
@@ -296,7 +343,11 @@ export const Compras = () => {
         <button 
           onClick={() => {
             setIsCreating(true);
-            setItems([{ id: Date.now(), productId: '', productName: '', quantityStr: '', costStr: '' }]);
+            setEditingId(null);
+            setItems([{ id: Date.now(), productId: '', productName: '', quantityStr: '', costStr: '', itemType: '' }]);
+            setSupplierId('');
+            setInvoiceNumber('');
+            setFecha(new Date().toISOString().split('T')[0]);
             setErrorMessage(null);
           }}
           className="btn btn-primary"
@@ -320,7 +371,7 @@ export const Compras = () => {
 
         {loadingPurchases ? (
           <SkeletonLoader rows={4} height="52px" />
-        ) : purchases.length === 0 ? (
+        ) : filteredPurchases.length === 0 ? (
           <div style={{ padding: '40px' }}>
             <EmptyState 
               icon={FileText} 
@@ -330,7 +381,7 @@ export const Compras = () => {
           </div>
         ) : (
           <Table 
-            data={purchases}
+            data={filteredPurchases}
             keyExtractor={(item) => item.id!}
             columns={[
               { header: 'Fecha', accessor: (item) => new Date(item.date).toLocaleDateString() },
@@ -357,6 +408,20 @@ export const Compras = () => {
                 ),
                 align: 'center'
               },
+              {
+                header: 'Acciones',
+                accessor: (item) => (
+                  <div style={{ display: 'flex', gap: '8px', justifyContent: 'center' }}>
+                    <button onClick={(e) => { e.stopPropagation(); handleEditPurchase(item); }} className="btn btn-icon" title="Editar">
+                      <Edit2 size={16} color="#2563eb" />
+                    </button>
+                    <button onClick={(e) => { e.stopPropagation(); handleDeletePurchase(item); }} className="btn btn-icon" title="Eliminar">
+                      <Trash2 size={16} color="#dc2626" />
+                    </button>
+                  </div>
+                ),
+                align: 'center'
+              }
             ]}
           />
         )}

@@ -1,57 +1,117 @@
 import React, { useState } from 'react';
 import { PageHeader, EmptyState } from '../components/EmptyState';
-import { LoadingSpinner, ErrorState, SkeletonLoader } from '../components/AsyncState';
+import { ErrorState, SkeletonLoader } from '../components/AsyncState';
 import { Card } from '../components/ui/Card';
 import { Table } from '../components/ui/Table';
-import { Search, Filter, Package, AlertTriangle, CalendarClock, History, ArrowUpRight, ArrowDownRight, Loader2 } from 'lucide-react';
-import { useProducts } from '../hooks/useProducts';
+import { Search, Package, AlertTriangle, CalendarClock, History, ArrowUpRight, ArrowDownRight, ShoppingBag } from 'lucide-react';
+import { useMercaderias } from '../hooks/useMercaderias';
+import { useInsumos } from '../hooks/useInsumos';
+import { usePresentaciones } from '../hooks/usePresentaciones';
 import { useStockMovements } from '../hooks/useStockMovements';
-import { formatNumber } from '../utils/format';
+import { useDateFilter } from '../contexts/DateFilterContext';
 
 export const Stock = () => {
-  const { products, loading: loadingProducts, error: errorProducts } = useProducts();
+  const { mercaderias, loading: loadingMerc, error: errorMerc } = useMercaderias();
+  const { insumos, loading: loadingIns, error: errorIns } = useInsumos();
+  const { presentaciones, loading: loadingPres, error: errorPres } = usePresentaciones();
   const { movements, loading: loadingMovements, error: errorMovements, productStocks } = useStockMovements();
   const [viewHistory, setViewHistory] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [activeTab, setActiveTab] = useState<'mercaderias' | 'insumos' | 'presentaciones'>('mercaderias');
+  const { filterDate } = useDateFilter();
 
-  const globalError = errorProducts || errorMovements;
+  const globalError = errorMerc || errorIns || errorMovements || errorPres;
+  const filteredMovements = movements.filter((m: any) => filterDate(m.date));
 
   if (globalError) {
     return <ErrorState message={globalError} />;
   }
 
-  // Combine products with live calculated stock levels
-  const activeProducts = products.filter(p => p.isActive);
-  const stockTableData = activeProducts.map(p => {
-    const qty = productStocks[p.id!] || 0;
-    const min = p.pesoHorma || 10; // Fallback min stock weight
-    
-    let status: 'Óptimo' | 'Bajo' | 'Crítico' = 'Óptimo';
-    if (qty <= 0) status = 'Crítico';
-    else if (qty < min) status = 'Bajo';
+  // ── Mercaderías (raw materials) ──────────────────────────────
+  const mercItems = mercaderias
+    .filter(m => m.isActive)
+    .map(m => {
+      const inMovs = movements.filter(mov => mov.productId === m.id && mov.type.toLowerCase() === 'in');
+      const outMovs = movements.filter(mov => mov.productId === m.id && mov.type.toLowerCase() === 'out');
+      const totalIN = inMovs.reduce((sum, mov) => sum + Math.abs(mov.quantity), 0);
+      const totalOUT = outMovs.reduce((sum, mov) => sum + Math.abs(mov.quantity), 0);
+      const qty = ((m as any).initialStock ?? 0) + totalIN - totalOUT;
 
-    return {
-      id: p.id!,
-      code: p.id!.slice(-6).toUpperCase(),
-      name: p.name,
-      brand: p.brand,
-      available: `${qty.toFixed(2)} kg/un`,
-      committed: '0.0 kg', // Committed placeholder if not supported yet
-      min: `${min.toFixed(2)} kg/un`,
-      status,
-      rawQty: qty,
-      rawMin: min
-    };
-  });
+      console.log(`[Mercadería] ${m.name}: IN=${totalIN}, OUT=${totalOUT}, Stock=${qty}`);
 
-  // Calculate aggregates
-  const totalStockKg = Object.values(productStocks).reduce((acc, val) => acc + Math.max(0, val), 0);
-  const criticalProductsCount = stockTableData.filter(item => item.status === 'Crítico' || item.status === 'Bajo').length;
+      const min = 10;
+      let status: 'Óptimo' | 'Bajo' | 'Crítico' = 'Óptimo';
+      if (qty <= 0) status = 'Crítico';
+      else if (qty < min) status = 'Bajo';
+      const type = (m as any).type || (m as any).tipo || (m as any).productType || 'Mercadería';
+      return { id: m.id!, code: m.id!.slice(-6).toUpperCase(), name: m.name, type, available: `${qty.toFixed(2)} Kg`, min: `${min.toFixed(2)} Kg`, status, rawQty: qty, rawMin: min };
+    });
+
+  // ── Insumos (supplies) ───────────────────────────────────────
+  const insumoItems = insumos
+    .filter(i => i.isActive)
+    .map(i => {
+      const inMovs = movements.filter(mov => mov.productId === i.id && mov.type.toLowerCase() === 'in');
+      const outMovs = movements.filter(mov => mov.productId === i.id && mov.type.toLowerCase() === 'out');
+      const totalIN = inMovs.reduce((sum, mov) => sum + Math.abs(mov.quantity), 0);
+      const totalOUT = outMovs.reduce((sum, mov) => sum + Math.abs(mov.quantity), 0);
+      const qty = ((i as any).initialStock ?? 0) + totalIN - totalOUT;
+
+      console.log(`[Insumo] ${i.name}: IN=${totalIN}, OUT=${totalOUT}, Stock=${qty}`);
+
+      const min = 50;
+      let status: 'Óptimo' | 'Bajo' | 'Crítico' = 'Óptimo';
+      if (qty <= 0) status = 'Crítico';
+      else if (qty < min) status = 'Bajo';
+      const type = (i as any).type || (i as any).tipo || (i as any).productType || 'Insumo';
+      return { id: i.id!, code: i.id!.slice(-6).toUpperCase(), name: i.name, type, available: `${qty.toFixed(0)} u`, min: `${min.toFixed(0)} u`, status, rawQty: qty, rawMin: min };
+    });
+
+  // ── Presentaciones (finished goods) ─────────────────────────
+  // Stock de presentaciones = movimientos positivos (producción entregada) + negativos (ventas)
+  const presItems = presentaciones
+    .filter(p => p.isActive)
+    .map(p => {
+      const inMovs = movements.filter(mov => mov.productId === p.id && mov.type.toLowerCase() === 'in');
+      const outMovs = movements.filter(mov => mov.productId === p.id && mov.type.toLowerCase() === 'out');
+      const totalIN = inMovs.reduce((sum, mov) => sum + Math.abs(mov.quantity), 0);
+      const totalOUT = outMovs.reduce((sum, mov) => sum + Math.abs(mov.quantity), 0);
+      const qty = ((p as any).initialStock ?? 0) + totalIN - totalOUT;
+
+      console.log(`[Presentación] ${p.name}: IN=${totalIN}, OUT=${totalOUT}, Stock=${qty}`);
+
+      const min = 5;
+      let status: 'Óptimo' | 'Bajo' | 'Crítico' = 'Óptimo';
+      if (qty <= 0) status = 'Crítico';
+      else if (qty < min) status = 'Bajo';
+      const type = (p as any).type || (p as any).tipo || (p as any).productType || 'Presentación';
+      return { id: p.id!, code: p.id!.slice(-6).toUpperCase(), name: p.name, type, available: `${Math.round(qty)} u`, min: `${min} u`, status, rawQty: qty, rawMin: min };
+    });
+
+  // Active set by tab
+  const activeItems = activeTab === 'mercaderias' ? mercItems : activeTab === 'insumos' ? insumoItems : presItems;
+  const filteredItems = activeItems.filter(item =>
+    item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    item.code.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
+  // Aggregates
+  const totalMercKg = mercItems.reduce((acc, i) => acc + Math.max(0, i.rawQty), 0);
+  const totalInsUnits = insumoItems.reduce((acc, i) => acc + Math.max(0, i.rawQty), 0);
+  const totalPresUnits = presItems.reduce((acc, i) => acc + Math.max(0, i.rawQty), 0);
+  const criticalCount = [...mercItems, ...insumoItems, ...presItems].filter(i => i.status === 'Crítico' || i.status === 'Bajo').length;
 
   const stockStats = [
-    { title: 'Stock Total (Kg/Un)', value: `${totalStockKg.toFixed(2)}`, icon: Package, trend: 'En tiempo real', isUp: true, color: 'var(--primary-color)', bg: 'var(--primary-light)' },
-    { title: 'Alertas de Stock', value: criticalProductsCount.toString(), icon: AlertTriangle, trend: 'Stock bajo o crítico', isUp: false, alert: criticalProductsCount > 0, color: '#dc2626', bg: '#fee2e2' },
-    { title: 'Movimientos Totales', value: movements.length.toString(), icon: History, trend: 'Eventos registrados', isUp: true, color: '#059669', bg: '#d1fae5' },
-    { title: 'Última Actividad', value: movements.length > 0 ? new Date(movements[0].date).toLocaleDateString() : 'Sin registros', icon: CalendarClock, trend: 'Registro de ledger', isUp: true, color: '#4f46e5', bg: '#e0e7ff' },
+    { title: 'Mercaderías', value: `${totalMercKg.toFixed(1)} Kg`, icon: Package, trend: 'Materia prima', color: 'var(--primary-color)', bg: 'var(--primary-light)' },
+    { title: 'Insumos', value: `${totalInsUnits.toFixed(0)} u`, icon: Package, trend: 'Envases y etiquetas', color: '#0ea5e9', bg: '#e0f2fe' },
+    { title: 'Presentaciones', value: `${Math.round(totalPresUnits)} u`, icon: ShoppingBag, trend: 'Producto terminado', color: '#7c3aed', bg: '#ede9fe' },
+    { title: 'Alertas', value: criticalCount.toString(), icon: AlertTriangle, trend: 'Stock bajo o crítico', alert: criticalCount > 0, color: '#dc2626', bg: '#fee2e2' },
+  ];
+
+  const tabConfig = [
+    { id: 'mercaderias' as const, label: 'Mercaderías (MP)', color: 'var(--primary-color)' },
+    { id: 'insumos' as const, label: 'Insumos', color: '#0ea5e9' },
+    { id: 'presentaciones' as const, label: 'Presentaciones', color: '#7c3aed' },
   ];
 
   if (viewHistory) {
@@ -76,21 +136,21 @@ export const Stock = () => {
           
           {loadingMovements ? (
             <SkeletonLoader rows={4} height="52px" />
-          ) : movements.length === 0 ? (
+          ) : filteredMovements.length === 0 ? (
             <div style={{ padding: '40px' }}>
               <EmptyState 
                 icon={History} 
                 title="Sin movimientos registrados" 
-                description="Aún no se ha realizado ninguna transacción que afecte el inventario físico." 
+                description="Aún no se ha realizado ninguna transacción que afecte el inventario físico en este período." 
               />
             </div>
           ) : (
             <Table 
-              data={movements}
+              data={filteredMovements}
               keyExtractor={(item) => item.id!}
               columns={[
                 { header: 'Fecha', accessor: (item) => new Date(item.date).toLocaleString() },
-                { header: 'Producto', accessor: (item) => <span style={{ fontWeight: 600 }}>{item.productName}</span> },
+                { header: 'Item de Stock', accessor: (item) => <span style={{ fontWeight: 600 }}>{item.productName}</span> },
                 { 
                   header: 'Cantidad', 
                   accessor: (item) => (
@@ -125,18 +185,18 @@ export const Stock = () => {
   return (
     <>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '24px' }}>
-        <PageHeader title="Stock Real" description="Gestión de inventario físico y comprometido en tiempo real" />
+        <PageHeader title="Stock Multicapa" description="Inventario separado por tipo: Mercaderías · Insumos · Presentaciones" />
         <button 
           onClick={() => setViewHistory(true)}
           style={{ backgroundColor: 'var(--bg-primary)', color: 'var(--text-primary)', border: '1px solid var(--border-color)', padding: '10px 20px', borderRadius: '8px', fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px' }}
         >
-          <History size={18} />
+          <CalendarClock size={18} />
           Historial de Movimientos
         </button>
       </div>
       
       {/* Cards de Resumen */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '24px', marginBottom: '32px' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '24px', marginBottom: '32px' }}>
         {stockStats.map((stat, idx) => {
           const Icon = stat.icon;
           return (
@@ -145,8 +205,8 @@ export const Stock = () => {
                 <div>
                   <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', fontWeight: 500, marginBottom: '8px' }}>{stat.title}</p>
                   <h3 style={{ fontSize: '1.875rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '8px' }}>{stat.value}</h3>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.875rem', color: stat.alert ? stat.color : 'var(--text-secondary)' }}>
-                    {stat.isUp ? <ArrowUpRight size={16} /> : <ArrowDownRight size={16} />}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.875rem', color: (stat as any).alert ? stat.color : 'var(--text-secondary)' }}>
+                    <ArrowUpRight size={16} />
                     <span style={{ fontWeight: 500 }}>{stat.trend}</span>
                   </div>
                 </div>
@@ -160,43 +220,86 @@ export const Stock = () => {
       </div>
 
       <Card padding="none">
-        <div style={{ padding: '20px', display: 'flex', gap: '16px', borderBottom: '1px solid var(--border-color)', backgroundColor: 'var(--bg-primary)', borderTopLeftRadius: '12px', borderTopRightRadius: '12px' }}>
-          <div style={{ position: 'relative', flex: 1 }}>
-            <Search size={18} color="var(--text-secondary)" style={{ position: 'absolute', left: '12px', top: '10px' }} />
-            <input 
-              type="text" 
-              placeholder="Buscar por producto o código..." 
-              style={{ width: '100%', padding: '10px 12px 10px 36px', borderRadius: '8px', border: '1px solid var(--border-color)', outline: 'none' }}
-            />
+        {/* Tab bar */}
+        <div style={{ display: 'flex', gap: '0', borderBottom: '1px solid var(--border-color)', backgroundColor: 'var(--bg-primary)', borderTopLeftRadius: '12px', borderTopRightRadius: '12px' }}>
+          {tabConfig.map(tab => (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              style={{
+                padding: '14px 24px',
+                fontSize: '0.875rem',
+                fontWeight: 600,
+                border: 'none',
+                background: 'none',
+                cursor: 'pointer',
+                color: activeTab === tab.id ? tab.color : 'var(--text-secondary)',
+                borderBottom: activeTab === tab.id ? `3px solid ${tab.color}` : '3px solid transparent',
+                transition: 'all 0.2s',
+                outline: 'none',
+                marginBottom: '-1px'
+              }}
+            >
+              {tab.label}
+            </button>
+          ))}
+          <div style={{ flex: 1, padding: '14px 20px', display: 'flex', justifyContent: 'flex-end' }}>
+            <div style={{ position: 'relative', width: '260px' }}>
+              <Search size={16} color="var(--text-secondary)" style={{ position: 'absolute', left: '10px', top: '10px' }} />
+              <input 
+                type="text" 
+                placeholder="Buscar..." 
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                style={{ width: '100%', padding: '8px 8px 8px 32px', borderRadius: '8px', border: '1px solid var(--border-color)', outline: 'none', fontSize: '0.875rem', backgroundColor: 'var(--bg-secondary)', color: 'var(--text-primary)' }}
+              />
+            </div>
           </div>
         </div>
 
-        {loadingProducts || loadingMovements ? (
+        {loadingMerc || loadingIns || loadingMovements || loadingPres ? (
           <SkeletonLoader rows={5} height="52px" />
-        ) : stockTableData.length === 0 ? (
+        ) : filteredItems.length === 0 ? (
           <div style={{ padding: '40px' }}>
             <EmptyState 
-              icon={Package} 
-              title="No hay productos registrados" 
-              description="Registra nuevos productos en el catálogo para darles seguimiento de stock." 
+              icon={activeTab === 'presentaciones' ? ShoppingBag : Package} 
+              title={`No hay ${activeTab === 'mercaderias' ? 'mercaderías' : activeTab === 'insumos' ? 'insumos' : 'presentaciones'} en stock`}
+              description={
+                activeTab === 'mercaderias' 
+                  ? 'Las mercaderías son materias primas. Su stock aumenta con compras y disminuye con producción.'
+                  : activeTab === 'insumos'
+                  ? 'Los insumos son envases y etiquetas. Su stock se deduce automáticamente con cada pedido entregado.'
+                  : 'Las presentaciones son el producto final. Su stock refleja las unidades producidas disponibles para venta.'
+              }
             />
           </div>
         ) : (
           <Table 
-            data={stockTableData}
+            data={filteredItems}
             keyExtractor={(item) => item.id}
             columns={[
               { header: 'Código', accessor: 'code', width: '120px' },
               { 
-                header: 'Producto', 
+                header: 'Item', 
                 accessor: (item) => <span style={{ fontWeight: 600 }}>{item.name}</span> 
+              },
+              { 
+                header: 'Tipo', 
+                accessor: (item) => (
+                  <span style={{ 
+                    color: item.type === 'Mercadería' ? 'var(--primary-color)' : item.type === 'Insumo' ? '#0ea5e9' : '#7c3aed',
+                    fontWeight: 600
+                  }}>
+                    {item.type}
+                  </span>
+                )
               },
               { 
                 header: 'Disponible', 
                 accessor: (item) => <span style={{ fontWeight: 700, fontSize: '1rem', color: item.rawQty <= 0 ? '#ef4444' : 'inherit' }}>{item.available}</span>,
                 align: 'right'
               },
-              { header: 'Mínimo', accessor: 'min', align: 'right' },
+              { header: 'Stock Mínimo', accessor: 'min', align: 'right' },
               { 
                 header: 'Estado', 
                 accessor: (item) => {

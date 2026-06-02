@@ -7,17 +7,21 @@ import { Input, Select } from '../components/ui/Forms';
 import { 
   Search, Plus, Filter, ArrowLeft, Save, 
   User, ShoppingCart, DollarSign, Truck, PackageCheck, FileText,
-  AlertTriangle, ArrowRight, Printer, X, TrendingUp, Loader2, Download
+  AlertTriangle, ArrowRight, Printer, X, TrendingUp, Loader2, Download, Edit2, Trash2
 } from 'lucide-react';
 import { formatCurrency, formatNumber, parseNumber } from '../utils/format';
 import { useSales } from '../hooks/useSales';
-import { useProducts } from '../hooks/useProducts';
+import { usePresentaciones } from '../hooks/usePresentaciones';
+import { useMercaderias } from '../hooks/useMercaderias';
+import { useInsumos } from '../hooks/useInsumos';
+import { useRecipes } from '../hooks/useRecipes';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { useCustomers } from '../hooks/useCustomers';
-import { calculateSaleTotals } from '../core/calculations';
+import { calculateSaleTotals, calculatePresentationCost } from '../core/calculations';
 import { StockService } from '../services/StockService';
 import { usePriceLists } from '../hooks/usePriceLists';
+import { useDateFilter } from '../contexts/DateFilterContext';
 
 interface SaleFormItem {
   id: number;
@@ -30,15 +34,22 @@ interface SaleFormItem {
 }
 
 export const Ventas = () => {
-  const { sales, loading: loadingSales, error: errorSales, createSale } = useSales();
-  const { products, loading: loadingProducts, error: errorProducts } = useProducts();
+  const { sales, loading: loadingSales, error: errorSales, createSale, updateSale, deleteSale } = useSales();
+  // Presentaciones: única entidad de venta
+  const { presentaciones, loading: loadingPres, error: errorPres } = usePresentaciones();
+  const { mercaderias } = useMercaderias();
+  const { insumos } = useInsumos();
+  const { recipes } = useRecipes();
   const { customers, loading: loadingCustomers, error: errorCustomers } = useCustomers();
   const { priceLists, loading: loadingLists, error: errorLists } = usePriceLists();
+  const { filterDate, viewType } = useDateFilter();
 
-  const globalError = errorSales || errorProducts || errorCustomers || errorLists;
+  const globalError = errorSales || errorPres || errorCustomers || errorLists;
+  const filteredSales = sales.filter((s: any) => filterDate(s.date));
 
 
   const [isCreating, setIsCreating] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [showRemito, setShowRemito] = useState(false);
   const [selectedPreviewSale, setSelectedPreviewSale] = useState<any | null>(null);
 
@@ -74,21 +85,18 @@ export const Ventas = () => {
 
     setItems(prevItems => prevItems.map(item => {
       if (!item.productId) return item;
-      const prod = products.find(p => p.id === item.productId);
-      if (!prod) return item;
+      const pres = presentaciones.find(p => p.id === item.productId);
+      if (!pres) return item;
 
-      const pesoHorma = prod.pesoHorma || 1;
-      const kgNetos = pesoHorma * (1 - (prod.mermaEstimada || 0) / 100);
-      const paqEstimados = prod.gramajeVenta > 0 ? Math.floor((kgNetos * 1000) / prod.gramajeVenta) : 1;
-      const costoMateriaPrimaPorPaq = paqEstimados > 0 ? prod.costoHorma / paqEstimados : 0;
-      const costoTotalPaquete = costoMateriaPrimaPorPaq + (prod.costoBolsa || 0) + (prod.costoEtiqueta || 0) + (prod.manoObra || 0);
-
+      // Cost calculated from presentación's recipe/base + insumos
+      const costo = calculatePresentationCost(pres, mercaderias, insumos, recipes);
       const margin = selectedListObj?.productOverrides?.[item.productId]?.margin ?? selectedListObj?.margin ?? 40;
-      const newPrice = costoTotalPaquete * (1 + margin / 100);
+      const newPrice = costo * (1 + margin / 100);
 
       return {
         ...item,
-        precioUnitario: newPrice
+        precioUnitario: newPrice,
+        costoUnitario: costo
       };
     }));
   };
@@ -136,27 +144,23 @@ export const Ventas = () => {
     setItems(items.map(item => item.id === id ? { ...item, paquetesStr } : item));
   };
 
-  const updateItemProduct = (id: number, prodId: string) => {
-    const prod = products.find(p => p.id === prodId);
-    if (!prod) return;
-    
-    const pesoHorma = prod.pesoHorma || 1;
-    const kgNetos = pesoHorma * (1 - (prod.mermaEstimada || 0) / 100);
-    const paqEstimados = prod.gramajeVenta > 0 ? Math.floor((kgNetos * 1000) / prod.gramajeVenta) : 1;
-    const costoMateriaPrimaPorPaq = paqEstimados > 0 ? prod.costoHorma / paqEstimados : 0;
-    const costoTotalPaquete = costoMateriaPrimaPorPaq + (prod.costoBolsa || 0) + (prod.costoEtiqueta || 0) + (prod.manoObra || 0);
+  const updateItemProduct = (id: number, presId: string) => {
+    const pres = presentaciones.find(p => p.id === presId);
+    if (!pres) return;
 
+    // Costo derivado desde la presentación (mercadería + insumos + mano obra)
+    const costo = calculatePresentationCost(pres, mercaderias, insumos, recipes);
     const selectedListObj = priceLists.find(l => l.id === priceListId);
-    const margin = selectedListObj?.productOverrides?.[prodId]?.margin ?? selectedListObj?.margin ?? 40;
-    const precio = costoTotalPaquete * (1 + margin / 100);
+    const margin = selectedListObj?.productOverrides?.[presId]?.margin ?? selectedListObj?.margin ?? 40;
+    const precio = costo * (1 + margin / 100);
 
     setItems(items.map(item => item.id === id ? {
       ...item,
-      productId: prodId,
-      productName: prod.name,
-      gramaje: `${prod.gramajeVenta}g`,
+      productId: presId,
+      productName: pres.name,
+      gramaje: `${pres.pesoObjetivoGramos}g`,
       precioUnitario: precio,
-      costoUnitario: costoTotalPaquete
+      costoUnitario: costo
     } : item));
   };
 
@@ -165,13 +169,10 @@ export const Ventas = () => {
   };
 
   const addItem = () => {
-    const firstProd = products[0];
-    if (!firstProd) return;
-    
     setItems([...items, {
       id: Date.now(),
       productId: '',
-      productName: 'Seleccione un Producto',
+      productName: 'Seleccione una Presentación',
       gramaje: '--',
       paquetesStr: '1',
       precioUnitario: 0,
@@ -233,9 +234,14 @@ export const Ventas = () => {
       };
 
       // 3. Register Sale via transactional ErpEngine
-      await createSale(saleData, discountPercent, shippingCost);
+      if (editingId) {
+        await updateSale(editingId, { ...saleData, subtotal: calc.subtotal, total: calc.total } as any);
+      } else {
+        await createSale(saleData as any, discountPercent, shippingCost);
+      }
       
       // Clean up form
+      setEditingId(null);
       setItems([]);
       setCustomerId('');
       setIsCreating(false);
@@ -244,6 +250,37 @@ export const Ventas = () => {
       setErrorMessage(e.message || "Error al registrar la venta.");
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const handleEditSale = (item: any) => {
+    setEditingId(item.id);
+    setCustomerId(item.customerId);
+    setFormaPago(item.paymentMethod || 'cc');
+    setDescuentoStr(item.discount?.toString() || '0');
+    setCostoEnvioStr('0');
+    
+    const loadedItems = item.items.map((i: any, idx: number) => ({
+      id: Date.now() + idx,
+      productId: i.productId,
+      productName: i.productName,
+      gramaje: '--',
+      paquetesStr: i.quantity.toString(),
+      precioUnitario: i.price,
+      costoUnitario: i.cost
+    }));
+    setItems(loadedItems);
+    setErrorMessage(null);
+    setIsCreating(true);
+  };
+
+  const handleDeleteSale = async (item: any) => {
+    if (window.confirm('¿Estás seguro de eliminar esta venta?')) {
+      try {
+        await deleteSale(item.id);
+      } catch (e: any) {
+        alert(e.message || "Error al eliminar la venta.");
+      }
     }
   };
 
@@ -589,14 +626,14 @@ export const Ventas = () => {
               <ArrowLeft size={20} color="var(--text-secondary)" />
             </button>
             <div>
-              <h1 style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--text-primary)' }}>Nuevo Pedido de Venta</h1>
+              <h1 style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--text-primary)' }}>{editingId ? 'Editar Pedido de Venta' : 'Nuevo Pedido de Venta'}</h1>
               <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>Toma rápida de pedidos para clientes en tiempo real</p>
             </div>
           </div>
           <div style={{ display: 'flex', gap: '12px' }}>
             <button onClick={handleConfirmSale} disabled={isSaving} className="btn btn-primary">
               {isSaving ? <Loader2 className="animate-spin" size={18} /> : <Save size={18} />}
-              {isSaving ? 'Guardando...' : 'Confirmar Venta'}
+              {editingId ? 'Guardar Cambios' : 'Confirmar Venta'}
             </button>
           </div>
         </div>
@@ -678,8 +715,8 @@ export const Ventas = () => {
                           value={item.productId}
                           onChange={e => updateItemProduct(item.id, e.target.value)}
                           options={[
-                            { value: '', label: 'Seleccione un Producto...' },
-                            ...products.filter(p => p.isActive).map(p => ({ value: p.id!, label: `${p.name} (${p.brand})` }))
+                            { value: '', label: 'Seleccione una Presentación...' },
+                            ...presentaciones.filter(p => p.isActive).map(p => ({ value: p.id!, label: `${p.name} (${p.pesoObjetivoGramos}g)` }))
                           ]}
                         />
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '6px' }}>
@@ -803,18 +840,22 @@ export const Ventas = () => {
   }
 
   // CALCULAR RESUMEN DIARIO DESDE LAS VENTAS REALES
-  const dailyTotal = sales.reduce((acc, sale) => {
-    const isToday = new Date(sale.date).toDateString() === new Date().toDateString();
-    return isToday ? acc + sale.total : acc;
-  }, 0);
+  const dailyTotal = filteredSales.reduce((acc, sale) => acc + sale.total, 0);
+  const pendingDeliveries = filteredSales.filter(s => s.status === 'pending').length;
+  const avgTicket = filteredSales.length > 0 ? dailyTotal / filteredSales.length : 0;
 
-  const pendingDeliveries = sales.filter(s => s.status === 'pending').length;
+  const periodLabel = {
+    day: 'de hoy',
+    month: 'del mes',
+    year: 'del año',
+    all: 'totales'
+  }[viewType];
 
   const topCards = [
-    { title: 'Ventas de Hoy', value: formatCurrency(dailyTotal), icon: DollarSign, color: 'var(--primary-color)', bg: 'var(--primary-light)' },
+    { title: `Ventas ${periodLabel}`, value: formatCurrency(dailyTotal), icon: DollarSign, color: 'var(--primary-color)', bg: 'var(--primary-light)' },
     { title: 'Pedidos Pendientes', value: pendingDeliveries.toString(), icon: ShoppingCart, color: '#d97706', bg: '#fef3c7' },
-    { title: 'Total Histórico', value: formatCurrency(sales.reduce((acc, s) => acc + s.total, 0)), icon: PackageCheck, color: '#059669', bg: '#d1fae5' },
-    { title: 'Tickets Emitidos', value: sales.length.toString(), icon: FileText, color: '#4f46e5', bg: '#e0e7ff' },
+    { title: 'Ticket Promedio', value: formatCurrency(avgTicket), icon: PackageCheck, color: '#059669', bg: '#d1fae5' },
+    { title: 'Tickets Emitidos', value: filteredSales.length.toString(), icon: FileText, color: '#4f46e5', bg: '#e0e7ff' },
   ];
 
   return (
@@ -824,6 +865,7 @@ export const Ventas = () => {
         <button 
           onClick={() => {
             setIsCreating(true);
+            setEditingId(null);
             setItems([]);
             setErrorMessage(null);
           }}
@@ -867,7 +909,7 @@ export const Ventas = () => {
 
         {loadingSales ? (
           <SkeletonLoader rows={4} height="52px" />
-        ) : sales.length === 0 ? (
+        ) : filteredSales.length === 0 ? (
           <div style={{ padding: '40px' }}>
             <EmptyState 
               icon={ShoppingCart} 
@@ -877,7 +919,7 @@ export const Ventas = () => {
           </div>
         ) : (
           <Table 
-            data={sales}
+            data={filteredSales}
             keyExtractor={(item) => item.id!}
             columns={[
               { header: 'Comprobante', accessor: (item) => <span style={{ fontFamily: 'monospace', fontWeight: 600 }}>{item.remitoNumber}</span>, width: '150px' },
@@ -898,11 +940,43 @@ export const Ventas = () => {
                 align: 'center'
               },
               { 
-                header: 'Remito PDF', 
+                header: 'Acciones', 
                 accessor: (item) => (
-                  <button onClick={() => handleOpenPreview(item)} className="btn btn-secondary-light btn-sm" style={{ padding: '4px 8px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-                    <FileText size={14} /> Ver Remito
-                  </button>
+                  <div style={{ display: 'flex', gap: '8px', justifyContent: 'center' }}>
+                    <button onClick={() => handleOpenPreview(item)} className="btn btn-secondary-light btn-sm" style={{ padding: '4px 8px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                      <FileText size={14} />
+                    </button>
+                    <button 
+                      onClick={(e) => { 
+                        e.stopPropagation(); 
+                        if (item.orderId) {
+                          alert('Esta venta fue generada desde un Pedido. Debe editar o eliminar el Pedido original.');
+                          return;
+                        }
+                        handleEditSale(item); 
+                      }} 
+                      className="btn btn-icon" 
+                      title={item.orderId ? "Bloqueado: Editá el Pedido original" : "Editar"}
+                      style={{ opacity: item.orderId ? 0.4 : 1, cursor: item.orderId ? 'not-allowed' : 'pointer' }}
+                    >
+                      <Edit2 size={16} color="#2563eb" />
+                    </button>
+                    <button 
+                      onClick={(e) => { 
+                        e.stopPropagation(); 
+                        if (item.orderId) {
+                          alert('Esta venta fue generada desde un Pedido. Debe editar o eliminar el Pedido original.');
+                          return;
+                        }
+                        handleDeleteSale(item); 
+                      }} 
+                      className="btn btn-icon" 
+                      title={item.orderId ? "Bloqueado: Eliminá el Pedido original" : "Eliminar"}
+                      style={{ opacity: item.orderId ? 0.4 : 1, cursor: item.orderId ? 'not-allowed' : 'pointer' }}
+                    >
+                      <Trash2 size={16} color="#dc2626" />
+                    </button>
+                  </div>
                 ),
                 align: 'center'
               },

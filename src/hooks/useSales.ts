@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { collection, onSnapshot, query, orderBy, doc, writeBatch, runTransaction } from 'firebase/firestore';
+import { collection, onSnapshot, query, orderBy, doc, writeBatch, runTransaction, deleteDoc, updateDoc, where, getDocs } from 'firebase/firestore';
 import { db } from '../firebase/firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { DatabaseMapper } from '../mappers/databaseMapper';
@@ -72,11 +72,14 @@ export const useSales = () => {
     };
     batch.set(saleRef, newSale);
 
-    // Stock movements
+    // ── REGLA DE STOCK: Ventas solo afectan PRESENTACIONES (producto terminado) ──
+    // Las mercaderías (materia prima) y los insumos son consumidos ÚNICAMENTE durante
+    // la producción (cuando un pedido pasa a 'delivered' en useOrders).
+    // Aquí solo se descuenta stock de presentaciones.
     for (const item of saleData.items) {
       const stockMovRef = doc(collection(db, 'stock_movements'));
       const movement = {
-        productId: item.productId,
+        productId: item.productId,    // debe ser siempre ID de una Presentacion
         productName: item.productName,
         quantity: -Math.abs(Number(item.quantity)),
         type: 'out',
@@ -125,6 +128,126 @@ export const useSales = () => {
     return saleId;
   };
 
-  return { sales, loading, error, createSale };
+  const updateSale = async (id: string, data: Partial<Sale>) => {
+    const oldSale = sales.find(s => s.id === id);
+    if (!oldSale) throw new Error('Venta no encontrada');
+
+    const batch = writeBatch(db);
+    const ref = doc(db, 'sales', id);
+    batch.update(ref, { ...data, updatedAt: Date.now() });
+
+    // 1. Delete old stock and cash movements
+    const stockSnap = await getDocs(query(collection(db, 'stock_movements'), where('referenceId', '==', id)));
+    stockSnap.forEach(d => batch.delete(d.ref));
+
+    const cashSnap = await getDocs(query(collection(db, 'cash_movements'), where('referenceId', '==', id)));
+    cashSnap.forEach(d => batch.delete(d.ref));
+
+    // 2. Process NEW stock movements
+    const itemsToProcess = data.items || oldSale.items;
+    const statusToProcess = data.status !== undefined ? data.status : oldSale.status;
+    const paymentStatusToProcess = data.paymentStatus !== undefined ? data.paymentStatus : oldSale.paymentStatus;
+    const paymentMethodToProcess = data.paymentMethod !== undefined ? data.paymentMethod : oldSale.paymentMethod;
+    const totalToProcess = data.total !== undefined ? data.total : oldSale.total;
+    const remitoToProcess = data.remitoNumber !== undefined ? data.remitoNumber : oldSale.remitoNumber;
+    const customerNameToProcess = data.customerName !== undefined ? data.customerName : oldSale.customerName;
+    const customerIdToProcess = data.customerId !== undefined ? data.customerId : oldSale.customerId;
+
+    for (const item of itemsToProcess) {
+      const stockMovRef = doc(collection(db, 'stock_movements'));
+      const movement = {
+        productId: item.productId,
+        productName: item.productName,
+        quantity: -Math.abs(Number(item.quantity)),
+        type: 'out',
+        referenceType: 'sale',
+        referenceId: id,
+        date: Date.now(),
+        observations: `Venta Comprobante: ${remitoToProcess || 'Sin remito'} (Editada)`,
+        createdAt: Date.now()
+      };
+      batch.set(stockMovRef, movement);
+    }
+
+    // 3. Process NEW cash movements
+    if (statusToProcess === 'completed' || paymentStatusToProcess === 'paid') {
+      const cashMovRef = doc(collection(db, 'cash_movements'));
+      const cashMovement = {
+        type: 'in',
+        amount: Number(totalToProcess),
+        method: paymentMethodToProcess || 'cash',
+        description: `Cobro Venta ${customerNameToProcess} (Ref: ${remitoToProcess || id}) (Editada)`,
+        category: 'sale',
+        referenceId: id,
+        date: Date.now(),
+        createdAt: Date.now()
+      };
+      batch.set(cashMovRef, cashMovement);
+    }
+
+    await batch.commit();
+
+    // 4. Update customer balances
+    // We must revert the old sale balance and apply the new one.
+    if (oldSale.paymentMethod === 'cc' || paymentMethodToProcess === 'cc') {
+      await runTransaction(db, async (transaction) => {
+        const oldCustomerRef = doc(db, 'customers', oldSale.customerId);
+        const oldCustSnap = await transaction.get(oldCustomerRef);
+        
+        let oldCustBalance = oldCustSnap.exists() ? (oldCustSnap.data().currentBalance || 0) : 0;
+        
+        if (oldSale.paymentMethod === 'cc') {
+           oldCustBalance -= oldSale.total; // revert old
+           transaction.update(oldCustomerRef, { currentBalance: oldCustBalance, updatedAt: Date.now() });
+        }
+
+        if (paymentMethodToProcess === 'cc') {
+           if (oldSale.customerId === customerIdToProcess && oldSale.paymentMethod === 'cc') {
+             // same customer
+             oldCustBalance += Number(totalToProcess);
+             transaction.update(oldCustomerRef, { currentBalance: oldCustBalance, updatedAt: Date.now() });
+           } else {
+             const newCustomerRef = doc(db, 'customers', customerIdToProcess);
+             const newCustSnap = await transaction.get(newCustomerRef);
+             const newCustBalance = newCustSnap.exists() ? (newCustSnap.data().currentBalance || 0) : 0;
+             transaction.update(newCustomerRef, { currentBalance: newCustBalance + Number(totalToProcess), updatedAt: Date.now() });
+           }
+        }
+      }).catch(e => console.error("Error updating customer balances on edit:", e));
+    }
+  };
+
+  const deleteSale = async (id: string) => {
+    const target = sales.find(s => s.id === id);
+    if (!target) throw new Error('Venta no encontrada');
+
+    const batch = writeBatch(db);
+    const ref = doc(db, 'sales', id);
+    batch.delete(ref);
+
+    const stockSnap = await getDocs(query(collection(db, 'stock_movements'), where('referenceId', '==', id)));
+    stockSnap.forEach(d => batch.delete(d.ref));
+
+    const cashSnap = await getDocs(query(collection(db, 'cash_movements'), where('referenceId', '==', id)));
+    cashSnap.forEach(d => batch.delete(d.ref));
+
+    await batch.commit();
+
+    if (target.paymentMethod === 'cc') {
+      const customerRef = doc(db, 'customers', target.customerId);
+      await runTransaction(db, async (transaction) => {
+        const custSnap = await transaction.get(customerRef);
+        if (custSnap.exists()) {
+          const currentBalance = custSnap.data().currentBalance || 0;
+          transaction.update(customerRef, {
+            currentBalance: currentBalance - target.total,
+            updatedAt: Date.now()
+          });
+        }
+      }).catch(e => console.error("Error reverting customer balance:", e));
+    }
+  };
+
+  return { sales, loading, error, createSale, updateSale, deleteSale };
 };
 export default useSales;

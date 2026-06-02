@@ -8,15 +8,16 @@ import {
   Search, Plus, Filter, ArrowLeft, Save, 
   Users, DollarSign, Activity, Award, Wallet,
   Store, Handshake, Truck, History, Phone,
-  CreditCard, ShieldAlert, ArrowRight, ArrowDown, Download, Loader2
+  CreditCard, ShieldAlert, ArrowRight, ArrowDown, Download, Loader2, Edit2, Trash2
 } from 'lucide-react';
 import { formatCurrency, formatNumber, parseNumber } from '../utils/format';
 import { useCustomers } from '../hooks/useCustomers';
+import { CCDetail } from './CuentaCorriente';
 
 const mockCC: any[] = [];
 
 export const Clientes = () => {
-  const { customers, loading, error, saveCustomer } = useCustomers();
+  const { customers, loading, error, saveCustomer, deleteCustomer } = useCustomers();
   const [viewMode, setViewMode] = useState<'list' | 'create' | 'cc'>('list');
   const [creditEnabled, setCreditEnabled] = useState(true);
   const [selectedCustomer, setSelectedCustomer] = useState<any | null>(null);
@@ -58,8 +59,9 @@ export const Clientes = () => {
         currentBalance: 0,
         paymentTerms: creditEnabled ? parseNumber(paymentTermsStr) : 0,
         isActive: true
-      });
+      }, selectedCustomer?.id);
       setViewMode('list');
+      setSelectedCustomer(null);
       // Reset form
       setName('');
       setCuit('');
@@ -80,104 +82,40 @@ export const Clientes = () => {
   };
 
   const handleOpenCC = (customer: any) => {
-    setSelectedCustomer(customer);
+    setSelectedCustomer(customer._original);
     setViewMode('cc');
+  };
+
+  const handleEditCustomer = (item: any) => {
+    const c = item._original;
+    setSelectedCustomer(c);
+    setName(c.name || '');
+    setCuit(c.cuit || '');
+    setResponsable(c.responsable || '');
+    setEmail(c.email || '');
+    setPhone(c.phone || '');
+    setAddress(c.address || '');
+    setBarrio('');
+    setNotes(c.notes || '');
+    setCreditLimitStr(c.creditLimit?.toString() || '100000');
+    setPaymentTermsStr(c.paymentTerms?.toString() || '30');
+    setCreditEnabled(c.creditLimit > 0 || c.paymentTerms > 0);
+    setViewMode('create');
+  };
+
+  const handleDeleteCustomer = async (item: any) => {
+    if (window.confirm(`¿Estás seguro de eliminar el cliente ${item.commerce}?`)) {
+      try {
+        await deleteCustomer(item.id);
+      } catch (e: any) {
+        alert(e.message || "Error al eliminar.");
+      }
+    }
   };
 
   // VISTA CUENTA CORRIENTE (CC)
   if (viewMode === 'cc' && selectedCustomer) {
-    let runningBalance = 0;
-    // mockCC is sorted newest first. We need to calculate balance from oldest to newest.
-    const sortedCC = [...mockCC].reverse();
-    const computedCC = sortedCC.map(mov => {
-      runningBalance += mov.debit - mov.credit;
-      return { ...mov, balance: runningBalance };
-    }).reverse(); // back to newest first
-
-    const saldoReal = selectedCustomer.rawBalance || 0;
-
-    return (
-      <div style={{ paddingBottom: '40px' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-            <button 
-              onClick={() => { setViewMode('list'); setSelectedCustomer(null); }}
-              className="btn btn-icon"
-            >
-              <ArrowLeft size={20} color="var(--text-secondary)" />
-            </button>
-            <div>
-              <h1 style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--text-primary)' }}>Cuenta Corriente</h1>
-              <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>{selectedCustomer.commerce || selectedCustomer.name || 'Cliente'}</p>
-            </div>
-          </div>
-          <div style={{ display: 'flex', gap: '12px' }}>
-            <button className="btn btn-secondary">
-              <Download size={18} /> Exportar Resumen
-            </button>
-            <button style={{ display: 'flex', alignItems: 'center', gap: '8px', backgroundColor: '#16a34a', color: '#fff', border: 'none', padding: '10px 20px', borderRadius: '8px', fontWeight: 600, cursor: 'pointer' }}>
-              <CreditCard size={18} /> Registrar Cobro Real
-            </button>
-          </div>
-        </div>
-
-        {/* Resumen Visual CC */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px', marginBottom: '24px' }}>
-          <Card padding="md" style={{ borderTop: '4px solid #d97706' }}>
-            <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', fontWeight: 600, textTransform: 'uppercase' }}>Saldo Pendiente</p>
-            <h3 style={{ fontSize: '1.875rem', fontWeight: 700, color: '#92400e', marginTop: '8px' }}>
-              {formatCurrency(saldoReal)}
-            </h3>
-          </Card>
-          <Card padding="md" style={{ borderTop: '4px solid #ef4444' }}>
-            <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', fontWeight: 600, textTransform: 'uppercase' }}>Saldo Vencido</p>
-            <h3 style={{ fontSize: '1.875rem', fontWeight: 700, color: '#991b1b', marginTop: '8px' }}>$ 0</h3>
-          </Card>
-          <Card padding="md">
-            <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', fontWeight: 600, textTransform: 'uppercase' }}>Días de Mora</p>
-            <h3 style={{ fontSize: '1.875rem', fontWeight: 700, color: 'var(--text-primary)', marginTop: '8px' }}>0</h3>
-          </Card>
-          <Card padding="md" style={{ backgroundColor: '#f0fdf4', border: '1px solid #bbf7d0' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-              <div>
-                <p style={{ fontSize: '0.875rem', color: '#166534', fontWeight: 600, textTransform: 'uppercase' }}>Riesgo Comercial</p>
-                <h3 style={{ fontSize: '1.25rem', fontWeight: 700, color: '#15803d', marginTop: '8px' }}>AL DÍA</h3>
-              </div>
-              <ShieldAlert size={32} color="#22c55e" />
-            </div>
-          </Card>
-        </div>
-
-        <Card padding="none">
-          <div style={{ padding: '20px', borderBottom: '1px solid var(--border-color)', backgroundColor: 'var(--bg-primary)' }}>
-            <h3 style={{ fontSize: '1.125rem', fontWeight: 600 }}>Movimientos Históricos de Cuenta</h3>
-          </div>
-          <Table 
-            data={computedCC}
-            keyExtractor={(item) => item.id}
-            columns={[
-              { header: 'Fecha', accessor: 'date' },
-              { 
-                header: 'Tipo', 
-                accessor: (item) => (
-                  <span style={{ 
-                    padding: '4px 12px', borderRadius: '9999px', fontSize: '0.75rem', fontWeight: 600,
-                    backgroundColor: item.type === 'Venta' ? '#fef3c7' : '#dcfce7',
-                    color: item.type === 'Venta' ? '#92400e' : '#166534'
-                  }}>
-                    {item.type}
-                  </span>
-                ) 
-              },
-              { header: 'Comprobante', accessor: 'invoice' },
-              { header: 'Venta (Debe)', accessor: (item) => item.debit > 0 ? formatCurrency(item.debit) : '-', align: 'right' },
-              { header: 'Pagos (Haber)', accessor: (item) => item.credit > 0 ? formatCurrency(item.credit) : '-', align: 'right' },
-              { header: 'Saldo', accessor: (item) => <span style={{ fontWeight: 700 }}>{formatCurrency(item.balance)}</span>, align: 'right' },
-            ]}
-          />
-        </Card>
-      </div>
-    );
+    return <CCDetail customer={selectedCustomer} onBack={() => { setViewMode('list'); setSelectedCustomer(null); }} />;
   }
 
   // VISTA NUEVO CLIENTE
@@ -194,7 +132,9 @@ export const Clientes = () => {
               <ArrowLeft size={20} color="var(--text-secondary)" />
             </button>
             <div>
-              <h1 style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--text-primary)' }}>Alta de Cliente</h1>
+              <h1 style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--text-primary)' }}>
+                {selectedCustomer ? 'Editar Cliente' : 'Alta de Cliente'}
+              </h1>
               <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>Registro y configuración comercial</p>
             </div>
           </div>
@@ -332,6 +272,7 @@ export const Clientes = () => {
   ];
 
   const mappedCustomers = customers.map(c => ({
+    _original: c,
     id: c.id!,
     commerce: c.name,
     type: 'Comercio',
@@ -349,7 +290,20 @@ export const Clientes = () => {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '24px' }}>
         <PageHeader title="Directorio de Clientes" description="Gestión comercial y estados de cuenta" />
         <button 
-          onClick={() => setViewMode('create')}
+          onClick={() => {
+            setSelectedCustomer(null);
+            setName('');
+            setCuit('');
+            setResponsable('');
+            setEmail('');
+            setPhone('');
+            setAddress('');
+            setBarrio('');
+            setNotes('');
+            setCreditLimitStr('100000');
+            setPaymentTermsStr('30');
+            setViewMode('create');
+          }}
           className="btn btn-primary"
         >
           <Plus size={18} />
@@ -446,11 +400,19 @@ export const Clientes = () => {
                 align: 'center'
               },
               {
-                header: '',
+                header: 'Acciones',
                 accessor: (item) => (
-                  <button onClick={(e) => { e.stopPropagation(); handleOpenCC(item); }} style={{ display: 'flex', alignItems: 'center', gap: '4px', background: 'none', border: 'none', color: 'var(--primary-color)', fontWeight: 600, cursor: 'pointer', fontSize: '0.875rem' }}>
-                    Ver CC <ArrowRight size={14} />
-                  </button>
+                  <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', alignItems: 'center' }}>
+                    <button onClick={(e) => { e.stopPropagation(); handleOpenCC(item); }} style={{ display: 'flex', alignItems: 'center', gap: '4px', background: 'none', border: 'none', color: 'var(--primary-color)', fontWeight: 600, cursor: 'pointer', fontSize: '0.875rem' }} title="Ver Cta. Cte.">
+                      CC <ArrowRight size={14} />
+                    </button>
+                    <button onClick={(e) => { e.stopPropagation(); handleEditCustomer(item); }} style={{ background: 'none', border: 'none', color: '#2563eb', cursor: 'pointer' }} title="Editar">
+                      <Edit2 size={18} />
+                    </button>
+                    <button onClick={(e) => { e.stopPropagation(); handleDeleteCustomer(item); }} style={{ background: 'none', border: 'none', color: '#dc2626', cursor: 'pointer' }} title="Eliminar">
+                      <Trash2 size={18} />
+                    </button>
+                  </div>
                 ),
                 align: 'right'
               }

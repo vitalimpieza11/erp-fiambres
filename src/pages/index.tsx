@@ -11,7 +11,7 @@ import { Table } from '../components/ui/Table';
 export { Productos } from './Productos';
 export { Stock } from './Stock';
 export { Compras } from './Compras';
-export { Produccion } from './Produccion';
+export { Pedidos } from './Pedidos';
 export { Ventas } from './Ventas';
 export { Clientes } from './Clientes';
 export { Precios } from './Precios';
@@ -27,7 +27,7 @@ export { Login } from './Login';
 
 // --- Compras moved to Compras.tsx ---
 
-// --- Produccion moved to Produccion.tsx ---
+export { Produccion } from './Produccion';
 
 // --- Clientes moved to Clientes.tsx ---
 

@@ -44,6 +44,10 @@ export interface SystemSettings {
   tesoreria_fondoCajaFijo: number;
   tesoreria_bancos: string;
   tesoreria_mediosPago: string;
+  
+  currencies: { code: string; symbol: string; rate: number }[];
+  reinvestment_categories: string[];
+  expense_categories: string[];
 }
 
 const defaultSettings: SystemSettings = {
@@ -60,9 +64,9 @@ const defaultSettings: SystemSettings = {
   comercial_margenDefault: 30,
   comercial_politicaDescuento: "1",
   
-  costo_bolsa: 15,
-  costo_etiqueta: 8.5,
-  costo_manoObra: 250,
+  costo_bolsa: 0,
+  costo_etiqueta: 0,
+  costo_manoObra: 0,
   
   ventas_numeracionAutomatica: true,
   ventas_prefijoRemito: "REM-0001",
@@ -86,7 +90,34 @@ const defaultSettings: SystemSettings = {
   
   tesoreria_fondoCajaFijo: 50000,
   tesoreria_bancos: "Banco Galicia\nBanco Santander\nMercado Pago",
-  tesoreria_mediosPago: "Efectivo\nTransferencia\nCheque a 30 días\nCheque a 60 días"
+  tesoreria_mediosPago: "Efectivo\nTransferencia\nCheque a 30 días\nCheque a 60 días",
+  
+  currencies: [
+    { code: 'ARS', symbol: '$', rate: 1 },
+    { code: 'USD', symbol: 'U$S', rate: 1000 }
+  ],
+  reinvestment_categories: [
+    'Maquinaria',
+    'Vehículos',
+    'Marketing',
+    'Tecnología',
+    'Infraestructura',
+    'Mercadería estratégica',
+    'Capital de trabajo'
+  ],
+  expense_categories: [
+    'Mercadería',
+    'Alquiler',
+    'Servicios',
+    'Sueldos',
+    'Impuestos',
+    'Combustible',
+    'Logística',
+    'Marketing',
+    'Mantenimiento',
+    'Honorarios',
+    'Otros'
+  ]
 };
 
 export const useSettings = () => {

@@ -1,34 +1,7 @@
 import { parseNumber } from '../utils/format';
-import type { Product, Sale, Purchase, ProductionBatch, Customer, Supplier, SystemSettings } from '../types/database';
+import type { Sale, Purchase, Customer, Supplier, SystemSettings, Mercaderia, Insumo, Presentacion } from '../types/database';
 
 export class DatabaseMapper {
-  static toDomainProduct(data: any, id?: string): Product {
-    return {
-      id: id || data.id,
-      name: data.name || '',
-      category: data.category || 'fiambres',
-      brand: data.brand || '',
-      provider: data.provider || '',
-      observations: data.observations || '',
-      isActive: typeof data.isActive === 'boolean' ? data.isActive : true,
-      
-      costoHorma: parseNumber(data.costoHorma),
-      pesoHorma: parseNumber(data.pesoHorma),
-      pesoFeta: parseNumber(data.pesoFeta),
-      mermaEstimada: parseNumber(data.mermaEstimada),
-      gramajeVenta: parseNumber(data.gramajeVenta) || 200,
-      
-      costoBolsa: parseNumber(data.costoBolsa),
-      costoEtiqueta: parseNumber(data.costoEtiqueta),
-      manoObra: parseNumber(data.manoObra),
-      margenDeseado: parseNumber(data.margenDeseado),
-      precioManual: parseNumber(data.precioManual),
-      
-      createdAt: data.createdAt,
-      updatedAt: data.updatedAt
-    };
-  }
-
   static toDomainSale(data: any, id?: string): Sale {
     return {
       id: id || data.id,
@@ -48,6 +21,7 @@ export class DatabaseMapper {
       paymentStatus: data.paymentStatus || 'pending',
       paymentMethod: data.paymentMethod || 'cash',
       remitoNumber: data.remitoNumber || '',
+      orderId: data.orderId || undefined,
       date: data.date || Date.now(),
       createdAt: data.createdAt || Date.now(),
       updatedAt: data.updatedAt || Date.now()
@@ -68,25 +42,6 @@ export class DatabaseMapper {
       total: parseNumber(data.total),
       status: data.status || 'pending',
       invoiceNumber: data.invoiceNumber || '',
-      date: data.date || Date.now(),
-      createdAt: data.createdAt || Date.now(),
-      updatedAt: data.updatedAt || Date.now()
-    };
-  }
-
-  static toDomainProductionBatch(data: any, id?: string): ProductionBatch {
-    return {
-      id: id || data.id,
-      productId: data.productId || '',
-      productName: data.productName || '',
-      quantityProduced: parseNumber(data.quantityProduced),
-      rawMaterialsUsed: Array.isArray(data.rawMaterialsUsed) ? data.rawMaterialsUsed.map((rm: any) => ({
-        productId: rm.productId || '',
-        quantity: parseNumber(rm.quantity)
-      })) : [],
-      cost: parseNumber(data.cost),
-      mermaPercent: parseNumber(data.mermaPercent),
-      status: data.status || 'planned',
       date: data.date || Date.now(),
       createdAt: data.createdAt || Date.now(),
       updatedAt: data.updatedAt || Date.now()
@@ -166,7 +121,81 @@ export class DatabaseMapper {
       
       tesoreria_fondoCajaFijo: parseNumber(data.tesoreria_fondoCajaFijo) || 50000,
       tesoreria_bancos: data.tesoreria_bancos || '',
-      tesoreria_mediosPago: data.tesoreria_mediosPago || ''
+      tesoreria_mediosPago: data.tesoreria_mediosPago || '',
+      
+      currencies: data.currencies || [
+        { code: 'ARS', symbol: '$', rate: 1 },
+        { code: 'USD', symbol: 'U$S', rate: 1000 }
+      ],
+      reinvestment_categories: data.reinvestment_categories || [
+        'Maquinaria',
+        'Vehículos',
+        'Marketing',
+        'Tecnología',
+        'Infraestructura',
+        'Mercadería estratégica',
+        'Capital de trabajo'
+      ],
+      expense_categories: data.expense_categories || [
+        'Mercadería',
+        'Alquiler',
+        'Servicios',
+        'Sueldos',
+      ]
+    };
+  }
+
+  static toDomainMercaderia(data: any, id?: string): Mercaderia {
+    return {
+      id: id || data.id,
+      name: data.name || '',
+      category: data.category || 'fiambres',
+      costoKg: parseNumber(data.costoKg),
+      stockKg: parseNumber(data.stockKg),
+      provider: data.provider || '',
+      observations: data.observations || '',
+      pesoFeta: parseNumber(data.pesoFeta) || 0,
+      mermaEstimada: parseNumber(data.mermaEstimada) || 0,
+      isActive: typeof data.isActive === 'boolean' ? data.isActive : true,
+      createdAt: data.createdAt,
+      updatedAt: data.updatedAt
+    };
+  }
+
+  static toDomainInsumo(data: any, id?: string): Insumo {
+    return {
+      id: id || data.id,
+      name: data.name || '',
+      costoUnitario: parseNumber(data.costoUnitario) || parseNumber(data.costoBolsa) || parseNumber(data.costoEtiqueta) || 0,
+      stockUnidades: parseNumber(data.stockUnidades),
+      observations: data.observations || '',
+      isActive: typeof data.isActive === 'boolean' ? data.isActive : true,
+      createdAt: data.createdAt,
+      updatedAt: data.updatedAt
+    };
+  }
+
+  static toDomainPresentacion(data: any, id?: string): Presentacion {
+    return {
+      id: id || data.id,
+      name: data.name || '',
+      customerId: data.customerId || '',
+      customerName: data.customerName || '',
+      productoBaseId: data.productoBaseId || '',
+      productoBaseName: data.productoBaseName || '',
+      recetaId: data.recetaId || '',
+      pesoObjetivoGramos: parseNumber(data.pesoObjetivoGramos) || parseNumber(data.gramajeVenta) || 200,
+      cantidadFetasEstimada: parseNumber(data.cantidadFetasEstimada) || 0,
+      bolsaId: data.bolsaId || '',
+      bolsaName: data.bolsaName || '',
+      etiquetaId: data.etiquetaId || '',
+      etiquetaName: data.etiquetaName || '',
+      precioVentaKg: parseNumber(data.precioVentaKg) || 0,
+      manoObra: data.manoObra !== undefined ? parseNumber(data.manoObra) : undefined,
+      observations: data.observations || '',
+      isActive: typeof data.isActive === 'boolean' ? data.isActive : true,
+      createdAt: data.createdAt,
+      updatedAt: data.updatedAt
     };
   }
 }

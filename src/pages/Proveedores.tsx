@@ -7,7 +7,7 @@ import { Input, Select } from '../components/ui/Forms';
 import { 
   Truck, Search, Filter, Plus, ArrowLeft, Save, 
   Building2, Phone, MapPin, CreditCard, FileText, 
-  DollarSign, Clock, CheckCircle2, Loader2
+  DollarSign, Clock, CheckCircle2, Loader2, Edit2, Trash2
 } from 'lucide-react';
 import { formatCurrency, parseNumber } from '../utils/format';
 import { useSuppliers } from '../hooks/useSuppliers';
@@ -15,7 +15,7 @@ import { useSuppliers } from '../hooks/useSuppliers';
 const mockCC: any[] = [];
 
 export const Proveedores = () => {
-  const { suppliers, loading, error, saveSupplier } = useSuppliers();
+  const { suppliers, loading, error, saveSupplier, deleteSupplier } = useSuppliers();
   const [viewState, setViewState] = useState<'list' | 'create' | 'account'>('list');
   const [selectedSupplier, setSelectedSupplier] = useState<any | null>(null);
   const [isPaying, setIsPaying] = useState(false);
@@ -52,8 +52,9 @@ export const Proveedores = () => {
         address: address || '',
         category: category || 'General',
         isActive: true
-      });
+      }, selectedSupplier?.id);
       setViewState('list');
+      setSelectedSupplier(null);
       // Reset form
       setName('');
       setCategory('');
@@ -82,6 +83,7 @@ export const Proveedores = () => {
   const mappedProveedores = suppliers.map((s: any) => {
     const balance = (s as any).currentBalance || 0;
     return {
+      _original: s,
       id: s.id!,
       name: s.name,
       category: s.category || 'General',
@@ -93,6 +95,32 @@ export const Proveedores = () => {
       rawBalance: balance
     };
   });
+
+  const handleEditSupplier = (item: any) => {
+    const s = item._original;
+    setSelectedSupplier(s);
+    setName(s.name || '');
+    setCategory(s.category || 'General');
+    setCuit(s.cuit || '');
+    setContact(s.contact || '');
+    setPhone(s.phone || '');
+    setEmail(s.email || '');
+    setAddress(s.address || '');
+    setPaymentTerms(s.paymentTerms || 'contado');
+    setCreditLimitStr(s.creditLimitStr || '');
+    setNotes(s.notes || '');
+    setViewState('create');
+  };
+
+  const handleDeleteSupplier = async (item: any) => {
+    if (window.confirm(`¿Estás seguro de eliminar el proveedor ${item.name}?`)) {
+      try {
+        await deleteSupplier(item.id);
+      } catch (e: any) {
+        alert(e.message || "Error al eliminar.");
+      }
+    }
+  };
 
   // VISTA CREAR PROVEEDOR
   if (viewState === 'create') {
@@ -108,7 +136,9 @@ export const Proveedores = () => {
               <ArrowLeft size={20} color="var(--text-secondary)" />
             </button>
             <div>
-              <h1 style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--text-primary)' }}>Nuevo Proveedor</h1>
+              <h1 style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--text-primary)' }}>
+                {selectedSupplier ? 'Editar Proveedor' : 'Nuevo Proveedor'}
+              </h1>
               <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>Alta de proveedores e insumos</p>
             </div>
           </div>
@@ -305,7 +335,20 @@ export const Proveedores = () => {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '24px' }}>
         <PageHeader title="Proveedores" description="Gestión de compras, pagos y cuentas corrientes" />
         <button 
-          onClick={() => setViewState('create')}
+          onClick={() => {
+            setSelectedSupplier(null);
+            setName('');
+            setCategory('');
+            setCuit('');
+            setContact('');
+            setPhone('');
+            setEmail('');
+            setAddress('');
+            setPaymentTerms('contado');
+            setCreditLimitStr('');
+            setNotes('');
+            setViewState('create');
+          }}
           className="btn btn-primary"
         >
           <Plus size={18} />
@@ -378,11 +421,19 @@ export const Proveedores = () => {
                 align: 'center'
               },
               {
-                header: '',
+                header: 'Acciones',
                 accessor: (item) => (
-                  <button onClick={() => handleOpenAccount(item)} style={{ background: 'none', border: 'none', color: 'var(--primary-color)', cursor: 'pointer', fontWeight: 600, fontSize: '0.875rem' }}>
-                    Ver Cta. Cte.
-                  </button>
+                  <div style={{ display: 'flex', gap: '8px', justifyContent: 'center' }}>
+                    <button onClick={() => handleOpenAccount(item)} style={{ background: 'none', border: 'none', color: 'var(--primary-color)', cursor: 'pointer', fontWeight: 600, fontSize: '0.875rem' }} title="Ver Cta. Cte.">
+                      <FileText size={18} />
+                    </button>
+                    <button onClick={(e) => { e.stopPropagation(); handleEditSupplier(item); }} style={{ background: 'none', border: 'none', color: '#2563eb', cursor: 'pointer' }} title="Editar">
+                      <Edit2 size={18} />
+                    </button>
+                    <button onClick={(e) => { e.stopPropagation(); handleDeleteSupplier(item); }} style={{ background: 'none', border: 'none', color: '#dc2626', cursor: 'pointer' }} title="Eliminar">
+                      <Trash2 size={18} />
+                    </button>
+                  </div>
                 ),
                 align: 'center'
               }

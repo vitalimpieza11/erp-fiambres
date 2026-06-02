@@ -1,12 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { 
   Building2, Briefcase, FileText, Package, Users, Landmark, MonitorSmartphone,
-  Save, Download, Upload, RotateCcw, Image, FileBadge2, Check, ShieldCheck, AlertTriangle, Loader2, CheckCircle2
+  Save, Download, Upload, RotateCcw, Image, FileBadge2, Check, ShieldCheck, AlertTriangle, Loader2, CheckCircle2,
+  Plus, Trash2, Edit2, Coins, DollarSign
 } from 'lucide-react';
 import { PageHeader } from '../components/EmptyState';
 import { Card, CardHeader } from '../components/ui/Card';
 import { Input, Select, Toggle } from '../components/ui/Forms';
 import { useSettings, type SystemSettings } from '../hooks/useSettings';
+import { useSocietaria } from '../hooks/useSocietaria';
+import { useBanks } from '../hooks/useBanks';
 
 export const Configuracion = () => {
   const [activeTab, setActiveTab] = useState('empresa');
@@ -16,6 +19,31 @@ export const Configuracion = () => {
   const [localSettings, setLocalSettings] = useState<SystemSettings | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [showToast, setShowToast] = useState(false);
+
+  // Partners CRUD form states
+  const { partners, savePartner, deletePartner } = useSocietaria();
+  const [partnerName, setPartnerName] = useState('');
+  const [partnerShare, setPartnerShare] = useState('50');
+  const [partnerActive, setPartnerActive] = useState(true);
+  const [partnerObs, setPartnerObs] = useState('');
+  const [editingPartnerId, setEditingPartnerId] = useState<string | null>(null);
+
+  // Banks CRUD form states
+  const { banks, saveBank, deleteBank } = useBanks();
+  const [bankName, setBankName] = useState('');
+  const [bankAccountType, setBankAccountType] = useState('Cuenta Corriente');
+  const [bankCurrency, setBankCurrency] = useState('ARS');
+  const [bankActive, setBankActive] = useState(true);
+  const [editingBankId, setEditingBankId] = useState<string | null>(null);
+
+  // Currency form states
+  const [newCurrencyCode, setNewCurrencyCode] = useState('');
+  const [newCurrencySymbol, setNewCurrencySymbol] = useState('');
+  const [newCurrencyRate, setNewCurrencyRate] = useState('1');
+
+  // Categories states
+  const [newExpenseCategory, setNewExpenseCategory] = useState('');
+  const [newReinvestmentCategory, setNewReinvestmentCategory] = useState('');
 
   useEffect(() => {
     if (settings) {
@@ -51,6 +79,10 @@ export const Configuracion = () => {
     { id: 'stock', label: 'Stock & Producción', icon: Package },
     { id: 'clientes', label: 'Clientes & Créditos', icon: Users },
     { id: 'tesoreria', label: 'Tesorería', icon: Landmark },
+    { id: 'bancos', label: 'Cuentas Bancarias', icon: Landmark },
+    { id: 'socios', label: 'Socios', icon: Users },
+    { id: 'monedas', label: 'Monedas & TC', icon: Coins },
+    { id: 'categorias', label: 'Categorías Gastos/Reinv', icon: Landmark },
     { id: 'sistema', label: 'Sistema', icon: MonitorSmartphone },
   ];
 
@@ -245,10 +277,11 @@ export const Configuracion = () => {
                 <CardHeader title="Caja y Bancos" subtitle="Configuración financiera" />
                 <div style={{ marginTop: '24px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
                   <Input label="Fondo de Caja Fijo Diario ($)" type="number" value={localSettings.tesoreria_fondoCajaFijo} onChange={e => updateField('tesoreria_fondoCajaFijo', Number(e.target.value))} />
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                     <label style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)' }}>Bancos Operativos</label>
-                     <textarea style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid var(--border-color)', outline: 'none', minHeight: '80px', fontFamily: 'inherit' }} value={localSettings.tesoreria_bancos} onChange={e => updateField('tesoreria_bancos', e.target.value)} />
-                     <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Un banco por línea</span>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', justifyContent: 'center' }}>
+                     <label style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-secondary)' }}>Bancos Operativos</label>
+                     <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
+                       La configuración de bancos ha sido migrada a una sección dedicada. Utilice la pestaña <strong>Cuentas Bancarias</strong> para administrar las cuentas de forma granular.
+                     </p>
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
                      <label style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--text-secondary)' }}>Medios de Pago Habilitados</label>
@@ -289,6 +322,462 @@ export const Configuracion = () => {
                 </div>
               </div>
            )}
+
+            {activeTab === 'bancos' && (
+              <Card>
+                <CardHeader title="Gestión de Cuentas Bancarias" subtitle="Administra las cuentas bancarias operativas de la empresa" />
+                <div style={{ marginTop: '24px', display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '24px' }}>
+                  {/* Formulario de Alta/Edición */}
+                  <div style={{ padding: '16px', border: '1px solid var(--border-color)', borderRadius: '8px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                    <h4 style={{ fontWeight: 600, fontSize: '1rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '8px' }}>
+                      {editingBankId ? 'Editar Cuenta' : 'Nueva Cuenta'}
+                    </h4>
+                    <Input label="Nombre del Banco" value={bankName} onChange={e => setBankName(e.target.value)} placeholder="Ej: Banco Galicia" />
+                    <Select 
+                      label="Tipo de Cuenta" 
+                      value={bankAccountType} 
+                      onChange={e => setBankAccountType(e.target.value)} 
+                      options={[
+                        { value: 'Cuenta Corriente', label: 'Cuenta Corriente' },
+                        { value: 'Caja de Ahorro', label: 'Caja de Ahorro' },
+                        { value: 'Virtual (e-wallet)', label: 'Virtual (e-wallet)' }
+                      ]} 
+                    />
+                    <Select 
+                      label="Moneda" 
+                      value={bankCurrency} 
+                      onChange={e => setBankCurrency(e.target.value)} 
+                      options={(localSettings.currencies || []).map((c) => ({ value: c.code, label: `${c.code} (${c.symbol})` }))} 
+                    />
+                    <Toggle label="Activa" checked={bankActive} onChange={setBankActive} />
+                    
+                    <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
+                      <button 
+                        onClick={async () => {
+                          if (!bankName) return alert('Ingrese el nombre del banco');
+                          await saveBank({
+                            name: bankName,
+                            accountType: bankAccountType,
+                            currency: bankCurrency,
+                            isActive: bankActive
+                          }, editingBankId || undefined);
+                          
+                          // Reset Form
+                          setBankName('');
+                          setBankAccountType('Cuenta Corriente');
+                          setBankCurrency('ARS');
+                          setBankActive(true);
+                          setEditingBankId(null);
+                        }}
+                        className="btn btn-primary"
+                        style={{ flex: 1 }}
+                      >
+                        <Save size={16} /> Guardar
+                      </button>
+                      {editingBankId && (
+                        <button 
+                          onClick={() => {
+                            setBankName('');
+                            setBankAccountType('Cuenta Corriente');
+                            setBankCurrency('ARS');
+                            setBankActive(true);
+                            setEditingBankId(null);
+                          }}
+                          className="btn btn-secondary"
+                        >
+                          Cancelar
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Listado de Cuentas */}
+                  <div>
+                    <h4 style={{ fontWeight: 600, fontSize: '1rem', marginBottom: '16px' }}>Cuentas Configuradas</h4>
+                    {(banks || []).length === 0 ? (
+                      <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>No hay cuentas bancarias registradas.</p>
+                    ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                        {(banks || []).map(b => (
+                          <div 
+                            key={b.id} 
+                            style={{ 
+                              padding: '12px', borderRadius: '8px', border: '1px solid var(--border-color)', 
+                              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                              backgroundColor: b.isActive ? 'transparent' : 'var(--bg-secondary)',
+                              opacity: b.isActive ? 1 : 0.7
+                            }}
+                          >
+                            <div>
+                              <span style={{ fontWeight: 700, fontSize: '1rem', marginRight: '8px' }}>{b.name}</span>
+                              <div style={{ display: 'flex', gap: '8px', marginTop: '4px', flexWrap: 'wrap' }}>
+                                <span style={{ 
+                                  padding: '2px 8px', borderRadius: '9999px', fontSize: '0.75rem', fontWeight: 600,
+                                  backgroundColor: 'var(--secondary-light)', color: 'var(--text-primary)'
+                                }}>
+                                  {b.accountType}
+                                </span>
+                                <span style={{ 
+                                  padding: '2px 8px', borderRadius: '9999px', fontSize: '0.75rem', fontWeight: 600,
+                                  backgroundColor: 'var(--primary-light)', color: 'var(--primary-color)'
+                                }}>
+                                  {b.currency}
+                                </span>
+                                {!b.isActive && <span style={{ fontSize: '0.75rem', color: '#dc2626', fontWeight: 600 }}>Inactiva</span>}
+                              </div>
+                            </div>
+                            <div style={{ display: 'flex', gap: '8px' }}>
+                              <button 
+                                onClick={() => {
+                                  setBankName(b.name);
+                                  setBankAccountType(b.accountType);
+                                  setBankCurrency(b.currency);
+                                  setBankActive(b.isActive);
+                                  setEditingBankId(b.id!);
+                                }}
+                                className="btn btn-icon"
+                                style={{ color: '#2563eb', padding: '4px', background: 'none', border: 'none', cursor: 'pointer' }}
+                                title="Editar"
+                              >
+                                <Edit2 size={16} />
+                              </button>
+                              <button 
+                                onClick={async () => {
+                                  if (confirm(`¿Estás seguro de eliminar la cuenta de ${b.name}?`)) {
+                                    await deleteBank(b.id!);
+                                  }
+                                }}
+                                className="btn btn-icon"
+                                style={{ color: '#dc2626', padding: '4px', background: 'none', border: 'none', cursor: 'pointer' }}
+                                title="Eliminar"
+                              >
+                                <Trash2 size={16} />
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </Card>
+            )}
+
+            {activeTab === 'socios' && (
+              <Card>
+                <CardHeader title="Gestión de Socios" subtitle="Administra los socios del negocio y su participación (%)" />
+                <div style={{ marginTop: '24px', display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '24px' }}>
+                  {/* Formulario de Alta/Edición */}
+                  <div style={{ padding: '16px', border: '1px solid var(--border-color)', borderRadius: '8px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                    <h4 style={{ fontWeight: 600, fontSize: '1rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '8px' }}>
+                      {editingPartnerId ? 'Editar Socio' : 'Nuevo Socio'}
+                    </h4>
+                    <Input label="Nombre" value={partnerName} onChange={e => setPartnerName(e.target.value)} placeholder="Ej: Lucas" />
+                    <Input label="Participación (%)" type="number" value={partnerShare} onChange={e => setPartnerShare(e.target.value)} placeholder="Ej: 50" min="0" max="100" />
+                    <Toggle label="Activo" checked={partnerActive} onChange={setPartnerActive} />
+                    <Input label="Observaciones" value={partnerObs} onChange={e => setPartnerObs(e.target.value)} placeholder="Detalle..." />
+                    
+                    <div style={{ display: 'flex', gap: '8px', marginTop: '12px' }}>
+                      <button 
+                        onClick={async () => {
+                          if (!partnerName) return alert('Ingrese el nombre');
+                          const shareNum = parseFloat(partnerShare) || 0;
+                          await savePartner({
+                            name: partnerName,
+                            share: shareNum,
+                            isActive: partnerActive,
+                            observations: partnerObs
+                          }, editingPartnerId || undefined);
+                          
+                          // Reset Form
+                          setPartnerName('');
+                          setPartnerShare('50');
+                          setPartnerActive(true);
+                          setPartnerObs('');
+                          setEditingPartnerId(null);
+                        }}
+                        className="btn btn-primary"
+                        style={{ flex: 1 }}
+                      >
+                        <Save size={16} /> Guardar
+                      </button>
+                      {editingPartnerId && (
+                        <button 
+                          onClick={() => {
+                            setPartnerName('');
+                            setPartnerShare('50');
+                            setPartnerActive(true);
+                            setPartnerObs('');
+                            setEditingPartnerId(null);
+                          }}
+                          className="btn btn-secondary"
+                        >
+                          Cancelar
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Listado de Socios */}
+                  <div>
+                    <h4 style={{ fontWeight: 600, fontSize: '1rem', marginBottom: '16px' }}>Listado de Socios</h4>
+                    {(partners || []).length === 0 ? (
+                      <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>No hay socios registrados.</p>
+                    ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                        {(partners || []).map(p => (
+                          <div 
+                            key={p.id} 
+                            style={{ 
+                              padding: '12px', borderRadius: '8px', border: '1px solid var(--border-color)', 
+                              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                              backgroundColor: p.isActive ? 'transparent' : 'var(--bg-secondary)',
+                              opacity: p.isActive ? 1 : 0.7
+                            }}
+                          >
+                            <div>
+                              <span style={{ fontWeight: 700, fontSize: '1rem', marginRight: '8px' }}>{p.name}</span>
+                              <span style={{ 
+                                padding: '2px 8px', borderRadius: '9999px', fontSize: '0.75rem', fontWeight: 600,
+                                backgroundColor: 'var(--primary-light)', color: 'var(--primary-color)'
+                              }}>
+                                {p.share}% participación
+                              </span>
+                              {!p.isActive && <span style={{ marginLeft: '8px', fontSize: '0.75rem', color: '#dc2626', fontWeight: 600 }}>Inactivo</span>}
+                              {p.observations && <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '4px' }}>{p.observations}</p>}
+                            </div>
+                            <div style={{ display: 'flex', gap: '8px' }}>
+                              <button 
+                                onClick={() => {
+                                  setPartnerName(p.name);
+                                  setPartnerShare(p.share.toString());
+                                  setPartnerActive(p.isActive);
+                                  setPartnerObs(p.observations);
+                                  setEditingPartnerId(p.id!);
+                                }}
+                                className="btn btn-icon"
+                                style={{ color: '#2563eb', padding: '4px', background: 'none', border: 'none', cursor: 'pointer' }}
+                                title="Editar"
+                              >
+                                <Edit2 size={16} />
+                              </button>
+                              <button 
+                                onClick={async () => {
+                                  if (confirm(`¿Estás seguro de eliminar al socio ${p.name}?`)) {
+                                    await deletePartner(p.id!);
+                                  }
+                                }}
+                                className="btn btn-icon"
+                                style={{ color: '#dc2626', padding: '4px', background: 'none', border: 'none', cursor: 'pointer' }}
+                                title="Eliminar"
+                              >
+                                <Trash2 size={16} />
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </Card>
+            )}
+
+            {activeTab === 'monedas' && (
+              <Card>
+                <CardHeader title="Gestión de Monedas y Tipo de Cambio" subtitle="Administra las monedas de transacción y sus cotizaciones en ARS" />
+                <div style={{ marginTop: '24px', display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '24px' }}>
+                  {/* Formulario de Alta de Moneda */}
+                  <div style={{ padding: '16px', border: '1px solid var(--border-color)', borderRadius: '8px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                    <h4 style={{ fontWeight: 600, fontSize: '1rem', borderBottom: '1px solid var(--border-color)', paddingBottom: '8px' }}>
+                      Agregar Moneda
+                    </h4>
+                    <Input label="Código (e.g. USD, EUR)" value={newCurrencyCode} onChange={e => setNewCurrencyCode(e.target.value.toUpperCase())} placeholder="USD" />
+                    <Input label="Símbolo (e.g. U$S, €)" value={newCurrencySymbol} onChange={e => setNewCurrencySymbol(e.target.value)} placeholder="U$S" />
+                    <Input label="Tipo de Cambio (en ARS)" type="number" value={newCurrencyRate} onChange={e => setNewCurrencyRate(e.target.value)} placeholder="Cotización..." />
+                    
+                    <button 
+                      onClick={() => {
+                        if (!newCurrencyCode || !newCurrencySymbol) return alert('Complete los campos');
+                        const rateNum = parseFloat(newCurrencyRate) || 1;
+                        const currenciesList = localSettings.currencies || [];
+                        const exists = currenciesList.some(c => c.code === newCurrencyCode);
+                        if (exists) return alert('La moneda ya existe');
+                        
+                        const updated = [...currenciesList, { code: newCurrencyCode, symbol: newCurrencySymbol, rate: rateNum }];
+                        updateField('currencies', updated);
+                        
+                        // Reset Form
+                        setNewCurrencyCode('');
+                        setNewCurrencySymbol('');
+                        setNewCurrencyRate('1');
+                      }}
+                      className="btn btn-primary"
+                      style={{ marginTop: '12px' }}
+                    >
+                      <Plus size={16} /> Agregar Moneda
+                    </button>
+                  </div>
+
+                  {/* Listado de Monedas & Cotizaciones */}
+                  <div>
+                    <h4 style={{ fontWeight: 600, fontSize: '1rem', marginBottom: '16px' }}>Monedas Habilitadas</h4>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                      {(localSettings.currencies || []).map((curr, idx) => (
+                        <div 
+                          key={curr.code} 
+                          style={{ 
+                            padding: '12px 16px', borderRadius: '8px', border: '1px solid var(--border-color)',
+                            display: 'flex', justifyContent: 'space-between', alignItems: 'center'
+                          }}
+                        >
+                          <div>
+                            <span style={{ fontWeight: 700, fontSize: '1.1rem', marginRight: '8px' }}>{curr.code}</span>
+                            <span style={{ color: 'var(--text-secondary)' }}>({curr.symbol})</span>
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                            <span style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>Tipo de Cambio (1 {curr.code} = x ARS):</span>
+                            {curr.code === 'ARS' ? (
+                              <span style={{ fontWeight: 600, width: '100px', textAlign: 'right' }}>1.00 (Base)</span>
+                            ) : (
+                              <input 
+                                type="number" 
+                                value={curr.rate} 
+                                onChange={(e) => {
+                                  const val = parseFloat(e.target.value) || 0;
+                                  const updated = (localSettings.currencies || []).map((c, i) => i === idx ? { ...c, rate: val } : c);
+                                  updateField('currencies', updated);
+                                }}
+                                style={{ width: '100px', padding: '6px 8px', borderRadius: '6px', border: '1px solid var(--border-color)', textAlign: 'right', fontWeight: 600 }}
+                              />
+                            )}
+                            {curr.code !== 'ARS' && curr.code !== 'USD' && (
+                              <button 
+                                onClick={() => {
+                                  const updated = (localSettings.currencies || []).filter(c => c.code !== curr.code);
+                                  updateField('currencies', updated);
+                                }}
+                                style={{ color: '#dc2626', background: 'none', border: 'none', cursor: 'pointer' }}
+                                title="Eliminar Moneda"
+                              >
+                                <Trash2 size={16} />
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </Card>
+            )}
+
+            {activeTab === 'categorias' && (
+              <Card>
+                <CardHeader title="Categorías de Gastos y Reinversiones" subtitle="Administra las clasificaciones para un mejor desglose financiero" />
+                <div style={{ marginTop: '24px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
+                  {/* Panel Categorías de Gastos */}
+                  <div style={{ padding: '16px', border: '1px solid var(--border-color)', borderRadius: '8px' }}>
+                    <h4 style={{ fontWeight: 600, fontSize: '1rem', marginBottom: '16px' }}>Categorías de Gastos</h4>
+                    <div style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
+                      <input 
+                        type="text" 
+                        value={newExpenseCategory} 
+                        onChange={e => setNewExpenseCategory(e.target.value)} 
+                        placeholder="Nueva categoría de gasto..." 
+                        style={{ flex: 1, padding: '8px 12px', borderRadius: '6px', border: '1px solid var(--border-color)', outline: 'none' }}
+                      />
+                      <button 
+                        onClick={() => {
+                          if (!newExpenseCategory) return;
+                          const expList = localSettings.expense_categories || [];
+                          if (expList.includes(newExpenseCategory)) return alert('Ya existe');
+                          const updated = [...expList, newExpenseCategory];
+                          updateField('expense_categories', updated);
+                          setNewExpenseCategory('');
+                        }}
+                        className="btn btn-primary"
+                        style={{ padding: '8px 12px' }}
+                      >
+                        <Plus size={16} /> Add
+                      </button>
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', maxHeight: '300px', overflowY: 'auto' }}>
+                      {(localSettings.expense_categories || []).map((cat) => (
+                        <div 
+                          key={cat} 
+                          style={{ 
+                            padding: '8px 12px', borderRadius: '6px', border: '1px solid var(--border-color)', 
+                            display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.875rem'
+                          }}
+                        >
+                          <span>{cat}</span>
+                          <button 
+                            onClick={() => {
+                              const updated = (localSettings.expense_categories || []).filter(c => c !== cat);
+                              updateField('expense_categories', updated);
+                            }}
+                            style={{ color: '#dc2626', background: 'none', border: 'none', cursor: 'pointer' }}
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Panel Categorías de Reinversión */}
+                  <div style={{ padding: '16px', border: '1px solid var(--border-color)', borderRadius: '8px' }}>
+                    <h4 style={{ fontWeight: 600, fontSize: '1rem', marginBottom: '16px' }}>Categorías de Reinversión</h4>
+                    <div style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
+                      <input 
+                        type="text" 
+                        value={newReinvestmentCategory} 
+                        onChange={e => setNewReinvestmentCategory(e.target.value)} 
+                        placeholder="Nueva categoría de reinversión..." 
+                        style={{ flex: 1, padding: '8px 12px', borderRadius: '6px', border: '1px solid var(--border-color)', outline: 'none' }}
+                      />
+                      <button 
+                        onClick={() => {
+                          if (!newReinvestmentCategory) return;
+                          const reinvList = localSettings.reinvestment_categories || [];
+                          if (reinvList.includes(newReinvestmentCategory)) return alert('Ya existe');
+                          const updated = [...reinvList, newReinvestmentCategory];
+                          updateField('reinvestment_categories', updated);
+                          setNewReinvestmentCategory('');
+                        }}
+                        className="btn btn-primary"
+                        style={{ padding: '8px 12px' }}
+                      >
+                        <Plus size={16} /> Add
+                      </button>
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', maxHeight: '300px', overflowY: 'auto' }}>
+                      {(localSettings.reinvestment_categories || []).map((cat) => (
+                        <div 
+                          key={cat} 
+                          style={{ 
+                            padding: '8px 12px', borderRadius: '6px', border: '1px solid var(--border-color)', 
+                            display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.875rem'
+                          }}
+                        >
+                          <span>{cat}</span>
+                          <button 
+                            onClick={() => {
+                              const updated = (localSettings.reinvestment_categories || []).filter(c => c !== cat);
+                              updateField('reinvestment_categories', updated);
+                            }}
+                            style={{ color: '#dc2626', background: 'none', border: 'none', cursor: 'pointer' }}
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </Card>
+            )}
 
            {/* Botón Guardar Flotante */}
            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '16px' }}>

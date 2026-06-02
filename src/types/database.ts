@@ -1,29 +1,3 @@
-export interface Product {
-  id?: string;
-  name: string;
-  category: string;
-  brand: string;
-  provider: string;
-  observations: string;
-  isActive: boolean;
-
-  costoHorma: number;
-  pesoHorma: number;
-  
-  pesoFeta: number;
-  mermaEstimada: number;
-  gramajeVenta: number;
-  
-  costoBolsa: number;
-  costoEtiqueta: number;
-  manoObra: number;
-  
-  margenDeseado: number;
-  precioManual: number;
-
-  createdAt?: number;
-  updatedAt?: number;
-}
 
 export interface SaleItem {
   productId: string;
@@ -45,6 +19,7 @@ export interface Sale {
   paymentStatus: 'pending' | 'paid' | 'partial';
   paymentMethod: string;
   remitoNumber?: string;
+  orderId?: string;
   date: number;
   createdAt: number;
   updatedAt: number;
@@ -55,6 +30,7 @@ export interface PurchaseItem {
   productName: string;
   quantity: number;
   cost: number;
+  itemType?: string;
 }
 
 export interface Purchase {
@@ -70,24 +46,6 @@ export interface Purchase {
   updatedAt: number;
 }
 
-export interface ProductionItem {
-  productId: string;
-  quantity: number;
-}
-
-export interface ProductionBatch {
-  id?: string;
-  productId: string;
-  productName: string;
-  quantityProduced: number; // in packets or kg
-  rawMaterialsUsed: ProductionItem[];
-  cost: number;
-  mermaPercent: number;
-  status: 'planned' | 'in_progress' | 'completed';
-  date: number;
-  createdAt: number;
-  updatedAt: number;
-}
 
 export interface StockMovement {
   id?: string;
@@ -106,13 +64,26 @@ export interface CashMovement {
   id?: string;
   type: 'in' | 'out';
   amount: number;
+  currency?: string;
   method: 'cash' | 'transfer' | 'cheque';
+  origin?: 'cash' | 'bank';
   description: string;
   category: string; // e.g. 'sale', 'purchase', 'expense', 'withdrawal'
   referenceId?: string;
   date: number;
   createdAt: number;
+  bankId?: string;
 }
+
+export interface ProfitDistribution {
+  id?: string;
+  date: number;
+  amount: number;
+  type: 'reinvestment' | 'distribution'; // 'reinvestment' for Reinversión, 'distribution' for Distribución Societaria
+  observations: string;
+  createdAt: number;
+}
+
 
 export interface ErpEventLog {
   id?: string;
@@ -192,4 +163,106 @@ export interface SystemSettings {
   tesoreria_fondoCajaFijo: number;
   tesoreria_bancos: string;
   tesoreria_mediosPago: string;
+  
+  currencies: { code: string; symbol: string; rate: number }[];
+  reinvestment_categories: string[];
+  expense_categories: string[];
 }
+
+export interface RecipeIngredient {
+  productId: string;
+  productName: string;
+  quantity: number; // weight (kg), percentage, or fetas count
+}
+
+export interface Recipe {
+  id?: string;
+  productId: string; // Presentation ID
+  productName: string; // Presentation name
+  customerId?: string; // Optional customer override
+  customerName?: string;
+  ingredients: RecipeIngredient[];
+  costoManoObra: number;
+  costoAdicional: number;
+  method?: 'weight' | 'percentage' | 'fetas'; // POR PESO, POR PORCENTAJE, POR FETAS
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface OrderItem {
+  productId: string;
+  productName: string;
+  quantity: number; // number of packages or units ordered
+  price: number; // unit price (custom or from list)
+}
+
+export interface Order {
+  id?: string;
+  customerId: string;
+  customerName: string;
+  items: OrderItem[];
+  subtotal: number;
+  discount: number;
+  total: number;
+  status: 'pending' | 'in_production' | 'delivered' | 'invoiced';
+  observations?: string;
+  date: number;
+  createdAt: number;
+  updatedAt: number;
+  // Automatically generated metadata
+  rawMaterialNeeds?: { productId: string; productName: string; quantity: number }[];
+  productionCost?: number;
+  marginPercent?: number;
+  saleId?: string;
+  actualConsumptions?: Record<string, { value: number; unit: string }>;
+  actualProduced?: Record<string, number>;
+}
+
+export interface Mercaderia {
+  id?: string;
+  name: string;
+  category: string;
+  costoKg: number;
+  stockKg: number;
+  provider: string; // proveedor habitual
+  observations: string;
+  pesoFeta: number; // for fetas recipe calculation
+  mermaEstimada: number;
+  isActive: boolean;
+  createdAt?: number;
+  updatedAt?: number;
+}
+
+export interface Insumo {
+  id?: string;
+  name: string;
+  costoUnitario: number;
+  stockUnidades: number;
+  observations: string;
+  isActive: boolean;
+  createdAt?: number;
+  updatedAt?: number;
+}
+
+export interface Presentacion {
+  id?: string;
+  name: string;
+  customerId: string; // cliente
+  customerName?: string;
+  productoBaseId?: string; // productoBase (si aplica)
+  productoBaseName?: string;
+  recetaId?: string; // receta asociada (si aplica)
+  pesoObjetivoGramos: number; // pesoObjetivoGramos
+  cantidadFetasEstimada: number; // cantidadFetasEstimada
+  bolsaId: string; // bolsa utilizada
+  bolsaName?: string;
+  etiquetaId: string; // etiqueta utilizada
+  etiquetaName?: string;
+  precioVentaKg: number; // precioVentaKg
+  manoObra?: number; // Costo mano de obra (si corresponde)
+  observations: string;
+  isActive: boolean;
+  createdAt?: number;
+  updatedAt?: number;
+}
+

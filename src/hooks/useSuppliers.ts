@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { collection, onSnapshot, query, orderBy, doc, setDoc, updateDoc } from 'firebase/firestore';
+import { collection, onSnapshot, query, orderBy, doc, setDoc, updateDoc, deleteDoc } from 'firebase/firestore';
 import { db } from '../firebase/firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { DatabaseMapper } from '../mappers/databaseMapper';
@@ -50,5 +50,10 @@ export const useSuppliers = () => {
     }
   };
 
-  return { suppliers, loading, error, saveSupplier };
+  const deleteSupplier = async (id: string) => {
+    const ref = doc(db, 'suppliers', id);
+    await deleteDoc(ref);
+  };
+
+  return { suppliers, loading, error, saveSupplier, deleteSupplier };
 };

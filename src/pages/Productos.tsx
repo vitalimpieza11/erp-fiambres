@@ -1,395 +1,1121 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { PageHeader, EmptyState } from '../components/EmptyState';
-import { LoadingSpinner, ErrorState, SkeletonLoader } from '../components/AsyncState';
+import { ErrorState, SkeletonLoader } from '../components/AsyncState';
 import { Card } from '../components/ui/Card';
 import { Table } from '../components/ui/Table';
-import { Input, Select, Toggle } from '../components/ui/Forms';
-import { Search, Plus, Filter, ArrowLeft, Save, Info, DollarSign, Package, Tag, TrendingUp, Layers, Loader2, Edit2 } from 'lucide-react';
+import { Input, Select } from '../components/ui/Forms';
+import { 
+  Plus, Edit2, Trash2, Tag, Layers, Settings, HelpCircle, 
+  Percent, Hash, Anchor, DollarSign, Package, User, FileText, ShoppingBag
+} from 'lucide-react';
 import { formatCurrency, formatNumber, parseNumber } from '../utils/format';
-import { useProducts, type Product } from '../hooks/useProducts';
-import { calculateProductMetrics } from '../core/calculations';
+import { useMercaderias } from '../hooks/useMercaderias';
+import { useInsumos } from '../hooks/useInsumos';
+import { usePresentaciones } from '../hooks/usePresentaciones';
+import { useRecipes } from '../hooks/useRecipes';
+import { useCustomers } from '../hooks/useCustomers';
+import { calculatePresentationCost } from '../core/calculations';
+import type { Mercaderia, Insumo, Presentacion, Recipe, RecipeIngredient } from '../types/database';
 
 export const Productos = () => {
-  const { products, loading, error, saveProduct } = useProducts();
-  const [isFormOpen, setIsFormOpen] = useState(false);
+  // Tabs: 'presentaciones' | 'mercaderias' | 'insumos' | 'recetas'
+  const [activeTab, setActiveTab] = useState<'presentaciones' | 'mercaderias' | 'insumos' | 'recetas'>('presentaciones');
 
+  // Hooks
+  const { mercaderias, loading: loadingMerc, error: errorMerc, saveMercaderia, deleteMercaderia } = useMercaderias();
+  const { insumos, loading: loadingIns, error: errorIns, saveInsumo, deleteInsumo } = useInsumos();
+  const { presentaciones, loading: loadingPres, error: errorPres, savePresentacion, deletePresentacion } = usePresentaciones();
+  const { recipes, loading: loadingRec, error: errorRec, saveRecipe, deleteRecipe } = useRecipes();
+  const { customers, loading: loadingCust } = useCustomers();
+
+  // Modals / Form Open States
+  const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
-  
   const [isSaving, setIsSaving] = useState(false);
 
-  const [name, setName] = useState('');
-  const [category, setCategory] = useState('fiambres');
-  const [brand, setBrand] = useState('');
-  const [provider, setProvider] = useState('');
-  const [observations, setObservations] = useState('');
-  const [isActive, setIsActive] = useState(true);
+  // Form States - Mercadería
+  const [mercName, setMercName] = useState('');
+  const [mercCategory, setMercCategory] = useState('fiambres');
+  const [mercCostoKg, setMercCostoKg] = useState('');
+  const [mercPesoFeta, setMercPesoFeta] = useState('');
+  const [mercMerma, setMercMerma] = useState('10');
+  const [mercProvider, setMercProvider] = useState('');
+  const [mercObs, setMercObs] = useState('');
 
-  // States for calculations
-  const [costoHormaStr, setCostoHormaStr] = useState('');
-  const [pesoHormaStr, setPesoHormaStr] = useState('');
-  
-  const [pesoFetaStr, setPesoFetaStr] = useState('');
-  const [mermaEstimadaStr, setMermaEstimadaStr] = useState('');
-  const [gramajeVentaStr, setGramajeVentaStr] = useState('200');
-  
-  const [costoBolsaStr, setCostoBolsaStr] = useState('');
-  const [costoEtiquetaStr, setCostoEtiquetaStr] = useState('');
-  const [manoObraStr, setManoObraStr] = useState('');
-  
-  const [margenDeseadoStr, setMargenDeseadoStr] = useState('');
-  const [precioManualStr, setPrecioManualStr] = useState('');
+  // Form States - Insumo
+  const [insName, setInsName] = useState('');
+  const [insCosto, setInsCosto] = useState('');
+  const [insObs, setInsObs] = useState('');
 
-  // No early-return on error here — we still allow viewing the list when Firestore
-  // has a temporary error after a save, to avoid a blank-screen regression.
+  // Form States - Presentación
+  const [presName, setPresName] = useState('');
+  const [presCustomerId, setPresCustomerId] = useState('');
+  const [presBaseId, setPresBaseId] = useState('');
+  const [presRecetaId, setPresRecetaId] = useState('');
+  const [presPesoGramos, setPresPesoGramos] = useState('200');
+  const [presFetas, setPresFetas] = useState('0');
+  const [presBolsaId, setPresBolsaId] = useState('');
+  const [presEtiquetaId, setPresEtiquetaId] = useState('');
+  const [presPrecioKg, setPresPrecioKg] = useState('');
+  const [presManoObra, setPresManoObra] = useState('0');
+  const [presObs, setPresObs] = useState('');
+  const [presTypeToggle, setPresTypeToggle] = useState<'simple' | 'recipe'>('simple');
 
-  const openForm = (prod?: Product) => {
-    if (prod) {
-      setEditingId(prod.id!);
-      setName(prod.name);
-      setCategory(prod.category);
-      setBrand(prod.brand);
-      setProvider(prod.provider);
-      setObservations(prod.observations);
-      setIsActive(prod.isActive);
-      
-      setCostoHormaStr(prod.costoHorma.toString());
-      setPesoHormaStr(prod.pesoHorma.toString());
-      setPesoFetaStr(prod.pesoFeta.toString());
-      setMermaEstimadaStr(prod.mermaEstimada.toString());
-      setGramajeVentaStr(prod.gramajeVenta.toString());
-      setCostoBolsaStr(prod.costoBolsa.toString());
-      setCostoEtiquetaStr(prod.costoEtiqueta.toString());
-      setManoObraStr(prod.manoObra.toString());
-      setMargenDeseadoStr(prod.margenDeseado.toString());
-      setPrecioManualStr(prod.precioManual > 0 ? prod.precioManual.toString() : '');
+  // Form States - Recetas
+  const [recProductId, setRecProductId] = useState('');
+  const [recCustomerId, setRecCustomerId] = useState('');
+  const [recLaborCost, setRecLaborCost] = useState('0');
+  const [recAdditionalCost, setRecAdditionalCost] = useState('0');
+  const [recMethod, setRecMethod] = useState<'weight' | 'percentage' | 'fetas'>('weight');
+  const [recIngredients, setRecIngredients] = useState<any[]>([]);
+
+  const loading = loadingMerc || loadingIns || loadingPres || loadingRec || loadingCust;
+  const error = errorMerc || errorIns || errorPres || errorRec;
+
+  // Open Handlers
+  const handleOpenMercForm = (item?: Mercaderia) => {
+    if (item) {
+      setEditingId(item.id!);
+      setMercName(item.name);
+      setMercCategory(item.category);
+      setMercCostoKg(item.costoKg.toString());
+      setMercPesoFeta(item.pesoFeta.toString());
+      setMercMerma(item.mermaEstimada.toString());
+      setMercProvider(item.provider);
+      setMercObs(item.observations);
     } else {
       setEditingId(null);
-      setName('');
-      setCategory('fiambres');
-      setBrand('');
-      setProvider('');
-      setObservations('');
-      setIsActive(true);
-      
-      setCostoHormaStr('');
-      setPesoHormaStr('');
-      setPesoFetaStr('');
-      setMermaEstimadaStr('');
-      setGramajeVentaStr('200');
-      setCostoBolsaStr('');
-      setCostoEtiquetaStr('');
-      setManoObraStr('');
-      setMargenDeseadoStr('');
-      setPrecioManualStr('');
+      setMercName('');
+      setMercCategory('fiambres');
+      setMercCostoKg('');
+      setMercPesoFeta('15');
+      setMercMerma('10');
+      setMercProvider('');
+      setMercObs('');
     }
     setIsFormOpen(true);
   };
 
-  const resetFormStates = () => {
-    setEditingId(null);
-    setName('');
-    setCategory('fiambres');
-    setBrand('');
-    setProvider('');
-    setObservations('');
-    setIsActive(true);
-    setCostoHormaStr('');
-    setPesoHormaStr('');
-    setPesoFetaStr('');
-    setMermaEstimadaStr('');
-    setGramajeVentaStr('200');
-    setCostoBolsaStr('');
-    setCostoEtiquetaStr('');
-    setManoObraStr('');
-    setMargenDeseadoStr('');
-    setPrecioManualStr('');
+  const handleOpenInsForm = (item?: Insumo) => {
+    if (item) {
+      setEditingId(item.id!);
+      setInsName(item.name);
+      setInsCosto(item.costoUnitario.toString());
+      setInsObs(item.observations);
+    } else {
+      setEditingId(null);
+      setInsName('');
+      setInsCosto('');
+      setInsObs('');
+    }
+    setIsFormOpen(true);
   };
 
-  const handleSave = async () => {
-    if (!name) return;
+  const handleOpenPresForm = (item?: Presentacion) => {
+    if (item) {
+      setEditingId(item.id!);
+      setPresName(item.name);
+      setPresCustomerId(item.customerId);
+      setPresBaseId(item.productoBaseId || '');
+      setPresRecetaId(item.recetaId || '');
+      setPresPesoGramos(item.pesoObjetivoGramos.toString());
+      setPresFetas(item.cantidadFetasEstimada.toString());
+      setPresBolsaId(item.bolsaId);
+      setPresEtiquetaId(item.etiquetaId);
+      setPresPrecioKg(item.precioVentaKg.toString());
+      setPresManoObra((item.manoObra || 0).toString());
+      setPresObs(item.observations);
+      setPresTypeToggle(item.productoBaseId ? 'simple' : 'recipe');
+    } else {
+      setEditingId(null);
+      setPresName('');
+      setPresCustomerId('');
+      setPresBaseId('');
+      setPresRecetaId('');
+      setPresPesoGramos('200');
+      setPresFetas('0');
+      setPresBolsaId('');
+      setPresEtiquetaId('');
+      setPresPrecioKg('');
+      setPresManoObra('0');
+      setPresObs('');
+      setPresTypeToggle('simple');
+    }
+    setIsFormOpen(true);
+  };
+
+  const handleOpenRecForm = (item?: Recipe) => {
+    if (item) {
+      setEditingId(item.id!);
+      setRecProductId(item.productId);
+      setRecCustomerId(item.customerId || '');
+      setRecLaborCost(item.costoManoObra.toString());
+      setRecAdditionalCost(item.costoAdicional.toString());
+      setRecMethod(item.method || 'weight');
+      
+      const parsedIngredients = item.ingredients.map(ing => {
+        const parts = (ing.productName || '').split(' @');
+        const name = parts[0];
+        const suffixUnit = parts[1] as 'fetas' | 'kg' | 'g' | 'unidades' | undefined;
+        const merc = mercaderias.find(m => m.id === ing.productId);
+        const associatedPres = presentaciones.find(p => p.id === item.productId);
+
+        let unit: 'fetas' | 'kg' | 'g' | 'unidades';
+        let displayQty = ing.quantity;
+
+        if (suffixUnit) {
+          unit = suffixUnit;
+          // New format: quantity stored in database is in grams. Convert to display unit.
+          if (unit === 'kg') {
+            displayQty = ing.quantity / 1000;
+          } else if (unit === 'fetas' || unit === 'unidades') {
+            const recipeFetaWeight = (associatedPres && associatedPres.pesoObjetivoGramos && associatedPres.cantidadFetasEstimada)
+              ? (associatedPres.pesoObjetivoGramos / associatedPres.cantidadFetasEstimada)
+              : (merc?.pesoFeta || 15);
+            displayQty = recipeFetaWeight > 0 ? ing.quantity / recipeFetaWeight : 0;
+          }
+        } else {
+          // Legacy format fallback: determine unit based on recipe method
+          if (item.method === 'fetas') {
+            unit = 'fetas';
+            displayQty = ing.quantity; // stored in fetas
+          } else if (item.method === 'weight') {
+            unit = 'kg';
+            displayQty = ing.quantity; // stored in Kg
+          } else if (item.method === 'percentage') {
+            unit = 'g';
+            // Convert legacy percentage of presentation weight to grams
+            const presWeight = associatedPres?.pesoObjetivoGramos || 0;
+            displayQty = presWeight * (ing.quantity / 100);
+          } else {
+            unit = 'g';
+            displayQty = ing.quantity;
+          }
+        }
+        
+        return {
+          productId: ing.productId,
+          productName: name,
+          quantity: displayQty,
+          unit
+        };
+      });
+      setRecIngredients(parsedIngredients);
+    } else {
+      setEditingId(null);
+      setRecProductId('');
+      setRecCustomerId('');
+      setRecLaborCost('0');
+      setRecAdditionalCost('0');
+      setRecMethod('weight');
+      setRecIngredients([{ productId: '', productName: '', quantity: 1, unit: 'g' }]);
+    }
+    setIsFormOpen(true);
+  };
+
+  const handleSave = async (e: React.FormEvent) => {
+    e.preventDefault();
     setIsSaving(true);
     try {
-      await saveProduct({
-        name, category, brand, provider, observations, isActive,
-        costoHorma: parseNumber(costoHormaStr),
-        pesoHorma: parseNumber(pesoHormaStr),
-        pesoFeta: parseNumber(pesoFetaStr),
-        mermaEstimada: parseNumber(mermaEstimadaStr),
-        gramajeVenta: parseNumber(gramajeVentaStr),
-        costoBolsa: parseNumber(costoBolsaStr),
-        costoEtiqueta: parseNumber(costoEtiquetaStr),
-        manoObra: parseNumber(manoObraStr),
-        margenDeseado: parseNumber(margenDeseadoStr),
-        precioManual: parseNumber(precioManualStr),
-      }, editingId || undefined);
-      resetFormStates();
+      if (activeTab === 'mercaderias') {
+        await saveMercaderia({
+          name: mercName,
+          category: mercCategory,
+          costoKg: parseNumber(mercCostoKg),
+          stockKg: 0, // stock managed via manual/delivered movements only
+          provider: mercProvider,
+          observations: mercObs,
+          pesoFeta: parseNumber(mercPesoFeta),
+          mermaEstimada: parseNumber(mercMerma),
+          isActive: true
+        }, editingId || undefined);
+      } else if (activeTab === 'insumos') {
+        await saveInsumo({
+          name: insName,
+          costoUnitario: parseNumber(insCosto),
+          stockUnidades: 0,
+          observations: insObs,
+          isActive: true
+        }, editingId || undefined);
+      } else if (activeTab === 'presentaciones') {
+        const bolsaName = insumos.find(i => i.id === presBolsaId)?.name || '';
+        const etiquetaName = insumos.find(i => i.id === presEtiquetaId)?.name || '';
+        const baseName = mercaderias.find(m => m.id === presBaseId)?.name || '';
+        const customerName = customers.find(c => c.id === presCustomerId)?.name || '';
+
+        await savePresentacion({
+          name: presName,
+          customerId: presCustomerId,
+          customerName,
+          productoBaseId: presTypeToggle === 'simple' ? presBaseId : '',
+          productoBaseName: presTypeToggle === 'simple' ? baseName : '',
+          recetaId: presTypeToggle === 'recipe' ? presRecetaId : '',
+          pesoObjetivoGramos: parseNumber(presPesoGramos),
+          cantidadFetasEstimada: parseNumber(presFetas),
+          bolsaId: presBolsaId,
+          bolsaName,
+          etiquetaId: presEtiquetaId,
+          etiquetaName,
+          precioVentaKg: parseNumber(presPrecioKg),
+          manoObra: parseNumber(presManoObra),
+          observations: presObs,
+          isActive: true
+        }, editingId || undefined);
+      } else if (activeTab === 'recetas') {
+        const pres = presentaciones.find(p => p.id === recProductId);
+        const customerName = customers.find(c => c.id === recCustomerId)?.name || '';
+        const ingredientsPayload = recIngredients.filter(ing => ing.productId).map(ing => {
+          const merc = mercaderias.find(m => m.id === ing.productId);
+          const unit = ing.unit || 'g';
+          
+          let qtyGrams = ing.quantity;
+          if (unit === 'kg') {
+            qtyGrams = ing.quantity * 1000;
+          } else if (unit === 'fetas' || unit === 'unidades') {
+            const recipeFetaWeight = (pres && pres.pesoObjetivoGramos && pres.cantidadFetasEstimada)
+              ? (pres.pesoObjetivoGramos / pres.cantidadFetasEstimada)
+              : (merc?.pesoFeta || 15);
+            qtyGrams = ing.quantity * recipeFetaWeight;
+          }
+          
+          const cleanName = (merc?.name || ing.productName || 'Ingrediente').split(' @')[0];
+
+          return {
+            productId: ing.productId,
+            productName: `${cleanName} @${unit}`,
+            quantity: qtyGrams
+          };
+        });
+
+        const recipeData: Omit<Recipe, 'createdAt' | 'updatedAt'> = {
+          productId: recProductId,
+          productName: pres?.name || '',
+          customerId: recCustomerId || undefined,
+          customerName: recCustomerId ? customerName : undefined,
+          ingredients: ingredientsPayload,
+          costoManoObra: parseNumber(recLaborCost),
+          costoAdicional: parseNumber(recAdditionalCost),
+          method: recMethod
+        };
+
+        if (editingId) {
+          await saveRecipe(recipeData, editingId);
+        } else {
+          await saveRecipe(recipeData);
+        }
+      }
+
       setIsFormOpen(false);
-    } catch (e) {
-      alert('Error guardando producto. Revisá la consola.');
-      console.error(e);
+      setEditingId(null);
+    } catch (err: any) {
+      alert('Error al guardar: ' + err.message);
     } finally {
       setIsSaving(false);
     }
   };
 
-  if (error && !isFormOpen) {
-    return <ErrorState message={error} />;
+  const handleDelete = async (id: string) => {
+    if (!window.confirm('¿Confirma que desea eliminar este ítem?')) return;
+    try {
+      if (activeTab === 'mercaderias') {
+        await deleteMercaderia(id);
+      } else if (activeTab === 'insumos') {
+        await deleteInsumo(id);
+      } else if (activeTab === 'presentaciones') {
+        await deletePresentacion(id);
+      } else if (activeTab === 'recetas') {
+        await deleteRecipe(id);
+      }
+    } catch (err: any) {
+      alert('Error al eliminar: ' + err.message);
+    }
+  };
+
+  // Real-time cost preview for Presentaciones form
+  let presEstimatedCost = 0;
+  let presEstimatedCostKg = 0;
+  let presMargin = 0;
+
+  if (activeTab === 'presentaciones') {
+    const tempPres: Presentacion = {
+      id: editingId || 'temp',
+      name: presName,
+      customerId: presCustomerId,
+      customerName: '',
+      productoBaseId: presTypeToggle === 'simple' ? presBaseId : '',
+      recetaId: presTypeToggle === 'recipe' ? presRecetaId : '',
+      pesoObjetivoGramos: parseNumber(presPesoGramos),
+      cantidadFetasEstimada: parseNumber(presFetas),
+      bolsaId: presBolsaId,
+      bolsaName: '',
+      etiquetaId: presEtiquetaId,
+      etiquetaName: '',
+      precioVentaKg: parseNumber(presPrecioKg),
+      manoObra: parseNumber(presManoObra),
+      isActive: true,
+      observations: ''
+    };
+    presEstimatedCost = calculatePresentationCost(tempPres, mercaderias, insumos, recipes);
+    const weightKg = tempPres.pesoObjetivoGramos / 1000;
+    presEstimatedCostKg = weightKg > 0 ? presEstimatedCost / weightKg : 0;
+    const pricePerUnit = tempPres.precioVentaKg * weightKg;
+    presMargin = pricePerUnit > 0 ? ((pricePerUnit - presEstimatedCost) / pricePerUnit) * 100 : 0;
   }
 
-  if (isFormOpen) {
-    const {
-      costoKg,
-      kgNetos,
-      paquetesEstimados,
-      costoMateriaPrimaPorPaq,
-      costoTotalPaquete,
-      precioSugerido,
-      precioVenta,
-      utilidadNetaPaquete,
-      margenReal,
-      utilidadKg,
-      hasValidData
-    } = calculateProductMetrics({
-      costoHorma: costoHormaStr,
-      pesoHorma: pesoHormaStr,
-      mermaEstimada: mermaEstimadaStr,
-      gramajeVenta: gramajeVentaStr,
-      costoBolsa: costoBolsaStr,
-      costoEtiqueta: costoEtiquetaStr,
-      manoObra: manoObraStr,
-      margenDeseado: margenDeseadoStr,
-      precioManual: precioManualStr
-    });
-    return (
-      <div style={{ paddingBottom: '40px' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-            <button onClick={() => { resetFormStates(); setIsFormOpen(false); }} className="btn btn-icon">
-              <ArrowLeft size={20} color="var(--text-secondary)" />
-            </button>
-            <div>
-              <h1 style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--text-primary)' }}>{editingId ? 'Editar Producto' : 'Nuevo Producto'}</h1>
-              <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>Ficha técnica y costos para feteado/fraccionado</p>
-            </div>
-          </div>
-          <button onClick={handleSave} disabled={isSaving} className="btn btn-primary">
-            {isSaving ? <Loader2 className="animate-spin" size={18} /> : <Save size={18} />}
-            Guardar Producto
-          </button>
-        </div>
+  // Real-time cost preview for Recetas form
+  let recEstimatedCost = 0;
+  let recEstimatedCostKg = 0;
+  let recMargin = 0;
+  let associatedPres: Presentacion | undefined = undefined;
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-            <Card>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '20px' }}>
-                <Info size={20} color="var(--primary-color)" />
-                <h3 style={{ fontSize: '1.125rem', fontWeight: 600 }}>1. Datos Generales</h3>
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '16px' }}>
-                <Input label="Nombre del Producto" value={name} onChange={e => setName(e.target.value)} placeholder="Ej: Jamón Cocido Paladini" />
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-                  <Select label="Categoría" value={category} onChange={e => setCategory(e.target.value)} options={[{ value: 'fiambres', label: 'Fiambres' }, { value: 'lacteos', label: 'Lácteos' }]} />
-                  <Input label="Marca" value={brand} onChange={e => setBrand(e.target.value)} placeholder="Ej: Paladini" />
-                </div>
-                <Input label="Proveedor Principal" value={provider} onChange={e => setProvider(e.target.value)} placeholder="Distribuidora XYZ" />
-                <Input label="Observaciones" value={observations} onChange={e => setObservations(e.target.value)} placeholder="Notas internas sobre el producto..." />
-                <div style={{ marginTop: '8px', padding: '12px', backgroundColor: 'var(--bg-primary)', borderRadius: '8px' }}>
-                  <Toggle label="Estado del Producto (Activo/Inactivo)" checked={isActive} onChange={setIsActive} />
-                </div>
-              </div>
-            </Card>
+  if (activeTab === 'recetas' && recProductId) {
+    associatedPres = presentaciones.find(p => p.id === recProductId);
+    if (associatedPres) {
+      const tempRecipe: Recipe = {
+        id: editingId || 'temp_rec',
+        productId: recProductId,
+        productName: associatedPres.name,
+        customerId: recCustomerId || undefined,
+        customerName: '',
+        ingredients: recIngredients.filter(ing => ing.productId).map(ing => {
+          const merc = mercaderias.find(m => m.id === ing.productId);
+          const unit = ing.unit || 'g';
+          let qtyGrams = ing.quantity;
+          if (unit === 'kg') {
+            qtyGrams = ing.quantity * 1000;
+          } else if (unit === 'fetas' || unit === 'unidades') {
+            const recipeFetaWeight = (associatedPres && associatedPres.pesoObjetivoGramos && associatedPres.cantidadFetasEstimada)
+              ? (associatedPres.pesoObjetivoGramos / associatedPres.cantidadFetasEstimada)
+              : (merc?.pesoFeta || 15);
+            qtyGrams = ing.quantity * recipeFetaWeight;
+          }
+          return {
+            productId: ing.productId,
+            productName: `${merc?.name || ''} @${unit}`,
+            quantity: qtyGrams
+          };
+        }),
+        costoManoObra: parseNumber(recLaborCost),
+        costoAdicional: parseNumber(recAdditionalCost),
+        method: recMethod,
+        createdAt: Date.now(),
+        updatedAt: Date.now()
+      };
+      
+      const tempRecipes = recipes.filter(r => r.id !== editingId && r.productId !== recProductId);
+      tempRecipes.push(tempRecipe);
 
-            <Card>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '20px' }}>
-                <Layers size={20} color="var(--primary-color)" />
-                <h3 style={{ fontSize: '1.125rem', fontWeight: 600 }}>3. Producción y Rinde</h3>
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-                <Input label="Peso Promedio x Feta (g)" placeholder="Ej: 15" type="number" value={pesoFetaStr} onChange={e => setPesoFetaStr(e.target.value)} />
-                <Input label="Merma Estimada (%)" placeholder="Ej: 5" type="number" value={mermaEstimadaStr} onChange={e => setMermaEstimadaStr(e.target.value)} />
-                <Select label="Gramaje de Venta" value={gramajeVentaStr} onChange={e => setGramajeVentaStr(e.target.value)} options={[
-                  { value: '100', label: '100g' },
-                  { value: '150', label: '150g' },
-                  { value: '200', label: '200g' },
-                  { value: '250', label: '250g' },
-                  { value: '500', label: '500g' },
-                ]} />
-                <div style={{ backgroundColor: 'var(--bg-primary)', padding: '12px', borderRadius: '8px', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
-                  <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontWeight: 600, textTransform: 'uppercase' }}>Paquetes Estimados (Horma)</span>
-                  <span style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--text-primary)' }}>{paquetesEstimados > 0 ? `${paquetesEstimados} paq.` : '--'}</span>
-                </div>
-              </div>
-            </Card>
+      recEstimatedCost = calculatePresentationCost(associatedPres, mercaderias, insumos, tempRecipes);
+      const weightKg = associatedPres.pesoObjetivoGramos / 1000;
+      recEstimatedCostKg = weightKg > 0 ? recEstimatedCost / weightKg : 0;
+      const pricePerUnit = associatedPres.precioVentaKg * weightKg;
+      recMargin = pricePerUnit > 0 ? ((pricePerUnit - recEstimatedCost) / pricePerUnit) * 100 : 0;
+    }
+  }
 
-            <Card>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '20px' }}>
-                <Package size={20} color="var(--primary-color)" />
-                <h3 style={{ fontSize: '1.125rem', fontWeight: 600 }}>4. Empaque y Operación</h3>
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '16px' }}>
-                <Input label="Costo Bolsa ($)" type="number" placeholder="15.00" icon={<DollarSign size={16} />} value={costoBolsaStr} onChange={e => setCostoBolsaStr(e.target.value)} />
-                <Input label="Costo Etiqueta ($)" type="number" placeholder="8.50" icon={<DollarSign size={16} />} value={costoEtiquetaStr} onChange={e => setCostoEtiquetaStr(e.target.value)} />
-                <Input label="Mano de Obra ($)" type="number" placeholder="45.00" icon={<DollarSign size={16} />} value={manoObraStr} onChange={e => setManoObraStr(e.target.value)} />
-              </div>
-            </Card>
-          </div>
+  if (loading) {
+    return <SkeletonLoader rows={5} height="60px" />;
+  }
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-            <Card>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '20px' }}>
-                <DollarSign size={20} color="var(--primary-color)" />
-                <h3 style={{ fontSize: '1.125rem', fontWeight: 600 }}>2. Costos de Compra</h3>
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-                <Input label="Costo Horma ($)" type="number" placeholder="Ej: 45000" icon={<DollarSign size={16} />} value={costoHormaStr} onChange={e => setCostoHormaStr(e.target.value)} />
-                <Input label="Peso Horma (kg)" type="number" placeholder="Ej: 5.2" value={pesoHormaStr} onChange={e => setPesoHormaStr(e.target.value)} />
-                <div style={{ gridColumn: '1 / -1', backgroundColor: '#f0fdf4', border: '1px solid #bbf7d0', padding: '16px', borderRadius: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span style={{ color: '#166534', fontWeight: 600, fontSize: '0.875rem' }}>Costo Calculado por KG</span>
-                  <span style={{ color: '#166534', fontWeight: 700, fontSize: '1.25rem' }}>{costoKg > 0 ? formatCurrency(costoKg) : '--'}</span>
-                </div>
-              </div>
-            </Card>
-
-            <Card>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '20px' }}>
-                <Tag size={20} color="var(--primary-color)" />
-                <h3 style={{ fontSize: '1.125rem', fontWeight: 600 }}>5. Configuración de Precio</h3>
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-                <Input label="Margen Deseado (%)" type="number" placeholder="Ej: 45" value={margenDeseadoStr} onChange={e => setMargenDeseadoStr(e.target.value)} />
-                <Input label="Precio Competencia ($)" type="number" placeholder="Opcional" icon={<DollarSign size={16} />} />
-                
-                <div style={{ gridColumn: '1 / -1', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginTop: '8px' }}>
-                  <div style={{ backgroundColor: 'var(--bg-primary)', padding: '16px', borderRadius: '8px' }}>
-                    <span style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-secondary)', fontWeight: 600, marginBottom: '4px' }}>Precio Sugerido (por Paquete)</span>
-                    <span style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--text-primary)' }}>{precioSugerido > 0 ? formatCurrency(precioSugerido) : '--'}</span>
-                  </div>
-                  <Input label="Precio Manual Editable ($)" type="number" placeholder="1250" icon={<DollarSign size={16} />} value={precioManualStr} onChange={e => setPrecioManualStr(e.target.value)} />
-                </div>
-              </div>
-            </Card>
-
-            <Card className="card-highlight">
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '20px' }}>
-                <TrendingUp size={20} color="var(--primary-color)" />
-                <h3 style={{ fontSize: '1.125rem', fontWeight: 600 }}>6. Análisis de Rentabilidad</h3>
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-                <div>
-                  <span style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Utilidad Neta por Paquete</span>
-                  <span style={{ fontSize: '1.25rem', fontWeight: 700, color: hasValidData ? (utilidadNetaPaquete >= 0 ? '#16a34a' : '#dc2626') : 'var(--text-primary)' }}>
-                    {hasValidData ? formatCurrency(utilidadNetaPaquete) : '--'}
-                  </span>
-                </div>
-                <div>
-                  <span style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Margen Real</span>
-                  <span style={{ fontSize: '1.25rem', fontWeight: 700, color: hasValidData ? (margenReal >= 0 ? 'var(--text-primary)' : '#dc2626') : 'var(--text-primary)' }}>
-                    {hasValidData ? formatNumber(margenReal, '%') : '--'}
-                  </span>
-                </div>
-                <div style={{ gridColumn: '1 / -1', marginTop: '8px', paddingTop: '16px', borderTop: '1px solid var(--border-color)' }}>
-                  <span style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Utilidad por KG vendido</span>
-                  <span style={{ fontSize: '1.125rem', fontWeight: 600, color: hasValidData ? (utilidadKg >= 0 ? 'var(--text-primary)' : '#dc2626') : 'var(--text-primary)' }}>
-                    {hasValidData ? formatCurrency(utilidadKg) : '--'}
-                  </span>
-                </div>
-              </div>
-            </Card>
-          </div>
-        </div>
-      </div>
-    );
+  if (error) {
+    return <ErrorState message={error} />;
   }
 
   return (
     <>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '24px' }}>
-        <PageHeader title="Catálogo de Productos" description="Gestión maestra de fiambres y lácteos" />
-        <button onClick={() => openForm()} className="btn btn-primary">
-          <Plus size={18} /> Nuevo Producto
+        <PageHeader 
+          title="Fórmulas & Presentaciones" 
+          description="Decopla el catálogo de fiambres y define el costo real de elaboración y empaque" 
+        />
+        <button 
+          onClick={() => {
+            if (activeTab === 'mercaderias') handleOpenMercForm();
+            else if (activeTab === 'insumos') handleOpenInsForm();
+            else if (activeTab === 'presentaciones') handleOpenPresForm();
+            else if (activeTab === 'recetas') handleOpenRecForm();
+          }} 
+          className="btn btn-primary"
+        >
+          <Plus size={18} /> 
+          {activeTab === 'mercaderias' && 'Nueva Mercadería'}
+          {activeTab === 'insumos' && 'Nuevo Insumo'}
+          {activeTab === 'presentaciones' && 'Nueva Presentación'}
+          {activeTab === 'recetas' && 'Nueva Receta'}
         </button>
       </div>
 
-      <Card padding="none">
-        <div style={{ padding: '20px', display: 'flex', gap: '16px', borderBottom: '1px solid var(--border-color)', backgroundColor: 'var(--bg-primary)', borderTopLeftRadius: '12px', borderTopRightRadius: '12px' }}>
-          <div style={{ position: 'relative', flex: 1 }}>
-            <Search size={18} color="var(--text-secondary)" style={{ position: 'absolute', left: '12px', top: '10px' }} />
-            <input type="text" placeholder="Buscar por nombre, marca o código..." style={{ width: '100%', padding: '10px 12px 10px 36px', borderRadius: '8px', border: '1px solid var(--border-color)', outline: 'none' }} />
-          </div>
-        </div>
-        
-        {loading ? (
-          <SkeletonLoader rows={5} height="56px" />
-        ) : products.length === 0 ? (
-          <div style={{ padding: '40px' }}>
+      {/* Tabs Menu */}
+      <div style={{ 
+        display: 'flex', 
+        gap: '24px', 
+        marginBottom: '24px', 
+        borderBottom: '1px solid var(--border-color)', 
+        paddingLeft: '4px' 
+      }}>
+        {[
+          { id: 'presentaciones' as const, label: 'Presentaciones', icon: ShoppingBag },
+          { id: 'mercaderias' as const, label: 'Mercaderías', icon: Anchor },
+          { id: 'insumos' as const, label: 'Insumos', icon: Package },
+          { id: 'recetas' as const, label: 'Recetas', icon: Layers }
+        ].map((tab) => {
+          const Icon = tab.icon;
+          const isActive = activeTab === tab.id;
+          return (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => setActiveTab(tab.id)}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '8px',
+                padding: '12px 4px',
+                fontSize: '0.95rem',
+                fontWeight: 600,
+                color: isActive ? 'var(--primary-color)' : 'var(--text-secondary)',
+                border: 'none',
+                background: 'none',
+                borderBottom: isActive ? '3px solid var(--primary-color)' : '3px solid transparent',
+                cursor: 'pointer',
+                transition: 'all 0.2s ease',
+                marginBottom: '-2px',
+                outline: 'none'
+              }}
+            >
+              <Icon size={16} />
+              <span>{tab.label}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* TAB 1: PRESENTACIONES */}
+      {activeTab === 'presentaciones' && (
+        <Card padding="none">
+          {presentaciones.length === 0 ? (
+            <EmptyState 
+              icon={ShoppingBag} 
+              title="No hay presentaciones registradas" 
+              description="Las presentaciones representan las configuraciones de venta enviadas a clientes (ej: Sobres de 200g, Hormas)."
+            />
+          ) : (
+            <Table 
+              data={presentaciones}
+              keyExtractor={p => p.id!}
+              columns={[
+                { header: 'Nombre Presentación', accessor: p => <span style={{ fontWeight: 600 }}>{p.name}</span> },
+                { header: 'Cliente', accessor: p => p.customerName || 'Todos' },
+                { header: 'Tipo', accessor: p => p.productoBaseId ? <span style={{ color: '#0ea5e9', fontWeight: 500 }}>Simple</span> : <span style={{ color: '#ec4899', fontWeight: 500 }}>Compuesto</span> },
+                { header: 'Peso Objetivo', accessor: p => `${p.pesoObjetivoGramos} g` },
+                { 
+                  header: 'Bolsa / Etiqueta', 
+                  accessor: p => (
+                    <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                      <div>👜 {p.bolsaName || '--'}</div>
+                      <div>🏷️ {p.etiquetaName || '--'}</div>
+                    </div>
+                  ) 
+                },
+                {
+                  header: 'Precio Venta',
+                  accessor: p => {
+                    const cost = calculatePresentationCost(p, mercaderias, insumos, recipes);
+                    const price = p.precioVentaKg * (p.pesoObjetivoGramos / 1000);
+                    return (
+                      <div>
+                        <div style={{ fontWeight: 700 }}>{formatCurrency(price)}</div>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{formatCurrency(p.precioVentaKg)}/Kg</div>
+                      </div>
+                    );
+                  }
+                },
+                {
+                  header: 'Costo Elaboración',
+                  accessor: p => {
+                    const cost = calculatePresentationCost(p, mercaderias, insumos, recipes);
+                    return <span style={{ color: '#ef4444', fontWeight: 600 }}>{formatCurrency(cost)}</span>;
+                  }
+                },
+                {
+                  header: 'Margen Est.',
+                  accessor: p => {
+                    const cost = calculatePresentationCost(p, mercaderias, insumos, recipes);
+                    const price = p.precioVentaKg * (p.pesoObjetivoGramos / 1000);
+                    const margin = price > 0 ? ((price - cost) / price) * 100 : 0;
+                    return (
+                      <span style={{ fontWeight: 700, color: margin >= 30 ? '#10b981' : '#f59e0b' }}>
+                        {formatNumber(margin, '%')}
+                      </span>
+                    );
+                  }
+                },
+                {
+                  header: 'Acciones',
+                  accessor: p => (
+                    <div style={{ display: 'flex', gap: '8px', justifyContent: 'center' }}>
+                      <button onClick={() => handleOpenPresForm(p)} className="btn btn-icon">
+                        <Edit2 size={16} color="#3b82f6" />
+                      </button>
+                      <button onClick={() => handleDelete(p.id!)} className="btn btn-icon">
+                        <Trash2 size={16} color="#ef4444" />
+                      </button>
+                    </div>
+                  ),
+                  align: 'center'
+                }
+              ]}
+            />
+          )}
+        </Card>
+      )}
+
+      {/* TAB 2: MERCADERIAS */}
+      {activeTab === 'mercaderias' && (
+        <Card padding="none">
+          {mercaderias.length === 0 ? (
+            <EmptyState 
+              icon={Anchor} 
+              title="No hay mercaderías registradas" 
+              description="Las mercaderías representan la materia prima comprada a proveedores por kg (ej: Jamón Cocido, Queso Barra)."
+            />
+          ) : (
+            <Table 
+              data={mercaderias}
+              keyExtractor={m => m.id!}
+              columns={[
+                { header: 'Nombre', accessor: m => <span style={{ fontWeight: 600 }}>{m.name}</span> },
+                { header: 'Categoría', accessor: m => <span style={{ textTransform: 'capitalize' }}>{m.category}</span> },
+                { header: 'Costo / Kg', accessor: m => <span style={{ fontWeight: 600 }}>{formatCurrency(m.costoKg)}</span> },
+                { header: 'Merma Estimada', accessor: m => `${m.mermaEstimada}%` },
+                { header: 'Peso Feta Prom.', accessor: m => `${m.pesoFeta} g` },
+                { header: 'Proveedor Habitual', accessor: m => m.provider || '--' },
+                { header: 'Observaciones', accessor: m => m.observations || '--' },
+                {
+                  header: 'Acciones',
+                  accessor: m => (
+                    <div style={{ display: 'flex', gap: '8px', justifyContent: 'center' }}>
+                      <button onClick={() => handleOpenMercForm(m)} className="btn btn-icon">
+                        <Edit2 size={16} color="#3b82f6" />
+                      </button>
+                      <button onClick={() => handleDelete(m.id!)} className="btn btn-icon">
+                        <Trash2 size={16} color="#ef4444" />
+                      </button>
+                    </div>
+                  ),
+                  align: 'center'
+                }
+              ]}
+            />
+          )}
+        </Card>
+      )}
+
+      {/* TAB 3: INSUMOS */}
+      {activeTab === 'insumos' && (
+        <Card padding="none">
+          {insumos.length === 0 ? (
             <EmptyState 
               icon={Package} 
-              title="No hay productos registrados" 
-              description="Registra un nuevo producto para configurar sus especificaciones, mermas y costos." 
+              title="No hay insumos registrados" 
+              description="Los insumos corresponden a materiales consumibles de embalaje y etiquetado (ej: Bolsa 20x30, Etiqueta Al Vacío)."
             />
-          </div>
-        ) : (
-          <Table 
-            data={products}
-            keyExtractor={(item) => item.id!}
-            columns={[
-              { 
-                header: 'Producto', 
-                accessor: (item) => (
-                  <div>
-                    <div style={{ fontWeight: 600 }}>{item.name}</div>
-                    <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{item.brand} • {item.category}</div>
-                  </div>
-                ) 
-              },
-              { 
-                header: 'Costo/Kg', 
-                accessor: (item) => {
-                  const kg = item.pesoHorma > 0 ? item.costoHorma / item.pesoHorma : 0;
-                  return <span style={{ fontWeight: 500 }}>{formatCurrency(kg)}</span>;
+          ) : (
+            <Table 
+              data={insumos}
+              keyExtractor={i => i.id!}
+              columns={[
+                { header: 'Nombre Insumo', accessor: i => <span style={{ fontWeight: 600 }}>{i.name}</span> },
+                { header: 'Costo Unitario', accessor: i => <span style={{ fontWeight: 600 }}>{formatCurrency(i.costoUnitario)}</span> },
+                { header: 'Observaciones', accessor: i => i.observations || '--' },
+                {
+                  header: 'Acciones',
+                  accessor: i => (
+                    <div style={{ display: 'flex', gap: '8px', justifyContent: 'center' }}>
+                      <button onClick={() => handleOpenInsForm(i)} className="btn btn-icon">
+                        <Edit2 size={16} color="#3b82f6" />
+                      </button>
+                      <button onClick={() => handleDelete(i.id!)} className="btn btn-icon">
+                        <Trash2 size={16} color="#ef4444" />
+                      </button>
+                    </div>
+                  ),
+                  align: 'center'
                 }
-              },
-              { 
-                header: 'Precio Ref. (Paq)', 
-                accessor: (item) => {
-                  const kgNetos = item.pesoHorma * (1 - (item.mermaEstimada || 0) / 100);
-                  const paqEst = item.gramajeVenta > 0 ? Math.floor((kgNetos * 1000) / item.gramajeVenta) : 0;
-                  const cMat = paqEst > 0 ? item.costoHorma / paqEst : 0;
-                  const cTot = paqEst > 0 ? cMat + item.costoBolsa + item.costoEtiqueta + item.manoObra : 0;
-                  const sug = cTot > 0 ? cTot * (1 + item.margenDeseado / 100) : 0;
-                  const pVenta = item.precioManual > 0 ? item.precioManual : sug;
-                  return <span style={{ fontWeight: 600, color: 'var(--primary-color)' }}>{formatCurrency(pVenta)}</span>;
+              ]}
+            />
+          )}
+        </Card>
+      )}
+
+      {/* TAB 4: RECETAS */}
+      {activeTab === 'recetas' && (
+        <Card padding="none">
+          {recipes.length === 0 ? (
+            <EmptyState 
+              icon={Layers} 
+              title="No hay recetas registradas" 
+              description="Las recetas se definen exclusivamente para presentaciones compuestas (ej: Combinado de Fiambres)."
+            />
+          ) : (
+            <Table 
+              data={recipes}
+              keyExtractor={r => r.id!}
+              columns={[
+                { header: 'Presentación', accessor: r => <span style={{ fontWeight: 600 }}>{r.productName}</span> },
+                { header: 'Cliente', accessor: r => r.customerName || 'Todos los clientes' },
+                { 
+                  header: 'Unidad de Medida', 
+                  accessor: r => {
+                    const method = r.method || 'weight';
+                    const labels = {
+                      weight: { label: 'Por Peso (Kg)', color: '#10b981', bg: '#d1fae5' },
+                      percentage: { label: 'Por Porcentaje (%)', color: '#f59e0b', bg: '#fef3c7' },
+                      fetas: { label: 'Por Fetas (U)', color: '#3b82f6', bg: '#dbeafe' }
+                    }[method];
+                    return (
+                      <span style={{ 
+                        padding: '4px 10px', 
+                        borderRadius: '9999px', 
+                        fontSize: '0.75rem', 
+                        fontWeight: 600,
+                        color: labels.color,
+                        backgroundColor: labels.bg
+                      }}>
+                        {labels.label}
+                      </span>
+                    );
+                  } 
+                },
+                {
+                  header: 'Ingredientes',
+                  accessor: r => (
+                    <div style={{ fontSize: '0.85rem' }}>
+                      {r.ingredients.map((ing, idx) => {
+                        const parts = (ing.productName || '').split(' @');
+                        const name = parts[0];
+                        const unit = parts[1] as 'fetas' | 'kg' | 'g' | 'unidades' | undefined;
+                        const merc = mercaderias.find(m => m.id === ing.productId);
+                        const pres = presentaciones.find(p => p.id === r.productId);
+
+                        if (unit) {
+                          const recipeFetaWeight = (pres && pres.pesoObjetivoGramos && pres.cantidadFetasEstimada)
+                            ? (pres.pesoObjetivoGramos / pres.cantidadFetasEstimada)
+                            : (merc?.pesoFeta || 15);
+                          
+                          let displayQty = ing.quantity;
+                          if (unit === 'kg') {
+                            displayQty = ing.quantity / 1000;
+                          } else if (unit === 'fetas' || unit === 'unidades') {
+                            displayQty = recipeFetaWeight > 0 ? ing.quantity / recipeFetaWeight : 0;
+                          }
+                          
+                          return (
+                            <div key={idx}>
+                              • {name}: <strong>{displayQty % 1 === 0 ? displayQty : displayQty.toFixed(2)}</strong> {unit}
+                            </div>
+                          );
+                        } else {
+                          return (
+                            <div key={idx}>
+                              • {name}: <strong>{ing.quantity}</strong> 
+                              {r.method === 'percentage' && '%'}
+                              {r.method === 'fetas' && ' fetas'}
+                              {(r.method === 'weight' || !r.method) && ' Kg'}
+                            </div>
+                          );
+                        }
+                      })}
+                    </div>
+                  )
+                },
+                { header: 'Costo Mano Obra', accessor: r => formatCurrency(r.costoManoObra) },
+                { header: 'Costos Fijos/Adic.', accessor: r => formatCurrency(r.costoAdicional) },
+                {
+                  header: 'Acciones',
+                  accessor: r => (
+                    <div style={{ display: 'flex', gap: '8px', justifyContent: 'center' }}>
+                      <button onClick={() => handleOpenRecForm(r)} className="btn btn-icon">
+                        <Edit2 size={16} color="#3b82f6" />
+                      </button>
+                      <button onClick={() => handleDelete(r.id!)} className="btn btn-icon">
+                        <Trash2 size={16} color="#ef4444" />
+                      </button>
+                    </div>
+                  ),
+                  align: 'center'
                 }
-              },
-              { 
-                header: 'Estado', 
-                accessor: (item) => (
-                  <span style={{ 
-                    padding: '4px 12px', 
-                    borderRadius: '9999px', 
-                    fontSize: '0.75rem', 
-                    fontWeight: 600,
-                    backgroundColor: item.isActive ? '#dcfce7' : '#fef2f2',
-                    color: item.isActive ? '#166534' : '#991b1b'
-                  }}>
-                    {item.isActive ? 'Activo' : 'Inactivo'}
-                  </span>
-                ),
-                align: 'center'
-              },
-              {
-                header: '',
-                accessor: (item) => (
-                  <button onClick={() => openForm(item)} className="btn btn-icon" title="Editar">
-                    <Edit2 size={16} />
-                  </button>
-                ),
-                align: 'center'
+              ]}
+            />
+          )}
+        </Card>
+      )}
+
+      {/* FORM MODAL */}
+      {isFormOpen && (
+        <div style={{ 
+          position: 'fixed', 
+          top: 0, 
+          left: 0, 
+          right: 0, 
+          bottom: 0, 
+          backgroundColor: 'rgba(0,0,0,0.5)', 
+          zIndex: 60, 
+          display: 'flex', 
+          alignItems: 'center', 
+          justifyContent: 'center' 
+        }}>
+          <div style={{ 
+            backgroundColor: 'var(--bg-primary)', 
+            padding: '24px', 
+            borderRadius: '12px', 
+            width: '100%', 
+            maxWidth: activeTab === 'recetas' || activeTab === 'presentaciones' ? '700px' : '500px', 
+            maxHeight: '90vh', 
+            overflowY: 'auto' 
+          }}>
+            <h2 style={{ fontSize: '1.25rem', fontWeight: 700, marginBottom: '16px' }}>
+              {editingId ? 'Editar' : 'Registrar'} {
+                activeTab === 'mercaderias' ? 'Mercadería' :
+                activeTab === 'insumos' ? 'Insumo' :
+                activeTab === 'presentaciones' ? 'Presentación' : 'Receta'
               }
-            ]}
-          />
-        )}
-      </Card>
+            </h2>
+
+            <form onSubmit={handleSave}>
+              {/* MERCADERIAS FORM */}
+              {activeTab === 'mercaderias' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                  <Input label="Nombre de la Mercadería" value={mercName} onChange={e => setMercName(e.target.value)} required />
+                  
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                    <Select 
+                      label="Categoría" 
+                      value={mercCategory} 
+                      onChange={e => setMercCategory(e.target.value)} 
+                      options={[
+                        { value: 'fiambres', label: 'Fiambres' },
+                        { value: 'quesos', label: 'Quesos' },
+                        { value: 'otros', label: 'Otros' }
+                      ]} 
+                    />
+                    <Input label="Costo por Kilogramo ($)" type="number" value={mercCostoKg} onChange={e => setMercCostoKg(e.target.value)} required />
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                    <Input label="Peso Promedio Feta (g)" type="number" value={mercPesoFeta} onChange={e => setMercPesoFeta(e.target.value)} required />
+                    <Input label="Merma Estimada (%)" type="number" value={mercMerma} onChange={e => setMercMerma(e.target.value)} required />
+                  </div>
+
+                  <Input label="Proveedor Habitual" value={mercProvider} onChange={e => setMercProvider(e.target.value)} />
+                  <Input label="Observaciones" value={mercObs} onChange={e => setMercObs(e.target.value)} />
+                </div>
+              )}
+
+              {/* INSUMOS FORM */}
+              {activeTab === 'insumos' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                  <Input label="Nombre del Insumo" value={insName} onChange={e => setInsName(e.target.value)} required />
+                  <Input label="Costo Unitario ($)" type="number" value={insCosto} onChange={e => setInsCosto(e.target.value)} required />
+                  <Input label="Observaciones" value={insObs} onChange={e => setInsObs(e.target.value)} />
+                </div>
+              )}
+
+              {/* PRESENTACIONES FORM */}
+              {activeTab === 'presentaciones' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: '12px' }}>
+                    <Input label="Nombre de la Presentación (ej: Sobres Jamón Panther 200g)" value={presName} onChange={e => setPresName(e.target.value)} required />
+                    <Select 
+                      label="Cliente Destinatario" 
+                      value={presCustomerId} 
+                      onChange={e => setPresCustomerId(e.target.value)} 
+                      required
+                      options={[
+                        { value: '', label: 'Seleccionar Cliente...' },
+                        ...customers.map(c => ({ value: c.id!, label: c.name }))
+                      ]} 
+                    />
+                  </div>
+
+                  <div style={{ display: 'flex', gap: '16px', borderBottom: '1px solid var(--border-color)', paddingBottom: '8px', marginBottom: '8px' }}>
+                    <label style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}>
+                      <input type="radio" name="presType" checked={presTypeToggle === 'simple'} onChange={() => setPresTypeToggle('simple')} />
+                      <span>Elaboración Simple (1 Mercadería Base)</span>
+                    </label>
+                    <label style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}>
+                      <input type="radio" name="presType" checked={presTypeToggle === 'recipe'} onChange={() => setPresTypeToggle('recipe')} />
+                      <span>Elaboración Compuesta (Requiere Receta)</span>
+                    </label>
+                  </div>
+
+                  {presTypeToggle === 'simple' ? (
+                    <Select 
+                      label="Mercadería Base" 
+                      value={presBaseId} 
+                      onChange={e => setPresBaseId(e.target.value)} 
+                      required={presTypeToggle === 'simple'}
+                      options={[
+                        { value: '', label: 'Seleccionar Mercadería...' },
+                        ...mercaderias.map(m => ({ value: m.id!, label: `${m.name} ($${m.costoKg}/Kg)` }))
+                      ]} 
+                    />
+                  ) : (
+                    <Select 
+                      label="Receta Asociada" 
+                      value={presRecetaId} 
+                      onChange={e => setPresRecetaId(e.target.value)} 
+                      required={presTypeToggle === 'recipe'}
+                      options={[
+                        { value: '', label: 'Seleccionar Receta...' },
+                        ...recipes.map(r => ({ value: r.id!, label: `${r.productName} (${r.customerName || 'Todos'})` }))
+                      ]} 
+                    />
+                  )}
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                    <Input label="Peso Objetivo por Sobre (Gramos)" type="number" value={presPesoGramos} onChange={e => setPresPesoGramos(e.target.value)} required />
+                    <Input label="Cantidad Fetas Estimadas (Opcional)" type="number" value={presFetas} onChange={e => setPresFetas(e.target.value)} />
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                    <Select 
+                      label="Bolsa Utilizada" 
+                      value={presBolsaId} 
+                      onChange={e => setPresBolsaId(e.target.value)} 
+                      required
+                      options={[
+                        { value: '', label: 'Seleccionar Bolsa...' },
+                        ...insumos.map(i => ({ value: i.id!, label: `${i.name} (${formatCurrency(i.costoUnitario)})` }))
+                      ]} 
+                    />
+                    <Select 
+                      label="Etiqueta Utilizada" 
+                      value={presEtiquetaId} 
+                      onChange={e => setPresEtiquetaId(e.target.value)} 
+                      required
+                      options={[
+                        { value: '', label: 'Seleccionar Etiqueta...' },
+                        ...insumos.map(i => ({ value: i.id!, label: `${i.name} (${formatCurrency(i.costoUnitario)})` }))
+                      ]} 
+                    />
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                    <Input label="Precio Venta por Kg ($)" type="number" value={presPrecioKg} onChange={e => setPresPrecioKg(e.target.value)} required />
+                    <Input label="Costo Mano de Obra por Sobre ($)" type="number" value={presManoObra} onChange={e => setPresManoObra(e.target.value)} />
+                  </div>
+
+                  <Input label="Observaciones" value={presObs} onChange={e => setPresObs(e.target.value)} />
+
+                  {/* Cost Preview Card */}
+                  <div style={{
+                    marginTop: '20px',
+                    padding: '16px',
+                    borderRadius: '8px',
+                    border: '1px solid var(--border-color)',
+                    backgroundColor: 'var(--bg-secondary)',
+                    display: 'grid',
+                    gridTemplateColumns: '1fr 1fr 1fr',
+                    gap: '12px',
+                    textAlign: 'center'
+                  }}>
+                    <div>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 600 }}>Costo Estimado / Unidad</div>
+                      <div style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--text-primary)', marginTop: '4px' }}>{formatCurrency(presEstimatedCost)}</div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 600 }}>Costo Estimado / Kg</div>
+                      <div style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--text-primary)', marginTop: '4px' }}>{formatCurrency(presEstimatedCostKg)}</div>
+                    </div>
+                    <div>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 600 }}>Margen Estimado</div>
+                      <div style={{ 
+                        fontSize: '1.25rem', 
+                        fontWeight: 700, 
+                        color: presMargin >= 30 ? '#10b981' : presMargin >= 15 ? '#f59e0b' : '#ef4444', 
+                        marginTop: '4px' 
+                      }}>{formatNumber(presMargin, '%')}</div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* RECETAS FORM */}
+              {activeTab === 'recetas' && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: '12px' }}>
+                    <Select 
+                      label="Presentación Asociada" 
+                      value={recProductId} 
+                      onChange={e => setRecProductId(e.target.value)} 
+                      required
+                      options={[
+                        { value: '', label: 'Seleccionar Presentación...' },
+                        ...presentaciones.filter(p => !p.productoBaseId).map(p => ({ value: p.id!, label: `${p.name} (${p.customerName || 'Todos'})` }))
+                      ]} 
+                    />
+                    <Select 
+                      label="Destinar a Cliente (Opcional)" 
+                      value={recCustomerId} 
+                      onChange={e => setRecCustomerId(e.target.value)} 
+                      options={[
+                        { value: '', label: 'Todos los clientes' },
+                        ...customers.map(c => ({ value: c.id!, label: c.name }))
+                      ]} 
+                    />
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px' }}>
+                    <Select 
+                      label="Método de Receta" 
+                      value={recMethod} 
+                      onChange={e => setRecMethod(e.target.value as any)} 
+                      options={[
+                        { value: 'weight', label: 'Por Peso (Kg)' },
+                        { value: 'percentage', label: 'Por Porcentaje (%)' },
+                        { value: 'fetas', label: 'Por Fetas (Unidades)' }
+                      ]} 
+                    />
+                    <Input label="Costo Mano Obra ($)" type="number" value={recLaborCost} onChange={e => setRecLaborCost(e.target.value)} />
+                    <Input label="Costos Fijos/Adicionales ($)" type="number" value={recAdditionalCost} onChange={e => setRecAdditionalCost(e.target.value)} />
+                  </div>
+
+                  <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '12px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                      <h4 style={{ fontWeight: 600, fontSize: '0.9rem' }}>Ingredientes de la Receta</h4>
+                      <button 
+                        type="button" 
+                        onClick={() => setRecIngredients([...recIngredients, { productId: '', productName: '', quantity: 1 }])}
+                        className="btn btn-secondary-light btn-sm"
+                      >
+                        + Agregar Ingrediente
+                      </button>
+                    </div>
+
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                      {recIngredients.map((ing, idx) => (
+                        <div key={idx} style={{ display: 'grid', gridTemplateColumns: '2fr 1.2fr 1.2fr auto', gap: '12px', alignItems: 'end' }}>
+                          <Select 
+                            label="Mercadería (Ingrediente)"
+                            value={ing.productId}
+                            onChange={e => {
+                              const updated = [...recIngredients];
+                              updated[idx].productId = e.target.value;
+                              setRecIngredients(updated);
+                            }}
+                            required
+                            options={[
+                              { value: '', label: 'Seleccionar Mercadería...' },
+                              ...mercaderias.map(m => ({ value: m.id!, label: `${m.name} ($${m.costoKg}/Kg)` }))
+                            ]}
+                          />
+                          <Input 
+                            label="Cantidad"
+                            type="number"
+                            value={ing.quantity.toString()}
+                            onChange={e => {
+                              const updated = [...recIngredients];
+                              updated[idx].quantity = parseNumber(e.target.value);
+                              setRecIngredients(updated);
+                            }}
+                            required
+                          />
+                          <Select 
+                            label="Unidad"
+                            value={ing.unit || 'g'}
+                            onChange={e => {
+                              const updated = [...recIngredients];
+                              updated[idx].unit = e.target.value as any;
+                              setRecIngredients(updated);
+                            }}
+                            options={[
+                              { value: 'g', label: 'Gramos (g)' },
+                              { value: 'kg', label: 'Kilogramos (kg)' },
+                              { value: 'fetas', label: 'Fetas' },
+                              { value: 'unidades', label: 'Unidades' }
+                            ]}
+                          />
+                          <button 
+                            type="button" 
+                            onClick={() => setRecIngredients(recIngredients.filter((_, i) => i !== idx))}
+                            className="btn btn-icon"
+                            style={{ color: '#ef4444', marginBottom: '8px' }}
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Cost Preview Card */}
+                  {associatedPres ? (
+                    <div style={{
+                      marginTop: '20px',
+                      padding: '16px',
+                      borderRadius: '8px',
+                      border: '1px solid var(--border-color)',
+                      backgroundColor: 'var(--bg-secondary)',
+                      display: 'grid',
+                      gridTemplateColumns: '1fr 1fr 1fr',
+                      gap: '12px',
+                      textAlign: 'center'
+                    }}>
+                      <div>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 600 }}>Costo Estimado / Unidad</div>
+                        <div style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--text-primary)', marginTop: '4px' }}>{formatCurrency(recEstimatedCost)}</div>
+                      </div>
+                      <div>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 600 }}>Costo Estimado / Kg</div>
+                        <div style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--text-primary)', marginTop: '4px' }}>{formatCurrency(recEstimatedCostKg)}</div>
+                      </div>
+                      <div>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 600 }}>Margen Estimado</div>
+                        <div style={{ 
+                          fontSize: '1.25rem', 
+                          fontWeight: 700, 
+                          color: recMargin >= 30 ? '#10b981' : recMargin >= 15 ? '#f59e0b' : '#ef4444', 
+                          marginTop: '4px' 
+                        }}>{formatNumber(recMargin, '%')}</div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div style={{
+                      marginTop: '20px',
+                      padding: '12px',
+                      borderRadius: '8px',
+                      border: '1px dashed var(--border-color)',
+                      textAlign: 'center',
+                      color: 'var(--text-secondary)',
+                      fontSize: '0.85rem'
+                    }}>
+                      Seleccione una presentación asociada para calcular los costos de elaboración estimados.
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Form Buttons */}
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '24px', borderTop: '1px solid var(--border-color)', paddingTop: '16px' }}>
+                <button 
+                  type="button" 
+                  onClick={() => { setIsFormOpen(false); setEditingId(null); }} 
+                  className="btn btn-secondary" 
+                  disabled={isSaving}
+                >
+                  Cancelar
+                </button>
+                <button type="submit" className="btn btn-primary" disabled={isSaving}>
+                  {isSaving ? 'Guardando...' : 'Confirmar y Guardar'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </>
   );
 };
+
+export default Productos;

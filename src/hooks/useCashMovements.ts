@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { collection, onSnapshot, query, orderBy, addDoc } from 'firebase/firestore';
+import { collection, onSnapshot, query, orderBy, addDoc, doc, updateDoc, deleteDoc } from 'firebase/firestore';
 import { db } from '../firebase/firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { parseNumber } from '../utils/format';
@@ -29,12 +29,15 @@ export const useCashMovements = () => {
             id: doc.id,
             type: data.type || 'in',
             amount: parseNumber(data.amount),
+            currency: data.currency || 'ARS',
             method: data.method || 'cash',
+            origin: data.origin || (data.method === 'cash' ? 'cash' : 'bank'),
             description: data.description || '',
             category: data.category || '',
             referenceId: data.referenceId || '',
             date: data.date || Date.now(),
             createdAt: data.createdAt || Date.now(),
+            bankId: data.bankId || '',
           });
         });
         setMovements(list);
@@ -56,6 +59,16 @@ export const useCashMovements = () => {
       ...movement,
       createdAt: Date.now()
     });
+  };
+
+  const updateMovement = async (id: string, data: Partial<CashMovement>) => {
+    const ref = doc(db, 'cash_movements', id);
+    await updateDoc(ref, { ...data });
+  };
+
+  const deleteMovement = async (id: string) => {
+    const ref = doc(db, 'cash_movements', id);
+    await deleteDoc(ref);
   };
 
   // Aggregates
@@ -105,6 +118,8 @@ export const useCashMovements = () => {
     loading, 
     error, 
     createMovement,
+    updateMovement,
+    deleteMovement,
     stats: {
       balanceCaja: stats.balanceCaja,
       balanceBancos: stats.balanceBancos,

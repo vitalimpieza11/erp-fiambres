@@ -1,11 +1,8 @@
 export type { 
-  Product, 
   Sale, 
   SaleItem, 
   Purchase, 
   PurchaseItem, 
-  ProductionBatch, 
-  ProductionItem, 
   StockMovement, 
   CashMovement, 
   Customer, 
@@ -13,5 +10,5 @@ export type {
   SystemSettings 
 } from '../types/database';
 
-export { calculateProductMetrics, calculateSaleTotals } from '../core/calculations';
+export { calculateSaleTotals } from '../core/calculations';
 export { DatabaseMapper } from '../mappers/databaseMapper';

@@ -1,77 +1,5 @@
 import { parseNumber } from '../utils/format';
-
-/**
- * Calculates raw product derived financial metrics.
- * Safe from NaN, Infinity, and Division by Zero.
- */
-export function calculateProductMetrics(data: {
-  costoHorma: number | string;
-  pesoHorma: number | string;
-  mermaEstimada: number | string;
-  gramajeVenta: number | string;
-  costoBolsa: number | string;
-  costoEtiqueta: number | string;
-  manoObra: number | string;
-  margenDeseado: number | string;
-  precioManual: number | string;
-}) {
-  const costoHorma = parseNumber(data.costoHorma);
-  const pesoHorma = parseNumber(data.pesoHorma);
-  const mermaEstimada = parseNumber(data.mermaEstimada);
-  const gramajeVenta = parseNumber(data.gramajeVenta);
-  
-  const costoBolsa = parseNumber(data.costoBolsa);
-  const costoEtiqueta = parseNumber(data.costoEtiqueta);
-  const manoObra = parseNumber(data.manoObra);
-  const margenDeseado = parseNumber(data.margenDeseado);
-  const precioManual = parseNumber(data.precioManual);
-
-  // 1. Costo por KG
-  const costoKg = pesoHorma > 0 ? costoHorma / pesoHorma : 0;
-  
-  // 2. Kilogramos Netos (post merma)
-  const kgNetos = pesoHorma * (1 - (mermaEstimada || 0) / 100);
-  
-  // 3. Cantidad de paquetes estimados
-  const paquetesEstimados = gramajeVenta > 0 ? Math.floor((kgNetos * 1000) / gramajeVenta) : 0;
-  
-  // 4. Costo materia prima por paquete
-  const costoMateriaPrimaPorPaq = paquetesEstimados > 0 ? costoHorma / paquetesEstimados : 0;
-  
-  // 5. Costo total de paquete feteado (materia prima + insumos + mano obra)
-  const costoTotalPaquete = paquetesEstimados > 0 
-    ? costoMateriaPrimaPorPaq + costoBolsa + costoEtiqueta + manoObra 
-    : 0;
-  
-  // 6. Precio sugerido
-  const precioSugerido = costoTotalPaquete > 0 ? costoTotalPaquete * (1 + margenDeseado / 100) : 0;
-  
-  // 7. Precio de venta real (manual si existe, sugerido si no)
-  const precioVenta = precioManual > 0 ? precioManual : precioSugerido;
-  
-  // 8. Utilidad neta por paquete
-  const utilidadNetaPaquete = precioVenta > 0 && costoTotalPaquete > 0 ? precioVenta - costoTotalPaquete : 0;
-  
-  // 9. Margen real (%)
-  const margenReal = precioVenta > 0 ? (utilidadNetaPaquete / precioVenta) * 100 : 0;
-  
-  // 10. Utilidad por KG vendido
-  const utilidadKg = gramajeVenta > 0 && precioVenta > 0 ? utilidadNetaPaquete * (1000 / gramajeVenta) : 0;
-
-  return {
-    costoKg,
-    kgNetos,
-    paquetesEstimados,
-    costoMateriaPrimaPorPaq,
-    costoTotalPaquete,
-    precioSugerido,
-    precioVenta,
-    utilidadNetaPaquete,
-    margenReal,
-    utilidadKg,
-    hasValidData: costoTotalPaquete > 0 && precioVenta > 0
-  };
-}
+import type { Presentacion, Mercaderia, Insumo, Recipe } from '../types/database';
 
 /**
  * Calculates sales aggregates and totals safely.
@@ -100,3 +28,158 @@ export function calculateSaleTotals(items: { quantity: number; price: number; co
     marginPercent
   };
 }
+
+/**
+ * Safely converts any recipe ingredient quantity to grams, handling both legacy and new unit-suffixed formats.
+ */
+export function getIngredientGrams(
+  ing: { productName: string; quantity: number; productId: string },
+  recipeMethod: string | undefined,
+  pres: Presentacion | undefined,
+  merc: Mercaderia | undefined
+): number {
+  const parts = (ing.productName || '').split(' @');
+  const unit = parts[1];
+
+  const recipeFetaWeight = (pres && pres.pesoObjetivoGramos && pres.cantidadFetasEstimada)
+    ? (pres.pesoObjetivoGramos / pres.cantidadFetasEstimada)
+    : (merc?.pesoFeta || 15);
+
+  if (unit) {
+    // New normalized format: quantity is stored in grams in the database
+    return ing.quantity;
+  } else {
+    // Legacy format
+    if (recipeMethod === 'weight') {
+      return ing.quantity * 1000; // Kg -> grams
+    } else if (recipeMethod === 'percentage') {
+      const totalWeightGrams = pres?.pesoObjetivoGramos || 0;
+      return totalWeightGrams * (ing.quantity / 100); // % -> grams
+    } else if (recipeMethod === 'fetas') {
+      return ing.quantity * recipeFetaWeight; // fetas -> grams
+    } else {
+      return ing.quantity; // fallback as-is
+    }
+  }
+}
+
+/**
+ * Calculates the total cost of a presentation.
+ */
+export function calculatePresentationCost(
+  pres: Presentacion,
+  mercaderias: Mercaderia[],
+  insumos: Insumo[],
+  recipes: Recipe[]
+): number {
+  let costMercaderia = 0;
+
+  if (pres.productoBaseId) {
+    const base = mercaderias.find(m => m.id === pres.productoBaseId);
+    if (base) {
+      const merma = base.mermaEstimada || 0;
+      const weightKg = (pres.pesoObjetivoGramos || 0) / 1000;
+      costMercaderia = (weightKg * base.costoKg) / (1 - merma / 100);
+    }
+  } else {
+    // Check if there is an associated recipe
+    const recipe = recipes.find(r => r.productId === pres.id || r.id === pres.recetaId || (r.productId === pres.productoBaseId && r.customerId === pres.customerId));
+    if (recipe) {
+      let ingredientsCost = 0;
+      recipe.ingredients.forEach((ing) => {
+        const merc = mercaderias.find(m => m.id === ing.productId);
+        if (merc) {
+          const qtyGrams = getIngredientGrams(ing, recipe.method, pres, merc);
+          const qtyKg = qtyGrams / 1000;
+          ingredientsCost += qtyKg * merc.costoKg;
+        }
+      });
+      costMercaderia = ingredientsCost + (recipe.costoManoObra || 0) + (recipe.costoAdicional || 0);
+    }
+  }
+
+  const bag = insumos.find(i => i.id === pres.bolsaId);
+  const label = insumos.find(i => i.id === pres.etiquetaId);
+  
+  const costBolsa = bag ? (bag.costoUnitario || 0) : 0;
+  const costEtiqueta = label ? (label.costoUnitario || 0) : 0;
+  const costManoObra = pres.manoObra || 0;
+
+  return costMercaderia + costBolsa + costEtiqueta + costManoObra;
+}
+
+/**
+ * Calculates the stock consumption (mercaderias and insumos) for a given presentation quantity.
+ */
+export function getPresentationConsumption(
+  pres: Presentacion,
+  quantity: number,
+  mercaderias: Mercaderia[],
+  insumos: Insumo[],
+  recipes: Recipe[]
+): { id: string; name: string; quantity: number; isInsumo: boolean }[] {
+  const consumption: { id: string; name: string; quantity: number; isInsumo: boolean }[] = [];
+
+  // 1. Bolsa
+  if (pres.bolsaId) {
+    const bag = insumos.find(i => i.id === pres.bolsaId);
+    consumption.push({
+      id: pres.bolsaId,
+      name: bag?.name || 'Bolsa',
+      quantity: quantity,
+      isInsumo: true
+    });
+  }
+
+  // 2. Etiqueta
+  if (pres.etiquetaId) {
+    const label = insumos.find(i => i.id === pres.etiquetaId);
+    consumption.push({
+      id: pres.etiquetaId,
+      name: label?.name || 'Etiqueta',
+      quantity: quantity,
+      isInsumo: true
+    });
+  }
+
+  // 3. Mercaderia
+  if (pres.productoBaseId) {
+    const base = mercaderias.find(m => m.id === pres.productoBaseId);
+    if (base) {
+      const merma = base.mermaEstimada || 0;
+      const weightKgPerPkg = (pres.pesoObjetivoGramos || 0) / 1000;
+      const totalWeightKg = (weightKgPerPkg / (1 - merma / 100)) * quantity;
+      
+      consumption.push({
+        id: pres.productoBaseId,
+        name: base.name,
+        quantity: totalWeightKg,
+        isInsumo: false
+      });
+    }
+  } else {
+    const recipe = recipes.find(r => r.productId === pres.id || r.id === pres.recetaId || (r.productId === pres.productoBaseId && r.customerId === pres.customerId));
+    if (recipe) {
+      recipe.ingredients.forEach((ing) => {
+        const merc = mercaderias.find(m => m.id === ing.productId);
+        if (merc) {
+          const qtyGrams = getIngredientGrams(ing, recipe.method, pres, merc);
+          const qtyKgPerPkg = qtyGrams / 1000;
+
+          const merma = merc.mermaEstimada || 0;
+          const totalWeightKg = (qtyKgPerPkg / (1 - merma / 100)) * quantity;
+
+          consumption.push({
+            id: ing.productId,
+            name: merc.name,
+            quantity: totalWeightKg,
+            isInsumo: false
+          });
+        }
+      });
+    }
+  }
+
+  return consumption;
+}
+

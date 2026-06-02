@@ -18,7 +18,8 @@ import {
   Settings,
   Beef,
   PieChart,
-  LogOut
+  LogOut,
+  ClipboardList
 } from 'lucide-react';
 
 import { X } from 'lucide-react';
@@ -44,7 +45,8 @@ export const Sidebar = ({ isOpen, onClose }: SidebarProps) => {
       items: [
         { path: '/productos', icon: Beef, label: 'Productos' },
         { path: '/compras', icon: ShoppingCart, label: 'Compras' },
-        { path: '/produccion', icon: Factory, label: 'Producción' },
+        { path: '/pedidos', icon: ClipboardList, label: 'Pedidos' },
+        { path: '/produccion', icon: Factory, label: 'Preparación' },
         { path: '/stock', icon: Package, label: 'Stock' },
         { path: '/ventas', icon: Store, label: 'Ventas' }
       ]
