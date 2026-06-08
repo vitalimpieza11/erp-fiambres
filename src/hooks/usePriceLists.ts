@@ -79,18 +79,5 @@ export const usePriceLists = () => {
     await deleteDoc(ref);
   };
 
-  const seedPriceLists = async () => {
-    const mockLists = [
-      { name: 'Lista Gastronómica', target: 'Bares y Restaurantes', margin: 30, isActive: true, productOverrides: {} },
-      { name: 'Lista Kioscos', target: 'Kioscos y Minimarkets', margin: 40, isActive: true, productOverrides: {} },
-      { name: 'Lista Minorista', target: 'Consumidor Final', margin: 55, isActive: true, productOverrides: {} },
-      { name: 'Mayorista (Volumen)', target: 'Supermercados', margin: 20, isActive: false, productOverrides: {} },
-    ];
-    for (const list of mockLists) {
-      const ref = doc(collection(db, 'priceLists'));
-      await setDoc(ref, { ...list, createdAt: Date.now(), updatedAt: Date.now() });
-    }
-  };
-
-  return { priceLists, loading, error, savePriceList, deletePriceList, seedPriceLists };
+  return { priceLists, loading, error, savePriceList, deletePriceList };
 };

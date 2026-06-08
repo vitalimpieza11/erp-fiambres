@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import { Outlet, NavLink } from 'react-router-dom';
 import { Sidebar } from './Sidebar';
-import { Bell, Menu, Search, Factory, Beef, Package, Tags, Store, ChevronLeft, ChevronRight, Calendar } from 'lucide-react';
+import { Bell, Menu, Search, Factory, Beef, Package, Tags, Store, ChevronLeft, ChevronRight, Calendar, LogOut } from 'lucide-react';
 import { useDateFilter } from '../contexts/DateFilterContext';
+import { useAuth } from '../contexts/AuthContext';
 
 const MONTHS = [
   'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
@@ -16,6 +17,7 @@ export const Layout = () => {
     setSelectedYear, setSelectedMonth, setSelectedDay, setViewType, 
     handlePrev, handleNext 
   } = useDateFilter();
+  const { logout, currentUser } = useAuth();
 
   const currentYear = new Date().getFullYear();
 
@@ -76,9 +78,19 @@ export const Layout = () => {
               <Bell size={20} />
             </button>
             <div className="user-profile">
-              <div className="avatar">A</div>
-              <span className="desktop-user-name" style={{ fontSize: '0.9rem', fontWeight: 500 }}>Admin User</span>
+              <div className="avatar">{currentUser?.email?.charAt(0).toUpperCase() || 'A'}</div>
+              <span className="desktop-user-name" style={{ fontSize: '0.9rem', fontWeight: 500 }}>
+                {currentUser?.email || 'Usuario'}
+              </span>
             </div>
+            <button 
+              onClick={logout}
+              className="icon-btn" 
+              title="Cerrar Sesión"
+              style={{ color: 'var(--text-secondary)' }}
+            >
+              <LogOut size={20} />
+            </button>
           </div>
         </header>
 

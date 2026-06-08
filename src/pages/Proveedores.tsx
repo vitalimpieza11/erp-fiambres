@@ -12,7 +12,6 @@ import {
 import { formatCurrency, parseNumber } from '../utils/format';
 import { useSuppliers } from '../hooks/useSuppliers';
 
-const mockCC: any[] = [];
 
 export const Proveedores = () => {
   const { suppliers, loading, error, saveSupplier, deleteSupplier } = useSuppliers();
@@ -284,46 +283,13 @@ export const Proveedores = () => {
         </div>
 
         <Card padding="none">
-          <Table 
-            data={mockCC}
-            keyExtractor={(item) => item.id}
-            columns={[
-              { header: 'Fecha', accessor: 'date', width: '120px' },
-              { header: 'Comprobante', accessor: 'id', width: '120px' },
-              { 
-                header: 'Tipo', 
-                accessor: (item) => (
-                  <span style={{ 
-                    padding: '4px 12px', borderRadius: '9999px', fontSize: '0.75rem', fontWeight: 600,
-                    backgroundColor: item.type === 'Pago' ? '#dcfce7' : '#fef2f2',
-                    color: item.type === 'Pago' ? '#166534' : '#991b1b'
-                  }}>
-                    {item.type}
-                  </span>
-                ),
-                align: 'center'
-              },
-              { header: 'Descripción', accessor: 'desc' },
-              { 
-                header: 'Monto', 
-                accessor: (item) => (
-                  <span style={{ fontWeight: 600, color: item.amount > 0 ? '#dc2626' : '#16a34a' }}>
-                    {formatCurrency(item.amount)}
-                  </span>
-                ),
-                align: 'right'
-              },
-              { 
-                header: 'Saldo', 
-                accessor: (item) => (
-                  <span style={{ fontWeight: 700 }}>
-                    {formatCurrency(item.balance)}
-                  </span>
-                ),
-                align: 'right'
-              },
-            ]}
-          />
+          <div style={{ padding: '40px' }}>
+            <EmptyState 
+              icon={FileText} 
+              title="No hay movimientos registrados" 
+              description="Aún no hay comprobantes ni pagos en la cuenta corriente de este proveedor." 
+            />
+          </div>
         </Card>
       </div>
     );

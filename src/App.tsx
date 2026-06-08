@@ -1,5 +1,5 @@
 import React from 'react';
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Layout } from './components/Layout';
 import {
   Dashboard,
@@ -18,9 +18,10 @@ import {
   Configuracion,
   Productos,
   Reportes,
-  Produccion
+  Produccion,
+  Login
 } from './pages';
-import { AuthProvider } from './contexts/AuthContext';
+import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { DateFilterProvider } from './contexts/DateFilterContext';
 
 const ProtectedRoute = ({
@@ -28,6 +29,16 @@ const ProtectedRoute = ({
 }: {
   children: React.ReactNode;
 }) => {
+  const { currentUser, loading } = useAuth();
+
+  if (loading) {
+    return <div>Cargando...</div>;
+  }
+
+  if (!currentUser) {
+    return <Navigate to="/login" replace />;
+  }
+
   return <>{children}</>;
 };
 
@@ -36,99 +47,103 @@ function App() {
     <AuthProvider>
       <DateFilterProvider>
         <BrowserRouter>
-          <ProtectedRoute>
-            <Routes>
+          <Routes>
+            <Route path="/login" element={<Login />} />
+            
+            <Route
+              path="/"
+              element={
+                <ProtectedRoute>
+                  <Layout />
+                </ProtectedRoute>
+              }
+            >
               <Route
-                path="/"
-                element={<Layout />}
-              >
-                <Route
-                  index
-                  element={<Dashboard />}
-                />
+                index
+                element={<Dashboard />}
+              />
 
-                <Route
-                  path="productos"
-                  element={<Productos />}
-                />
+              <Route
+                path="productos"
+                element={<Productos />}
+              />
 
-                <Route
-                  path="produccion"
-                  element={<Produccion />}
-                />
+              <Route
+                path="produccion"
+                element={<Produccion />}
+              />
 
-                <Route
-                  path="compras"
-                  element={<Compras />}
-                />
+              <Route
+                path="compras"
+                element={<Compras />}
+              />
 
-                <Route
-                  path="pedidos"
-                  element={<Pedidos />}
-                />
+              <Route
+                path="pedidos"
+                element={<Pedidos />}
+              />
 
-                <Route
-                  path="stock"
-                  element={<Stock />}
-                />
+              <Route
+                path="stock"
+                element={<Stock />}
+              />
 
-                <Route
-                  path="ventas"
-                  element={<Ventas />}
-                />
+              <Route
+                path="ventas"
+                element={<Ventas />}
+              />
 
-                <Route
-                  path="clientes"
-                  element={<Clientes />}
-                />
+              <Route
+                path="clientes"
+                element={<Clientes />}
+              />
 
-                <Route
-                  path="precios"
-                  element={<Precios />}
-                />
+              <Route
+                path="precios"
+                element={<Precios />}
+              />
 
-                <Route
-                  path="competencia"
-                  element={<Competencia />}
-                />
+              <Route
+                path="competencia"
+                element={<Competencia />}
+              />
 
-                <Route
-                  path="caja-bancos"
-                  element={<CajaBancos />}
-                />
+              <Route
+                path="caja-bancos"
+                element={<CajaBancos />}
+              />
 
-                <Route
-                  path="cuenta-corriente"
-                  element={<CuentaCorriente />}
-                />
+              <Route
+                path="cuenta-corriente"
+                element={<CuentaCorriente />}
+              />
 
-                <Route
-                  path="proveedores"
-                  element={<Proveedores />}
-                />
+              <Route
+                path="proveedores"
+                element={<Proveedores />}
+              />
 
-                <Route
-                  path="reportes"
-                  element={<Reportes />}
-                />
+              <Route
+                path="reportes"
+                element={<Reportes />}
+              />
 
-                <Route
-                  path="rentabilidad"
-                  element={<Rentabilidad />}
-                />
+              <Route
+                path="rentabilidad"
+                element={<Rentabilidad />}
+              />
 
-                <Route
-                  path="top-productos"
-                  element={<TopProductos />}
-                />
+              <Route
+                path="top-productos"
+                element={<TopProductos />}
+              />
 
-                <Route
-                  path="configuracion"
-                  element={<Configuracion />}
-                />
-              </Route>
-            </Routes>
-          </ProtectedRoute>
+              <Route
+                path="configuracion"
+                element={<Configuracion />}
+              />
+            </Route>
+          </Routes>
         </BrowserRouter>
       </DateFilterProvider>
     </AuthProvider>

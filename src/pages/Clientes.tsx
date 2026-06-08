@@ -12,12 +12,13 @@ import {
 } from 'lucide-react';
 import { formatCurrency, formatNumber, parseNumber } from '../utils/format';
 import { useCustomers } from '../hooks/useCustomers';
+import { usePriceLists } from '../hooks/usePriceLists';
 import { CCDetail } from './CuentaCorriente';
 
-const mockCC: any[] = [];
 
 export const Clientes = () => {
   const { customers, loading, error, saveCustomer, deleteCustomer } = useCustomers();
+  const { priceLists } = usePriceLists();
   const [viewMode, setViewMode] = useState<'list' | 'create' | 'cc'>('list');
   const [creditEnabled, setCreditEnabled] = useState(true);
   const [selectedCustomer, setSelectedCustomer] = useState<any | null>(null);
@@ -32,6 +33,7 @@ export const Clientes = () => {
   const [barrio, setBarrio] = useState('');
   const [notes, setNotes] = useState('');
   const [classification, setClassification] = useState('gastro');
+  const [priceListId, setPriceListId] = useState('');
   const [creditLimitStr, setCreditLimitStr] = useState('100000');
   const [paymentTermsStr, setPaymentTermsStr] = useState('30');
   const [isSaving, setIsSaving] = useState(false);
@@ -58,7 +60,8 @@ export const Clientes = () => {
         creditLimit: creditEnabled ? parseNumber(creditLimitStr) : 0,
         currentBalance: 0,
         paymentTerms: creditEnabled ? parseNumber(paymentTermsStr) : 0,
-        isActive: true
+        isActive: true,
+        priceListId: priceListId || ''
       }, selectedCustomer?.id);
       setViewMode('list');
       setSelectedCustomer(null);
@@ -73,6 +76,7 @@ export const Clientes = () => {
       setNotes('');
       setCreditLimitStr('100000');
       setPaymentTermsStr('30');
+      setPriceListId('');
     } catch (e: any) {
       console.error(e);
       alert(e.message || "Error al registrar cliente.");
@@ -100,6 +104,7 @@ export const Clientes = () => {
     setCreditLimitStr(c.creditLimit?.toString() || '100000');
     setPaymentTermsStr(c.paymentTerms?.toString() || '30');
     setCreditEnabled(c.creditLimit > 0 || c.paymentTerms > 0);
+    setPriceListId(c.priceListId || '');
     setViewMode('create');
   };
 
@@ -216,11 +221,21 @@ export const Clientes = () => {
                 <h3 style={{ fontSize: '1.125rem', fontWeight: 600 }}>3. Condiciones Comerciales</h3>
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-                <Select label="Lista de Precios" options={[
-                  { value: 'lista1', label: 'Lista 1 (Mayorista)' },
-                  { value: 'lista2', label: 'Lista 2 (Especial)' },
-                  { value: 'lista3', label: 'Lista 3 (Mostrador)' }
-                ]} />
+                {priceLists.length === 0 ? (
+                  <div style={{ gridColumn: '1 / -1', padding: '12px', backgroundColor: '#fef2f2', border: '1px solid #fecaca', borderRadius: '8px', color: '#991b1b', fontSize: '0.875rem', fontWeight: 500 }}>
+                    No existen listas de precios. Cree una lista antes de asignarla a un cliente.
+                  </div>
+                ) : (
+                  <Select 
+                    label="Lista de Precios" 
+                    value={priceListId}
+                    onChange={e => setPriceListId(e.target.value)}
+                    options={[
+                      { value: '', label: 'Seleccionar lista...' },
+                      ...priceLists.map(list => ({ value: list.id!, label: list.name }))
+                    ]} 
+                  />
+                )}
                 <Input label="Descuento Fijo (%)" placeholder="Ej: 5" type="number" />
                 
                 <div style={{ gridColumn: '1 / -1', padding: '16px', backgroundColor: 'var(--bg-primary)', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
@@ -302,6 +317,7 @@ export const Clientes = () => {
             setNotes('');
             setCreditLimitStr('100000');
             setPaymentTermsStr('30');
+            setPriceListId('');
             setViewMode('create');
           }}
           className="btn btn-primary"

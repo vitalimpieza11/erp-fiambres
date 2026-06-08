@@ -132,7 +132,7 @@ export const Pedidos = () => {
       discount: discVal,
       total,
       status,
-      observaciones,
+      observations: observaciones,
       date: Date.now()
     };
 
@@ -142,8 +142,8 @@ export const Pedidos = () => {
       await saveOrder(payload, recipes, editingId || undefined);
       resetFormStates();
       setIsFormOpen(false);
-    } catch (e) {
-      alert('Error al guardar el pedido.');
+    } catch (e: any) {
+      alert(e.message || 'Error al guardar el pedido.');
       console.error(e);
     } finally {
       setIsSaving(false);
@@ -544,7 +544,7 @@ export const Pedidos = () => {
                         className="btn btn-primary btn-sm"
                         style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '4px 8px' }}
                       >
-                        <FileText size={12} /> Facturar
+                        <FileText size={12} /> Facturar Pedido
                       </button>
                     )}
                     {['pending', 'in_production'].includes(item.status || 'pending') && (

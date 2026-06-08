@@ -105,6 +105,7 @@ export interface Customer {
   currentBalance: number;
   paymentTerms: number; // e.g. 30 days
   isActive: boolean;
+  priceListId?: string;
   createdAt: number;
   updatedAt: number;
 }

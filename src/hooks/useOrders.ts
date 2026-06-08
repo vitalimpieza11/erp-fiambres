@@ -35,7 +35,7 @@ export const useOrders = () => {
             discount: Number(data.discount) || 0,
             total: Number(data.total) || 0,
             status: data.status || 'pending',
-            observations: data.observations || '',
+            observations: data.observaciones || data.observations || '',
             date: data.date || Date.now(),
             createdAt: data.createdAt || Date.now(),
             updatedAt: data.updatedAt || Date.now(),
@@ -162,6 +162,10 @@ export const useOrders = () => {
     };
 
     if (id) {
+      const existingOrder = orders.find(o => o.id === id);
+      if (existingOrder && (existingOrder.status === 'delivered' || existingOrder.status === 'invoiced')) {
+        throw new Error('Este pedido ya impactó stock. Debe anularse y generarse uno nuevo.');
+      }
       const ref = doc(db, 'orders', id);
       await updateDoc(ref, orderPayload as any);
       return id;
@@ -412,6 +416,7 @@ export const useOrders = () => {
         paymentMethod: options?.paymentMethod || 'cc',
         remitoNumber: `REM-${Date.now().toString().slice(-6)}`,
         orderId: targetOrder.id,
+        observations: targetOrder.observations || '',
         date: Date.now(),
         createdAt: Date.now(),
         updatedAt: Date.now()

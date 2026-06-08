@@ -101,11 +101,24 @@ export function calculatePresentationCost(
   const bag = insumos.find(i => i.id === pres.bolsaId);
   const label = insumos.find(i => i.id === pres.etiquetaId);
   
-  const costBolsa = bag ? (bag.costoUnitario || 0) : 0;
-  const costEtiqueta = label ? (label.costoUnitario || 0) : 0;
-  const costManoObra = pres.manoObra || 0;
+  let totalCost = costMercaderia;
 
-  return costMercaderia + costBolsa + costEtiqueta + costManoObra;
+  const costBolsa = bag?.costoUnitario;
+  if (typeof costBolsa === "number" && !isNaN(costBolsa)) {
+    totalCost += costBolsa;
+  }
+
+  const costEtiqueta = label?.costoUnitario;
+  if (typeof costEtiqueta === "number" && !isNaN(costEtiqueta)) {
+    totalCost += costEtiqueta;
+  }
+
+  const costManoObra = pres.manoObra;
+  if (typeof costManoObra === "number" && !isNaN(costManoObra)) {
+    totalCost += costManoObra;
+  }
+
+  return totalCost;
 }
 
 /**

@@ -6,7 +6,8 @@ import { Table } from '../components/ui/Table';
 import { Input, Select } from '../components/ui/Forms';
 import { 
   Plus, Edit2, Trash2, Tag, Layers, Settings, HelpCircle, 
-  Percent, Hash, Anchor, DollarSign, Package, User, FileText, ShoppingBag
+  Percent, Hash, Anchor, DollarSign, Package, User, FileText, ShoppingBag,
+  Activity, ShieldAlert
 } from 'lucide-react';
 import { formatCurrency, formatNumber, parseNumber } from '../utils/format';
 import { useMercaderias } from '../hooks/useMercaderias';
@@ -57,6 +58,7 @@ export const Productos = () => {
   const [presBolsaId, setPresBolsaId] = useState('');
   const [presEtiquetaId, setPresEtiquetaId] = useState('');
   const [presPrecioKg, setPresPrecioKg] = useState('');
+  const [presMargenObjetivo, setPresMargenObjetivo] = useState('40');
   const [presManoObra, setPresManoObra] = useState('0');
   const [presObs, setPresObs] = useState('');
   const [presTypeToggle, setPresTypeToggle] = useState<'simple' | 'recipe'>('simple');
@@ -123,6 +125,7 @@ export const Productos = () => {
       setPresBolsaId(item.bolsaId);
       setPresEtiquetaId(item.etiquetaId);
       setPresPrecioKg(item.precioVentaKg.toString());
+      setPresMargenObjetivo('40');
       setPresManoObra((item.manoObra || 0).toString());
       setPresObs(item.observations);
       setPresTypeToggle(item.productoBaseId ? 'simple' : 'recipe');
@@ -137,6 +140,7 @@ export const Productos = () => {
       setPresBolsaId('');
       setPresEtiquetaId('');
       setPresPrecioKg('');
+      setPresMargenObjetivo('40');
       setPresManoObra('0');
       setPresObs('');
       setPresTypeToggle('simple');
@@ -335,6 +339,15 @@ export const Productos = () => {
   let presEstimatedCost = 0;
   let presEstimatedCostKg = 0;
   let presMargin = 0;
+  let presMercaderiaCost = 0;
+  let presRecetaCost = 0;
+  let presBolsaCost = 0;
+  let presEtiquetaCost = 0;
+  let presManoObraCost = 0;
+  let presMissingData: string[] = [];
+  let pricePerUnit = 0;
+  let utilUnit = 0;
+  let utilKg = 0;
 
   if (activeTab === 'presentaciones') {
     const tempPres: Presentacion = {
@@ -355,11 +368,52 @@ export const Productos = () => {
       isActive: true,
       observations: ''
     };
-    presEstimatedCost = calculatePresentationCost(tempPres, mercaderias, insumos, recipes);
+    
     const weightKg = tempPres.pesoObjetivoGramos / 1000;
+
+    if (presTypeToggle === 'simple') {
+      if (!presBaseId) presMissingData.push('Falta asignar mercadería base');
+    } else {
+      if (!presRecetaId) presMissingData.push('Falta asignar receta');
+    }
+
+    const bag = insumos.find(i => i.id === presBolsaId);
+    if (bag) {
+      if (typeof bag.costoUnitario === "number" && !isNaN(bag.costoUnitario)) {
+        presBolsaCost = bag.costoUnitario;
+      }
+    }
+    else presMissingData.push('Falta asignar bolsa');
+
+    const label = insumos.find(i => i.id === presEtiquetaId);
+    if (label) {
+      if (typeof label.costoUnitario === "number" && !isNaN(label.costoUnitario)) {
+        presEtiquetaCost = label.costoUnitario;
+      }
+    }
+    else presMissingData.push('Falta asignar etiqueta');
+
+    const parsedManoObra = parseNumber(presManoObra);
+    if (typeof parsedManoObra === "number" && !isNaN(parsedManoObra)) {
+      presManoObraCost = parsedManoObra;
+    }
+
+    if (!presPrecioKg) presMissingData.push('Falta precio de venta');
+
+    presEstimatedCost = calculatePresentationCost(tempPres, mercaderias, insumos, recipes);
+    
+    if (presTypeToggle === 'recipe') {
+      presRecetaCost = presEstimatedCost - presBolsaCost - presEtiquetaCost - presManoObraCost;
+    } else {
+      presMercaderiaCost = presEstimatedCost - presBolsaCost - presEtiquetaCost - presManoObraCost;
+    }
+
     presEstimatedCostKg = weightKg > 0 ? presEstimatedCost / weightKg : 0;
-    const pricePerUnit = tempPres.precioVentaKg * weightKg;
-    presMargin = pricePerUnit > 0 ? ((pricePerUnit - presEstimatedCost) / pricePerUnit) * 100 : 0;
+    pricePerUnit = tempPres.precioVentaKg * weightKg;
+    
+    utilUnit = pricePerUnit > 0 ? pricePerUnit - presEstimatedCost : 0;
+    utilKg = weightKg > 0 ? utilUnit / weightKg : 0;
+    presMargin = pricePerUnit > 0 ? (utilUnit / pricePerUnit) * 100 : 0;
   }
 
   // Real-time cost preview for Recetas form
@@ -901,41 +955,106 @@ export const Productos = () => {
                     />
                   </div>
 
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                    <Input label="Precio Venta por Kg ($)" type="number" value={presPrecioKg} onChange={e => setPresPrecioKg(e.target.value)} required />
-                    <Input label="Costo Mano de Obra por Sobre ($)" type="number" value={presManoObra} onChange={e => setPresManoObra(e.target.value)} />
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px' }}>
+                    <div>
+                      <Input label="Precio Venta por Kg ($)" type="number" value={presPrecioKg} onChange={e => setPresPrecioKg(e.target.value)} required />
+                      <div style={{ fontSize: '0.75rem', color: '#3b82f6', marginTop: '6px', fontWeight: 600 }}>👉 Precio manual activo (prioritario)</div>
+                    </div>
+                    <Input label="Margen Objetivo (%)" type="number" value={presMargenObjetivo} onChange={e => setPresMargenObjetivo(e.target.value)} />
+                    <Input label="Costo Mano Obra por Sobre ($)" type="number" value={presManoObra} onChange={e => setPresManoObra(e.target.value)} />
                   </div>
 
                   <Input label="Observaciones" value={presObs} onChange={e => setPresObs(e.target.value)} />
 
-                  {/* Cost Preview Card */}
+                  {/* Panel de Rentabilidad en Tiempo Real */}
                   <div style={{
                     marginTop: '20px',
-                    padding: '16px',
-                    borderRadius: '8px',
+                    padding: '20px',
+                    borderRadius: '12px',
                     border: '1px solid var(--border-color)',
-                    backgroundColor: 'var(--bg-secondary)',
-                    display: 'grid',
-                    gridTemplateColumns: '1fr 1fr 1fr',
-                    gap: '12px',
-                    textAlign: 'center'
+                    backgroundColor: 'var(--bg-primary)',
+                    boxShadow: 'var(--shadow-sm)'
                   }}>
-                    <div>
-                      <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 600 }}>Costo Estimado / Unidad</div>
-                      <div style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--text-primary)', marginTop: '4px' }}>{formatCurrency(presEstimatedCost)}</div>
-                    </div>
-                    <div>
-                      <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 600 }}>Costo Estimado / Kg</div>
-                      <div style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--text-primary)', marginTop: '4px' }}>{formatCurrency(presEstimatedCostKg)}</div>
-                    </div>
-                    <div>
-                      <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 600 }}>Margen Estimado</div>
-                      <div style={{ 
-                        fontSize: '1.25rem', 
-                        fontWeight: 700, 
-                        color: presMargin >= 30 ? '#10b981' : presMargin >= 15 ? '#f59e0b' : '#ef4444', 
-                        marginTop: '4px' 
-                      }}>{formatNumber(presMargin, '%')}</div>
+                    <h4 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <Activity size={18} color="var(--primary-color)" /> Análisis de Rentabilidad Comercial
+                    </h4>
+
+                    {presMissingData.length > 0 && (
+                      <div style={{ marginBottom: '16px', padding: '12px', backgroundColor: '#fee2e2', border: '1px solid #fecaca', borderRadius: '8px', color: '#991b1b', fontSize: '0.85rem' }}>
+                        <div style={{ fontWeight: 600, marginBottom: '4px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <ShieldAlert size={16} /> Faltan datos para el cálculo exacto:
+                        </div>
+                        <ul style={{ margin: 0, paddingLeft: '24px' }}>
+                          {presMissingData.map((err, i) => <li key={i}>{err}</li>)}
+                        </ul>
+                      </div>
+                    )}
+
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
+                      <div>
+                        <div style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '8px', borderBottom: '1px solid var(--border-color)', paddingBottom: '4px' }}>Desglose de Costos (Por Sobre)</div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', padding: '4px 0' }}>
+                          <span>{presTypeToggle === 'simple' ? 'Mercadería Base' : 'Costo Receta'}</span>
+                          <span style={{ fontWeight: 500 }}>{formatCurrency(presTypeToggle === 'simple' ? presMercaderiaCost : presRecetaCost)}</span>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', padding: '4px 0' }}>
+                          <span>Bolsa</span>
+                          <span style={{ fontWeight: 500 }}>{formatCurrency(presBolsaCost)}</span>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', padding: '4px 0' }}>
+                          <span>Etiqueta</span>
+                          <span style={{ fontWeight: 500 }}>{formatCurrency(presEtiquetaCost)}</span>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', padding: '4px 0' }}>
+                          <span>Mano de Obra</span>
+                          <span style={{ fontWeight: 500 }}>{formatCurrency(presManoObraCost)}</span>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.9rem', padding: '8px 0', borderTop: '1px dashed var(--border-color)', marginTop: '4px', fontWeight: 700 }}>
+                          <span>Costo Total Unitario</span>
+                          <span style={{ color: '#ef4444' }}>{formatCurrency(presEstimatedCost)}</span>
+                        </div>
+                      </div>
+
+                      <div>
+                        <div style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '8px', borderBottom: '1px solid var(--border-color)', paddingBottom: '4px' }}>Márgenes y Utilidad</div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', padding: '4px 0' }}>
+                          <span>Precio Venta Unitario <span style={{ color: '#3b82f6', fontSize: '0.7rem', fontWeight: 600 }}>(Manual Activo)</span></span>
+                          <span style={{ fontWeight: 600 }}>{formatCurrency(pricePerUnit)}</span>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', padding: '4px 0' }}>
+                          <span>Utilidad Bruta x Unidad</span>
+                          <span style={{ fontWeight: 600, color: utilUnit > 0 ? '#10b981' : '#ef4444' }}>{formatCurrency(utilUnit)}</span>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', padding: '4px 0' }}>
+                          <span>Utilidad Bruta x Kg</span>
+                          <span style={{ fontWeight: 600, color: utilKg > 0 ? '#10b981' : '#ef4444' }}>{formatCurrency(utilKg)}</span>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.9rem', padding: '8px 0', borderTop: '1px dashed var(--border-color)', marginTop: '4px', fontWeight: 700 }}>
+                          <span>Rentabilidad / Margen %</span>
+                          <span style={{ color: presMargin >= 30 ? '#10b981' : presMargin >= 15 ? '#f59e0b' : '#ef4444' }}>{formatNumber(presMargin, '%')}</span>
+                        </div>
+                        
+                        <div style={{ marginTop: '16px', fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '8px', borderBottom: '1px solid var(--border-color)', paddingBottom: '4px' }}>Pricing Inverso</div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', padding: '4px 0' }}>
+                          <span>Costo Total por Kg</span>
+                          <span style={{ fontWeight: 600 }}>{formatCurrency(presEstimatedCostKg)}</span>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', padding: '4px 0' }}>
+                          <span>Margen Objetivo Ingresado</span>
+                          <span style={{ fontWeight: 600 }}>{formatNumber(parseNumber(presMargenObjetivo), '%')}</span>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', padding: '8px', backgroundColor: 'rgba(16, 185, 129, 0.1)', borderRadius: '6px', marginTop: '4px' }}>
+                          <span>👉 Precio de venta sugerido</span>
+                          <span style={{ fontWeight: 700, color: '#10b981' }}>{
+                            (() => {
+                              const targetMargin = parseNumber(presMargenObjetivo);
+                              if (targetMargin >= 100 || targetMargin < 0) return 'Margen inválido';
+                              const targetPricePerKg = presEstimatedCostKg / (1 - (targetMargin / 100));
+                              return formatCurrency(targetPricePerKg);
+                            })()
+                          } /Kg</span>
+                        </div>
+                      </div>
                     </div>
                   </div>
                 </div>

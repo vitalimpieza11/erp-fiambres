@@ -19,7 +19,7 @@ import autoTable from 'jspdf-autotable';
 
 export const Precios = () => {
   // Solo Presentaciones son la entidad de venta
-  const { priceLists, loading: loadingLists, error: errorLists, savePriceList, deletePriceList, seedPriceLists } = usePriceLists();
+  const { priceLists, loading: loadingLists, error: errorLists, savePriceList, deletePriceList } = usePriceLists();
   
   const { presentaciones, savePresentacion, loading: loadingPres, error: errorPres } = usePresentaciones();
   const { mercaderias, loading: loadingMerc, error: errorMerc } = useMercaderias();
@@ -485,11 +485,6 @@ export const Precios = () => {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '24px' }}>
         <PageHeader title="Listas de Precios" description="Administración y exportación de listas de precios comerciales por segmento" />
         <div style={{ display: 'flex', gap: '12px' }}>
-          {priceLists.length === 0 && !loadingLists && (
-            <button onClick={seedPriceLists} className="btn btn-secondary" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <Tags size={18} /> Inicializar Listas por Defecto
-            </button>
-          )}
           <button onClick={handleCreateNewList} className="btn btn-primary" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <Plus size={18} /> Nueva Lista
           </button>
