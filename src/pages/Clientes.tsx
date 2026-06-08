@@ -61,7 +61,8 @@ export const Clientes = () => {
         currentBalance: 0,
         paymentTerms: creditEnabled ? parseNumber(paymentTermsStr) : 0,
         isActive: true,
-        priceListId: priceListId || ''
+        priceListId: priceListId || '',
+        priceListName: priceListId ? (priceLists.find(p => p.id === priceListId)?.name || '') : ''
       }, selectedCustomer?.id);
       setViewMode('list');
       setSelectedCustomer(null);

@@ -44,8 +44,9 @@ export const usePresentaciones = () => {
   }, [currentUser]);
 
   const savePresentacion = async (pres: Omit<Presentacion, 'id' | 'createdAt' | 'updatedAt'>, id?: string) => {
+    const cleanPres = Object.fromEntries(Object.entries(pres).filter(([_, v]) => v !== undefined));
     const payload = {
-      ...pres,
+      ...cleanPres,
       updatedAt: Date.now()
     };
     if (id) {

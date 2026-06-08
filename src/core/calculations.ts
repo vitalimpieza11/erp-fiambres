@@ -83,7 +83,7 @@ export function calculatePresentationCost(
     }
   } else {
     // Check if there is an associated recipe
-    const recipe = recipes.find(r => r.productId === pres.id || r.id === pres.recetaId || (r.productId === pres.productoBaseId && r.customerId === pres.customerId));
+    const recipe = recipes.find(r => r.productId === pres.id || r.id === pres.recipeId || r.id === pres.recetaId || (r.productId === pres.productoBaseId && r.customerId === pres.customerId));
     if (recipe) {
       let ingredientsCost = 0;
       recipe.ingredients.forEach((ing) => {
@@ -171,7 +171,7 @@ export function getPresentationConsumption(
       });
     }
   } else {
-    const recipe = recipes.find(r => r.productId === pres.id || r.id === pres.recetaId || (r.productId === pres.productoBaseId && r.customerId === pres.customerId));
+    const recipe = recipes.find(r => r.productId === pres.id || r.id === pres.recipeId || r.id === pres.recetaId || (r.productId === pres.productoBaseId && r.customerId === pres.customerId));
     if (recipe) {
       recipe.ingredients.forEach((ing) => {
         const merc = mercaderias.find(m => m.id === ing.productId);

@@ -183,6 +183,7 @@ export const Produccion = () => {
 
       const recipe = recipes.find(r =>
         r.productId === item.productId ||
+        r.id === pres.recipeId ||
         r.id === pres.recetaId ||
         (r.productId === pres.productoBaseId && r.customerId === pres.customerId)
       );
@@ -307,6 +308,7 @@ export const Produccion = () => {
                   const recipe = pres
                     ? recipes.find(r =>
                         r.productId === item.productId ||
+                        r.id === pres.recipeId ||
                         r.id === pres.recetaId ||
                         (r.productId === pres.productoBaseId && r.customerId === pres.customerId)
                       )

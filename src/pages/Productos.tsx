@@ -64,6 +64,7 @@ export const Productos = () => {
   const [presTypeToggle, setPresTypeToggle] = useState<'simple' | 'recipe'>('simple');
 
   // Form States - Recetas
+  const [recName, setRecName] = useState('');
   const [recProductId, setRecProductId] = useState('');
   const [recCustomerId, setRecCustomerId] = useState('');
   const [recLaborCost, setRecLaborCost] = useState('0');
@@ -119,11 +120,11 @@ export const Productos = () => {
       setPresName(item.name);
       setPresCustomerId(item.customerId);
       setPresBaseId(item.productoBaseId || '');
-      setPresRecetaId(item.recetaId || '');
+      setPresRecetaId(item.recipeId || item.recetaId || '');
       setPresPesoGramos(item.pesoObjetivoGramos.toString());
       setPresFetas(item.cantidadFetasEstimada.toString());
-      setPresBolsaId(item.bolsaId);
-      setPresEtiquetaId(item.etiquetaId);
+      setPresBolsaId(item.bolsaId || '');
+      setPresEtiquetaId(item.etiquetaId || '');
       setPresPrecioKg(item.precioVentaKg.toString());
       setPresMargenObjetivo('40');
       setPresManoObra((item.manoObra || 0).toString());
@@ -151,7 +152,8 @@ export const Productos = () => {
   const handleOpenRecForm = (item?: Recipe) => {
     if (item) {
       setEditingId(item.id!);
-      setRecProductId(item.productId);
+      setRecName(item.name || item.productName || '');
+      setRecProductId(item.productId || '');
       setRecCustomerId(item.customerId || '');
       setRecLaborCost(item.costoManoObra.toString());
       setRecAdditionalCost(item.costoAdicional.toString());
@@ -207,6 +209,7 @@ export const Productos = () => {
       setRecIngredients(parsedIngredients);
     } else {
       setEditingId(null);
+      setRecName('');
       setRecProductId('');
       setRecCustomerId('');
       setRecLaborCost('0');
@@ -246,6 +249,8 @@ export const Productos = () => {
         const etiquetaName = insumos.find(i => i.id === presEtiquetaId)?.name || '';
         const baseName = mercaderias.find(m => m.id === presBaseId)?.name || '';
         const customerName = customers.find(c => c.id === presCustomerId)?.name || '';
+        const targetRecipe = recipes.find(r => r.id === presRecetaId);
+        const recipeNameStr = targetRecipe ? (targetRecipe.name || targetRecipe.productName || '') : '';
 
         await savePresentacion({
           name: presName,
@@ -253,16 +258,17 @@ export const Productos = () => {
           customerName,
           productoBaseId: presTypeToggle === 'simple' ? presBaseId : '',
           productoBaseName: presTypeToggle === 'simple' ? baseName : '',
-          recetaId: presTypeToggle === 'recipe' ? presRecetaId : '',
+          recipeId: presTypeToggle === 'recipe' ? presRecetaId : '',
+          recipeName: presTypeToggle === 'recipe' ? recipeNameStr : '',
           pesoObjetivoGramos: parseNumber(presPesoGramos),
           cantidadFetasEstimada: parseNumber(presFetas),
-          bolsaId: presBolsaId,
-          bolsaName,
-          etiquetaId: presEtiquetaId,
-          etiquetaName,
+          bolsaId: presBolsaId || "",
+          bolsaName: bolsaName || "",
+          etiquetaId: presEtiquetaId || "",
+          etiquetaName: etiquetaName || "",
           precioVentaKg: parseNumber(presPrecioKg),
-          manoObra: parseNumber(presManoObra),
-          observations: presObs,
+          manoObra: parseNumber(presManoObra) || 0,
+          observations: presObs || '',
           isActive: true
         }, editingId || undefined);
       } else if (activeTab === 'recetas') {
@@ -291,11 +297,13 @@ export const Productos = () => {
           };
         });
 
+        const rName = recName || pres?.name || '';
         const recipeData: Omit<Recipe, 'createdAt' | 'updatedAt'> = {
-          productId: recProductId,
-          productName: pres?.name || '',
-          customerId: recCustomerId || undefined,
-          customerName: recCustomerId ? customerName : undefined,
+          name: rName,
+          productId: recProductId || "",
+          productName: pres?.name || "",
+          customerId: recCustomerId || "",
+          customerName: recCustomerId ? customerName : "",
           ingredients: ingredientsPayload,
           costoManoObra: parseNumber(recLaborCost),
           costoAdicional: parseNumber(recAdditionalCost),
@@ -338,6 +346,7 @@ export const Productos = () => {
   // Real-time cost preview for Presentaciones form
   let presEstimatedCost = 0;
   let presEstimatedCostKg = 0;
+  let presSuggestedPriceKg = 0;
   let presMargin = 0;
   let presMercaderiaCost = 0;
   let presRecetaCost = 0;
@@ -356,7 +365,8 @@ export const Productos = () => {
       customerId: presCustomerId,
       customerName: '',
       productoBaseId: presTypeToggle === 'simple' ? presBaseId : '',
-      recetaId: presTypeToggle === 'recipe' ? presRecetaId : '',
+      recipeId: presTypeToggle === 'recipe' ? presRecetaId : '',
+      recipeName: presTypeToggle === 'recipe' ? (recipes.find(r => r.id === presRecetaId)?.name || '') : '',
       pesoObjetivoGramos: parseNumber(presPesoGramos),
       cantidadFetasEstimada: parseNumber(presFetas),
       bolsaId: presBolsaId,
@@ -383,7 +393,6 @@ export const Productos = () => {
         presBolsaCost = bag.costoUnitario;
       }
     }
-    else presMissingData.push('Falta asignar bolsa');
 
     const label = insumos.find(i => i.id === presEtiquetaId);
     if (label) {
@@ -391,14 +400,13 @@ export const Productos = () => {
         presEtiquetaCost = label.costoUnitario;
       }
     }
-    else presMissingData.push('Falta asignar etiqueta');
 
     const parsedManoObra = parseNumber(presManoObra);
     if (typeof parsedManoObra === "number" && !isNaN(parsedManoObra)) {
       presManoObraCost = parsedManoObra;
     }
 
-    if (!presPrecioKg) presMissingData.push('Falta precio de venta');
+    if (!presPrecioKg && !presMargenObjetivo) presMissingData.push('Falta precio de venta o margen');
 
     presEstimatedCost = calculatePresentationCost(tempPres, mercaderias, insumos, recipes);
     
@@ -409,6 +417,12 @@ export const Productos = () => {
     }
 
     presEstimatedCostKg = weightKg > 0 ? presEstimatedCost / weightKg : 0;
+    
+    const targetMarginVal = parseNumber(presMargenObjetivo);
+    if (targetMarginVal >= 0 && targetMarginVal < 100) {
+      presSuggestedPriceKg = presEstimatedCostKg / (1 - (targetMarginVal / 100));
+    }
+
     pricePerUnit = tempPres.precioVentaKg * weightKg;
     
     utilUnit = pricePerUnit > 0 ? pricePerUnit - presEstimatedCost : 0;
@@ -422,14 +436,27 @@ export const Productos = () => {
   let recMargin = 0;
   let associatedPres: Presentacion | undefined = undefined;
 
-  if (activeTab === 'recetas' && recProductId) {
+  if (activeTab === 'recetas') {
     associatedPres = presentaciones.find(p => p.id === recProductId);
-    if (associatedPres) {
-      const tempRecipe: Recipe = {
-        id: editingId || 'temp_rec',
-        productId: recProductId,
-        productName: associatedPres.name,
-        customerId: recCustomerId || undefined,
+    const mockPres: Presentacion = associatedPres || {
+      id: 'mock_pres',
+      name: recName || 'Receta Independiente',
+      customerId: '',
+      pesoObjetivoGramos: 1000,
+      cantidadFetasEstimada: 0,
+      bolsaId: '',
+      etiquetaId: '',
+      precioVentaKg: 0,
+      isActive: true,
+      observations: ''
+    };
+    
+    const tempRecipe: Recipe = {
+      id: editingId || 'temp_rec',
+      name: recName,
+      productId: recProductId || "",
+      productName: mockPres.name,
+      customerId: recCustomerId || "",
         customerName: '',
         ingredients: recIngredients.filter(ing => ing.productId).map(ing => {
           const merc = mercaderias.find(m => m.id === ing.productId);
@@ -438,8 +465,8 @@ export const Productos = () => {
           if (unit === 'kg') {
             qtyGrams = ing.quantity * 1000;
           } else if (unit === 'fetas' || unit === 'unidades') {
-            const recipeFetaWeight = (associatedPres && associatedPres.pesoObjetivoGramos && associatedPres.cantidadFetasEstimada)
-              ? (associatedPres.pesoObjetivoGramos / associatedPres.cantidadFetasEstimada)
+            const recipeFetaWeight = (mockPres.pesoObjetivoGramos && mockPres.cantidadFetasEstimada)
+              ? (mockPres.pesoObjetivoGramos / mockPres.cantidadFetasEstimada)
               : (merc?.pesoFeta || 15);
             qtyGrams = ing.quantity * recipeFetaWeight;
           }
@@ -456,15 +483,14 @@ export const Productos = () => {
         updatedAt: Date.now()
       };
       
-      const tempRecipes = recipes.filter(r => r.id !== editingId && r.productId !== recProductId);
+      const tempRecipes = recipes.filter(r => r.id !== editingId);
       tempRecipes.push(tempRecipe);
 
-      recEstimatedCost = calculatePresentationCost(associatedPres, mercaderias, insumos, tempRecipes);
-      const weightKg = associatedPres.pesoObjetivoGramos / 1000;
+      recEstimatedCost = calculatePresentationCost(mockPres, mercaderias, insumos, tempRecipes);
+      const weightKg = mockPres.pesoObjetivoGramos / 1000;
       recEstimatedCostKg = weightKg > 0 ? recEstimatedCost / weightKg : 0;
-      const pricePerUnit = associatedPres.precioVentaKg * weightKg;
-      recMargin = pricePerUnit > 0 ? ((pricePerUnit - recEstimatedCost) / pricePerUnit) * 100 : 0;
-    }
+      const tPricePerUnit = mockPres.precioVentaKg * weightKg;
+      recMargin = tPricePerUnit > 0 ? ((tPricePerUnit - recEstimatedCost) / tPricePerUnit) * 100 : 0;
   }
 
   if (loading) {
@@ -716,7 +742,8 @@ export const Productos = () => {
               data={recipes}
               keyExtractor={r => r.id!}
               columns={[
-                { header: 'Presentación', accessor: r => <span style={{ fontWeight: 600 }}>{r.productName}</span> },
+                { header: 'Nombre', accessor: r => <span style={{ fontWeight: 600 }}>{r.name || r.productName || 'Receta sin nombre'}</span> },
+                { header: 'Presentación Asociada', accessor: r => r.productName ? <span style={{ color: 'var(--text-secondary)' }}>{r.productName}</span> : <span style={{ color: '#9ca3af', fontStyle: 'italic' }}>Independiente</span> },
                 { header: 'Cliente', accessor: r => r.customerName || 'Todos los clientes' },
                 { 
                   header: 'Unidad de Medida', 
@@ -881,12 +908,11 @@ export const Productos = () => {
                   <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: '12px' }}>
                     <Input label="Nombre de la Presentación (ej: Sobres Jamón Panther 200g)" value={presName} onChange={e => setPresName(e.target.value)} required />
                     <Select 
-                      label="Cliente Destinatario" 
+                      label="Cliente Destinatario (Opcional)" 
                       value={presCustomerId} 
                       onChange={e => setPresCustomerId(e.target.value)} 
-                      required
                       options={[
-                        { value: '', label: 'Seleccionar Cliente...' },
+                        { value: '', label: 'Todos los clientes' },
                         ...customers.map(c => ({ value: c.id!, label: c.name }))
                       ]} 
                     />
@@ -922,7 +948,7 @@ export const Productos = () => {
                       required={presTypeToggle === 'recipe'}
                       options={[
                         { value: '', label: 'Seleccionar Receta...' },
-                        ...recipes.map(r => ({ value: r.id!, label: `${r.productName} (${r.customerName || 'Todos'})` }))
+                        ...recipes.map(r => ({ value: r.id!, label: `${r.name || r.productName || 'Receta sin nombre'} (${r.customerName || 'Todos'})` }))
                       ]} 
                     />
                   )}
@@ -934,22 +960,20 @@ export const Productos = () => {
 
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                     <Select 
-                      label="Bolsa Utilizada" 
+                      label="Bolsa Utilizada (Opcional)" 
                       value={presBolsaId} 
                       onChange={e => setPresBolsaId(e.target.value)} 
-                      required
                       options={[
-                        { value: '', label: 'Seleccionar Bolsa...' },
+                        { value: '', label: 'Ninguna' },
                         ...insumos.map(i => ({ value: i.id!, label: `${i.name} (${formatCurrency(i.costoUnitario)})` }))
                       ]} 
                     />
                     <Select 
-                      label="Etiqueta Utilizada" 
+                      label="Etiqueta Utilizada (Opcional)" 
                       value={presEtiquetaId} 
                       onChange={e => setPresEtiquetaId(e.target.value)} 
-                      required
                       options={[
-                        { value: '', label: 'Seleccionar Etiqueta...' },
+                        { value: '', label: 'Ninguna' },
                         ...insumos.map(i => ({ value: i.id!, label: `${i.name} (${formatCurrency(i.costoUnitario)})` }))
                       ]} 
                     />
@@ -957,10 +981,24 @@ export const Productos = () => {
 
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px' }}>
                     <div>
-                      <Input label="Precio Venta por Kg ($)" type="number" value={presPrecioKg} onChange={e => setPresPrecioKg(e.target.value)} required />
+                      <Input label="Precio Venta por Kg ($)" type="number" value={presPrecioKg} onChange={e => setPresPrecioKg(e.target.value)} />
                       <div style={{ fontSize: '0.75rem', color: '#3b82f6', marginTop: '6px', fontWeight: 600 }}>👉 Precio manual activo (prioritario)</div>
                     </div>
-                    <Input label="Margen Objetivo (%)" type="number" value={presMargenObjetivo} onChange={e => setPresMargenObjetivo(e.target.value)} />
+                    <div>
+                      <Input label="Margen Objetivo (%)" type="number" value={presMargenObjetivo} onChange={e => setPresMargenObjetivo(e.target.value)} />
+                      <div style={{ display: 'flex', gap: '4px', marginTop: '6px', flexWrap: 'wrap' }}>
+                        {[20, 30, 40, 45, 50, 60].map(m => (
+                          <button 
+                            key={m} 
+                            type="button"
+                            onClick={() => setPresMargenObjetivo(m.toString())}
+                            style={{ fontSize: '0.7rem', padding: '2px 6px', borderRadius: '4px', border: '1px solid var(--border-color)', background: 'var(--bg-secondary)', cursor: 'pointer', color: 'var(--text-primary)' }}
+                          >
+                            +{m}%
+                          </button>
+                        ))}
+                      </div>
+                    </div>
                     <Input label="Costo Mano Obra por Sobre ($)" type="number" value={presManoObra} onChange={e => setPresManoObra(e.target.value)} />
                   </div>
 
@@ -1043,16 +1081,61 @@ export const Productos = () => {
                           <span>Margen Objetivo Ingresado</span>
                           <span style={{ fontWeight: 600 }}>{formatNumber(parseNumber(presMargenObjetivo), '%')}</span>
                         </div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', padding: '8px', backgroundColor: 'rgba(16, 185, 129, 0.1)', borderRadius: '6px', marginTop: '4px' }}>
-                          <span>👉 Precio de venta sugerido</span>
-                          <span style={{ fontWeight: 700, color: '#10b981' }}>{
-                            (() => {
-                              const targetMargin = parseNumber(presMargenObjetivo);
-                              if (targetMargin >= 100 || targetMargin < 0) return 'Margen inválido';
-                              const targetPricePerKg = presEstimatedCostKg / (1 - (targetMargin / 100));
-                              return formatCurrency(targetPricePerKg);
-                            })()
-                          } /Kg</span>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', padding: '12px', backgroundColor: 'rgba(16, 185, 129, 0.1)', borderRadius: '6px', marginTop: '4px' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', alignItems: 'center' }}>
+                            <span>👉 Precio de venta sugerido</span>
+                            <span style={{ fontWeight: 700, color: '#10b981' }}>{presSuggestedPriceKg > 0 ? formatCurrency(presSuggestedPriceKg) + ' /Kg' : 'Margen inválido'}</span>
+                          </div>
+                          
+                          <button
+                            type="button"
+                            onClick={() => setPresPrecioKg(presSuggestedPriceKg.toFixed(2))}
+                            className="btn btn-secondary btn-sm"
+                            style={{ width: '100%', marginTop: '4px' }}
+                            disabled={presSuggestedPriceKg <= 0}
+                          >
+                            Aplicar Precio Sugerido
+                          </button>
+
+                          {(() => {
+                            if (presSuggestedPriceKg <= 0 || !presPrecioKg) return null;
+                            const currentPrice = parseNumber(presPrecioKg);
+                            const diffAmount = currentPrice - presSuggestedPriceKg;
+                            const diffPercent = (diffAmount / presSuggestedPriceKg) * 100;
+                            
+                            let statusColor = '#f59e0b';
+                            let statusText = '🟡 Precio igual al sugerido';
+                            
+                            if (diffAmount > 0.01) {
+                              statusColor = '#10b981';
+                              statusText = '🟢 Precio por encima del sugerido';
+                            } else if (diffAmount < -0.01) {
+                              statusColor = '#ef4444';
+                              statusText = '🔴 Precio por debajo del sugerido';
+                            }
+                            
+                            return (
+                              <div style={{ marginTop: '8px', borderTop: '1px solid rgba(16, 185, 129, 0.2)', paddingTop: '8px' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', marginBottom: '4px' }}>
+                                  <span>Precio sugerido:</span>
+                                  <span style={{ fontWeight: 600 }}>{formatCurrency(presSuggestedPriceKg)}</span>
+                                </div>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', marginBottom: '4px' }}>
+                                  <span>Precio actual:</span>
+                                  <span style={{ fontWeight: 600 }}>{formatCurrency(currentPrice)}</span>
+                                </div>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', marginBottom: '8px' }}>
+                                  <span>Diferencia:</span>
+                                  <span style={{ fontWeight: 700, color: statusColor }}>
+                                    {diffAmount > 0 ? '+' : ''}{formatCurrency(diffAmount)} ({diffAmount > 0 ? '+' : ''}{diffPercent.toFixed(1)}%)
+                                  </span>
+                                </div>
+                                <div style={{ fontSize: '0.8rem', fontWeight: 600, color: statusColor, textAlign: 'center', backgroundColor: 'var(--bg-primary)', padding: '4px', borderRadius: '4px' }}>
+                                  {statusText}
+                                </div>
+                              </div>
+                            );
+                          })()}
                         </div>
                       </div>
                     </div>
@@ -1063,14 +1146,14 @@ export const Productos = () => {
               {/* RECETAS FORM */}
               {activeTab === 'recetas' && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr', gap: '12px' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px' }}>
+                    <Input label="Nombre de la Receta" value={recName} onChange={e => setRecName(e.target.value)} required />
                     <Select 
-                      label="Presentación Asociada" 
+                      label="Presentación Asociada (Opcional)" 
                       value={recProductId} 
                       onChange={e => setRecProductId(e.target.value)} 
-                      required
                       options={[
-                        { value: '', label: 'Seleccionar Presentación...' },
+                        { value: '', label: 'Ninguna (Independiente)' },
                         ...presentaciones.filter(p => !p.productoBaseId).map(p => ({ value: p.id!, label: `${p.name} (${p.customerName || 'Todos'})` }))
                       ]} 
                     />

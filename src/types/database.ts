@@ -106,6 +106,7 @@ export interface Customer {
   paymentTerms: number; // e.g. 30 days
   isActive: boolean;
   priceListId?: string;
+  priceListName?: string;
   createdAt: number;
   updatedAt: number;
 }
@@ -178,8 +179,9 @@ export interface RecipeIngredient {
 
 export interface Recipe {
   id?: string;
-  productId: string; // Presentation ID
-  productName: string; // Presentation name
+  name?: string; // Recipe independent name
+  productId?: string; // Optional Presentation ID for legacy support
+  productName?: string; // Optional Presentation name
   customerId?: string; // Optional customer override
   customerName?: string;
   ingredients: RecipeIngredient[];
@@ -252,12 +254,14 @@ export interface Presentacion {
   customerName?: string;
   productoBaseId?: string; // productoBase (si aplica)
   productoBaseName?: string;
-  recetaId?: string; // receta asociada (si aplica)
+  recetaId?: string; // Legacy
+  recipeId?: string; // ID real de la receta
+  recipeName?: string; // Nombre real de la receta
   pesoObjetivoGramos: number; // pesoObjetivoGramos
   cantidadFetasEstimada: number; // cantidadFetasEstimada
-  bolsaId: string; // bolsa utilizada
+  bolsaId?: string; // bolsa utilizada
   bolsaName?: string;
-  etiquetaId: string; // etiqueta utilizada
+  etiquetaId?: string; // etiqueta utilizada
   etiquetaName?: string;
   precioVentaKg: number; // precioVentaKg
   manoObra?: number; // Costo mano de obra (si corresponde)

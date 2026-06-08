@@ -26,6 +26,7 @@ export const useRecipes = () => {
           const data = doc.data();
           list.push({
             id: doc.id,
+            name: data.name || undefined,
             productId: data.productId || '',
             productName: data.productName || '',
             customerId: data.customerId || undefined,
@@ -53,12 +54,13 @@ export const useRecipes = () => {
   }, [currentUser]);
 
   const saveRecipe = async (recipe: Omit<Recipe, 'id' | 'createdAt' | 'updatedAt'>, id?: string) => {
+    const cleanRecipe = Object.fromEntries(Object.entries(recipe).filter(([_, v]) => v !== undefined));
     if (id) {
       const ref = doc(db, 'recipes', id);
-      await updateDoc(ref, { ...recipe, updatedAt: Date.now() } as any);
+      await updateDoc(ref, { ...cleanRecipe, updatedAt: Date.now() } as any);
     } else {
       const ref = doc(collection(db, 'recipes'));
-      await setDoc(ref, { ...recipe, createdAt: Date.now(), updatedAt: Date.now() } as any);
+      await setDoc(ref, { ...cleanRecipe, createdAt: Date.now(), updatedAt: Date.now() } as any);
     }
   };
 
