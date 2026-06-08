@@ -19,7 +19,8 @@ import {
   Beef,
   PieChart,
   LogOut,
-  ClipboardList
+  ClipboardList,
+  Activity
 } from 'lucide-react';
 
 import { X } from 'lucide-react';
@@ -62,6 +63,7 @@ export const Sidebar = ({ isOpen, onClose }: SidebarProps) => {
     {
       title: 'Finanzas',
       items: [
+        { path: '/dashboard-financiero', icon: Activity, label: 'Dashboard Financiero' },
         { path: '/caja-bancos', icon: Landmark, label: 'Caja y Bancos' },
         { path: '/cuenta-corriente', icon: Wallet, label: 'Cuenta Corriente' },
         { path: '/proveedores', icon: Truck, label: 'Proveedores' }

@@ -38,6 +38,10 @@ export const useCashMovements = () => {
             date: data.date || Date.now(),
             createdAt: data.createdAt || Date.now(),
             bankId: data.bankId || '',
+            accountId: data.accountId || data.bankId || (data.method === 'cash' ? 'cash_default' : 'bank_default'),
+            toAccountId: data.toAccountId || '',
+            isManualOverride: data.isManualOverride || false,
+            auditLog: data.auditLog || [],
           });
         });
         setMovements(list);
@@ -82,9 +86,15 @@ export const useCashMovements = () => {
                     movDate.getMonth() === today.getMonth() &&
                     movDate.getFullYear() === today.getFullYear();
 
+    // Determine primary account
+    const mainAccount = mov.accountId || mov.bankId || (mov.method === 'cash' ? 'cash_default' : 'bank_default');
+    if (!acc.accountBalances[mainAccount]) acc.accountBalances[mainAccount] = 0;
+
     if (mov.type === 'in') {
       acc.netTotal += amount;
-      if (mov.method === 'cash') {
+      acc.accountBalances[mainAccount] += amount;
+      
+      if (mov.method === 'cash' || mainAccount === 'cash_default') {
         acc.balanceCaja += amount;
       } else {
         acc.balanceBancos += amount;
@@ -92,9 +102,11 @@ export const useCashMovements = () => {
       if (isToday) {
         acc.ingresosDia += amount;
       }
-    } else {
+    } else if (mov.type === 'out') {
       acc.netTotal -= amount;
-      if (mov.method === 'cash') {
+      acc.accountBalances[mainAccount] -= amount;
+
+      if (mov.method === 'cash' || mainAccount === 'cash_default') {
         acc.balanceCaja -= amount;
       } else {
         acc.balanceBancos -= amount;
@@ -102,6 +114,19 @@ export const useCashMovements = () => {
       if (isToday) {
         acc.egresosDia += amount;
       }
+    } else if (mov.type === 'transfer') {
+      // Transfer: deduct from mainAccount, add to toAccountId
+      acc.accountBalances[mainAccount] -= amount;
+      const toAccount = mov.toAccountId || 'unknown';
+      if (!acc.accountBalances[toAccount]) acc.accountBalances[toAccount] = 0;
+      acc.accountBalances[toAccount] += amount;
+      
+      // Keep legacy balances mostly untouched or adjusted if known
+      if (mainAccount === 'cash_default') acc.balanceCaja -= amount;
+      else acc.balanceBancos -= amount;
+      
+      if (toAccount === 'cash_default') acc.balanceCaja += amount;
+      else acc.balanceBancos += amount;
     }
 
     return acc;
@@ -110,7 +135,8 @@ export const useCashMovements = () => {
     balanceBancos: 0,
     ingresosDia: 0,
     egresosDia: 0,
-    netTotal: 0
+    netTotal: 0,
+    accountBalances: {} as Record<string, number>
   });
 
   return { 
@@ -126,7 +152,8 @@ export const useCashMovements = () => {
       ingresosDia: stats.ingresosDia,
       egresosDia: stats.egresosDia,
       resultadoNeto: stats.ingresosDia - stats.egresosDia,
-      netTotal: stats.netTotal
+      netTotal: stats.netTotal,
+      accountBalances: stats.accountBalances
     }
   };
 };

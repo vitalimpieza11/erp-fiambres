@@ -19,7 +19,8 @@ import {
   Productos,
   Reportes,
   Produccion,
-  Login
+  Login,
+  DashboardFinanciero
 } from './pages';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { DateFilterProvider } from './contexts/DateFilterContext';
@@ -111,6 +112,11 @@ function App() {
               <Route
                 path="caja-bancos"
                 element={<CajaBancos />}
+              />
+
+              <Route
+                path="dashboard-financiero"
+                element={<DashboardFinanciero />}
               />
 
               <Route

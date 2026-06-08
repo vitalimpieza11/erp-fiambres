@@ -77,17 +77,33 @@ export interface StockMovement {
 
 export interface CashMovement {
   id?: string;
-  type: 'in' | 'out';
+  type: 'in' | 'out' | 'transfer';
   amount: number;
   currency?: string;
-  method: 'cash' | 'transfer' | 'cheque';
-  origin?: 'cash' | 'bank';
+  method: string; // Free now: 'cash', 'transfer', 'cheque', or custom
+  origin?: 'cash' | 'bank'; // Legacy
   description: string;
-  category: string; // e.g. 'sale', 'purchase', 'expense', 'withdrawal'
+  category: string; // e.g. 'sale', 'purchase', 'expense', 'withdrawal', 'aporte_socio', 'inversion_inicial', 'bien_capital'
   referenceId?: string;
   date: number;
   createdAt: number;
-  bankId?: string;
+  bankId?: string; // Legacy
+  
+  // Flexible Accounts
+  accountId?: string;
+  toAccountId?: string; // For transfers
+  partnerId?: string; // For Aportes de Socio
+  aporteType?: 'dinero' | 'bien_capital' | 'vehiculo' | 'mercaderia' | 'equipamiento' | 'tecnologia' | 'otro';
+  
+  // Manual Override & Audit
+  isManualOverride?: boolean;
+  auditLog?: {
+    date: number;
+    user: string;
+    action: string;
+    previousValues: Partial<CashMovement>;
+    newValues: Partial<CashMovement>;
+  }[];
 }
 
 export interface ProfitDistribution {

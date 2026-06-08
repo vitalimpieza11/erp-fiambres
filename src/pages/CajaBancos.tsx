@@ -25,7 +25,7 @@ const MONTHS = [
 
 export const CajaBancos = () => {
   const { settings } = useSettings();
-  const { movements, loading: loadingMovements, error: errorMovements, createMovement } = useCashMovements();
+  const { movements, loading: loadingMovements, error: errorMovements, createMovement, updateMovement, deleteMovement } = useCashMovements();
   const { banks, loading: loadingBanks } = useBanks();
   const { 
     partners, distributions: partnerDistributions, reinvestments, contributions,
@@ -64,8 +64,14 @@ export const CajaBancos = () => {
   const [movComprobanteRef, setMovComprobanteRef] = useState('');
   const [movCurrency, setMovCurrency] = useState('ARS');
   const [movBankId, setMovBankId] = useState('');
+  const [movPartnerId, setMovPartnerId] = useState('');
+  const [movAporteType, setMovAporteType] = useState<'dinero' | 'bien_capital' | 'vehiculo' | 'mercaderia' | 'equipamiento' | 'tecnologia' | 'otro'>('dinero');
   const [isSavingMov, setIsSavingMov] = useState(false);
   const [movError, setMovError] = useState<string | null>(null);
+  
+  // Edit & Override Movement
+  const [editMovementId, setEditMovementId] = useState<string | null>(null);
+  const [originalMovement, setOriginalMovement] = useState<any>(null);
 
   // Distribution Form
   const [distFecha, setDistFecha] = useState(new Date().toISOString().split('T')[0]);
@@ -232,16 +238,18 @@ export const CajaBancos = () => {
     const retiradoAnio = pDists.filter(d => isSameYear(d.date)).reduce((sum, d) => sum + toArs(d.amount, d.currency), 0);
     const retiradoHist = pDists.reduce((sum, d) => sum + toArs(d.amount, d.currency), 0);
 
-    const aportadoHist = pConts.filter(c => c.type === 'contribution').reduce((sum, c) => sum + toArs(c.amount, c.currency), 0);
-    const devolucionesHist = pConts.filter(c => c.type === 'return').reduce((sum, c) => sum + toArs(c.amount, c.currency), 0);
+    const legacyAportado = pConts.filter(c => c.type === 'contribution').reduce((sum, c) => sum + toArs(c.amount, c.currency), 0);
+    const newAportes = movements.filter(m => m.category === 'aporte_socio' && m.partnerId === partnerId && m.type === 'in').reduce((sum, m) => sum + toArs(m.amount, m.currency || 'ARS'), 0);
+    const aportadoHist = legacyAportado + newAportes;
+
+    const legacyDevoluciones = pConts.filter(c => c.type === 'return').reduce((sum, c) => sum + toArs(c.amount, c.currency), 0);
+    const newDevoluciones = movements.filter(m => m.category === 'aporte_socio' && m.partnerId === partnerId && m.type === 'out').reduce((sum, m) => sum + toArs(m.amount, m.currency || 'ARS'), 0);
+    const devolucionesHist = legacyDevoluciones + newDevoluciones;
+    
     const saldoAportadoVigente = aportadoHist - devolucionesHist;
 
     const partner = partners.find(p => p.id === partnerId);
     const participation = partner ? partner.share : 0;
-
-    // Saldo pendiente de distribución = (Resultado Neto Mes * %participación) - Retirado este mes
-    const derechoDistribucionMes = (resultadoNetoMesArs * participation) / 100;
-    const saldoPendienteDistribucion = derechoDistribucionMes - retiradoMes;
 
     return {
       retiradoMes,
@@ -250,8 +258,7 @@ export const CajaBancos = () => {
       aportadoHist,
       devolucionesHist,
       saldoAportadoVigente,
-      participation,
-      saldoPendienteDistribucion
+      participation
     };
   };
 
@@ -290,7 +297,85 @@ export const CajaBancos = () => {
   });
 
   // --- ACTIONS ---
+  const handleEditClick = (mov: any) => {
+    setOriginalMovement(mov);
+    setEditMovementId(mov.id!);
+    setMovFecha(new Date(mov.date).toISOString().split('T')[0]);
+    setMovTipo(mov.type as any);
+    setMovCategoria(mov.category || '');
+    setMovOrigen(mov.origin || 'cash');
+    setMovMedioPago(mov.method || 'cash');
+    setMovMontoStr(mov.amount.toString());
+    setMovObservaciones(mov.description || '');
+    setMovComprobanteRef(mov.referenceId || '');
+    setMovCurrency(mov.currency || 'ARS');
+    setMovBankId(mov.bankId || '');
+    setMovPartnerId(mov.partnerId || '');
+    setMovAporteType(mov.aporteType || 'dinero');
+    setMovError(null);
+    setIsCreatingMovement(true); // Re-use the form modal
+  };
+
+  const handleDeleteClick = async (id: string) => {
+    if (window.confirm('¿Está seguro de eliminar este movimiento? Esta acción recalculará los saldos.')) {
+      try {
+        await deleteMovement(id);
+      } catch (e: any) {
+        alert(e.message || 'Error al eliminar');
+      }
+    }
+  };
+
+  const handleUpdateOverride = async () => {
+    const monto = Math.abs(parseFloat(movMontoStr));
+    if (isNaN(monto) || monto <= 0) {
+      setMovError("Debe ingresar un monto válido.");
+      return;
+    }
+    setMovError(null);
+    setIsSavingMov(true);
+    try {
+      const data: any = {
+        type: movTipo,
+        amount: monto,
+        currency: movCurrency,
+        method: movMedioPago,
+        origin: movOrigen,
+        description: movObservaciones,
+        category: movCategoria,
+        referenceId: movComprobanteRef,
+        bankId: movOrigen === 'bank' ? movBankId : '',
+        partnerId: movCategoria === 'aporte_socio' ? movPartnerId : undefined,
+        aporteType: movCategoria === 'aporte_socio' ? movAporteType : undefined,
+        date: new Date(movFecha).getTime(),
+        isManualOverride: true,
+        auditLog: [
+          ...(originalMovement.auditLog || []),
+          {
+            date: Date.now(),
+            user: 'Usuario / Socio', // Usually would come from auth context
+            action: 'edit_override',
+            previousValues: { amount: originalMovement.amount, category: originalMovement.category, type: originalMovement.type, origin: originalMovement.origin },
+            newValues: { amount: monto, category: movCategoria, type: movTipo, origin: movOrigen }
+          }
+        ]
+      };
+      await updateMovement(editMovementId!, data);
+      setIsCreatingMovement(false);
+      setEditMovementId(null);
+      setOriginalMovement(null);
+    } catch (e: any) {
+      setMovError(e.message || "Error al actualizar.");
+    } finally {
+      setIsSavingMov(false);
+    }
+  };
+
   const handleRegisterMovement = async () => {
+    if (editMovementId) {
+      return handleUpdateOverride();
+    }
+
     const monto = Math.abs(parseFloat(movMontoStr));
     if (isNaN(monto) || monto <= 0) {
       setMovError("Debe ingresar un monto válido.");
@@ -321,13 +406,17 @@ export const CajaBancos = () => {
         category: movCategoria,
         referenceId: movComprobanteRef || '',
         date: new Date(movFecha).getTime(),
-        bankId: movOrigen === 'bank' ? movBankId : undefined
+        bankId: movOrigen === 'bank' ? movBankId : undefined,
+        partnerId: movCategoria === 'aporte_socio' ? movPartnerId : undefined,
+        aporteType: movCategoria === 'aporte_socio' ? movAporteType : undefined
       });
       setIsCreatingMovement(false);
       setMovMontoStr('');
       setMovObservaciones('');
       setMovComprobanteRef('');
       setMovBankId('');
+      setMovPartnerId('');
+      setMovAporteType('dinero');
     } catch (e: any) {
       setMovError(e.message || "Error al guardar.");
     } finally {
@@ -457,7 +546,9 @@ export const CajaBancos = () => {
     return (
       <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 99, display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(4px)' }}>
         <div style={{ backgroundColor: 'var(--bg-primary)', padding: '28px', borderRadius: '16px', maxWidth: '500px', width: '100%', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)' }}>
-          <h3 style={{ fontSize: '1.25rem', fontWeight: 700, marginBottom: '16px', borderBottom: '1px solid var(--border-color)', paddingBottom: '12px' }}>Registrar Movimiento Financiero</h3>
+          <h3 style={{ fontSize: '1.25rem', fontWeight: 700, marginBottom: '16px', borderBottom: '1px solid var(--border-color)', paddingBottom: '12px' }}>
+            {editMovementId ? 'Editar Movimiento (Override)' : 'Registrar Movimiento Financiero'}
+          </h3>
           
           {movError && <div style={{ color: '#dc2626', backgroundColor: '#fee2e2', padding: '10px', borderRadius: '8px', marginBottom: '16px', fontSize: '0.875rem' }}>{movError}</div>}
           
@@ -502,12 +593,53 @@ export const CajaBancos = () => {
             <Input label="Monto" type="number" value={movMontoStr} onChange={e => setMovMontoStr(e.target.value)} placeholder="Ej: 5000" />
             <Input label="Observación / Descripción" value={movObservaciones} onChange={e => setMovObservaciones(e.target.value)} placeholder="Ej: Compra mercadería" />
             <Input label="Referencia (Nº Comprobante)" value={movComprobanteRef} onChange={e => setMovComprobanteRef(e.target.value)} placeholder="Opcional" />
+            
+            {movCategoria === 'aporte_socio' && (
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                <Select 
+                  label="Socio Asociado" 
+                  value={movPartnerId} 
+                  onChange={e => setMovPartnerId(e.target.value)} 
+                  options={[
+                    { value: '', label: 'Seleccionar Socio...' },
+                    ...partners.map(p => ({ value: p.id!, label: `${p.name} (${p.share}%)` }))
+                  ]} 
+                />
+                <Select 
+                  label="Tipo de Aporte" 
+                  value={movAporteType} 
+                  onChange={e => setMovAporteType(e.target.value as any)} 
+                  options={[
+                    { value: 'dinero', label: 'Dinero (Caja/Bancos)' },
+                    { value: 'bien_capital', label: 'Bien de Capital (Máquinas)' },
+                    { value: 'vehiculo', label: 'Vehículo' },
+                    { value: 'mercaderia', label: 'Mercadería' },
+                    { value: 'equipamiento', label: 'Equipamiento / Herramientas' },
+                    { value: 'tecnologia', label: 'Tecnología' },
+                    { value: 'otro', label: 'Otro Activo' }
+                  ]} 
+                />
+              </div>
+            )}
           </div>
 
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
-            <button onClick={() => setIsCreatingMovement(false)} className="btn btn-secondary">Cancelar</button>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '20px' }}>
+            {editMovementId && (
+              <button 
+                onClick={(e) => { 
+                  e.preventDefault(); 
+                  setMovTipo('in'); 
+                  setMovCategoria('aporte_socio'); 
+                }} 
+                className="btn btn-secondary" 
+                style={{ borderColor: '#16a34a', color: '#16a34a', marginRight: 'auto' }}
+              >
+                Convertir a Aporte de Socio
+              </button>
+            )}
+            <button onClick={() => { setIsCreatingMovement(false); setEditMovementId(null); setOriginalMovement(null); }} className="btn btn-secondary">Cancelar</button>
             <button onClick={handleRegisterMovement} disabled={isSavingMov} className="btn btn-primary">
-              {isSavingMov ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />} Registrar
+              {isSavingMov ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />} {editMovementId ? 'Actualizar' : 'Registrar'}
             </button>
           </div>
         </div>
@@ -670,12 +802,22 @@ export const CajaBancos = () => {
       ...pConts.map(c => ({
         id: `cont-${c.id}`,
         date: c.date,
-        concept: c.type === 'contribution' ? 'Aporte de Socio' : 'Devolución de Aporte',
+        concept: c.type === 'contribution' ? 'Aporte de Socio (Legacy)' : 'Devolución de Aporte (Legacy)',
         amount: c.amount,
         currency: c.currency,
         observations: c.observations,
         color: c.type === 'contribution' ? '#16a34a' : '#d97706',
         rawType: c.type
+      })),
+      ...movements.filter(m => m.category === 'aporte_socio' && m.partnerId === selectedPartnerId).map(m => ({
+        id: `mov-${m.id}`,
+        date: m.date,
+        concept: m.type === 'in' ? 'Aporte de Socio Confirmado' : 'Devolución Confirmada',
+        amount: m.amount,
+        currency: m.currency || 'ARS',
+        observations: `${m.description || ''} ${m.isManualOverride ? '(Override Manual)' : ''}`,
+        color: m.type === 'in' ? '#16a34a' : '#d97706',
+        rawType: m.type === 'in' ? 'contribution' : 'return'
       }))
     ].sort((a, b) => b.date - a.date);
 
@@ -1151,6 +1293,21 @@ export const CajaBancos = () => {
                       ),
                       align: 'center',
                       width: '100px'
+                    },
+                    {
+                      header: 'Acciones',
+                      accessor: item => (
+                        <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                          <button onClick={() => handleEditClick(item)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#2563eb' }} title="Editar / Reclasificar">
+                            <History size={16} />
+                          </button>
+                          <button onClick={() => handleDeleteClick(item.id!)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#dc2626' }} title="Eliminar">
+                            <Trash2 size={16} />
+                          </button>
+                        </div>
+                      ),
+                      align: 'right',
+                      width: '80px'
                     }
                   ]}
                 />
@@ -1288,8 +1445,12 @@ export const CajaBancos = () => {
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <h3 style={{ fontSize: '1.25rem', fontWeight: 700 }}>Panel Societario de Distribución y Aportes</h3>
                 <div style={{ display: 'flex', gap: '10px' }}>
-                  <button onClick={() => setIsCreatingContribution(true)} className="btn btn-secondary">
-                    <Plus size={16} /> Aportar / Devolver Capital
+                  <button onClick={() => {
+                    setMovTipo('in');
+                    setMovCategoria('aporte_socio');
+                    setIsCreatingMovement(true);
+                  }} className="btn btn-secondary">
+                    <Plus size={16} /> Registrar Aporte Directo
                   </button>
                   <button onClick={() => setIsCreatingDist(true)} className="btn btn-primary">
                     <Plus size={16} /> Registrar Retiro de Utilidades
@@ -1355,9 +1516,9 @@ export const CajaBancos = () => {
                             </h5>
                           </div>
                           <div>
-                            <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontWeight: 600, textTransform: 'uppercase' }}>Pendiente Distribución:</span>
-                            <h5 style={{ fontSize: '1.05rem', fontWeight: 700, color: stats.saldoPendienteDistribucion >= 0 ? '#16a34a' : '#dc2626', marginTop: '4px' }}>
-                              {formatCurrency(stats.saldoPendienteDistribucion)}
+                            <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontWeight: 600, textTransform: 'uppercase' }}>Aportes Históricos:</span>
+                            <h5 style={{ fontSize: '1.05rem', fontWeight: 700, color: '#1d4ed8', marginTop: '4px' }}>
+                              {formatCurrency(stats.aportadoHist)}
                             </h5>
                           </div>
                         </div>
@@ -1545,6 +1706,21 @@ export const CajaBancos = () => {
                       ),
                       align: 'right',
                       width: '165px'
+                    },
+                    {
+                      header: 'Acciones',
+                      accessor: item => (
+                        <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                          <button onClick={() => handleEditClick(item)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#2563eb' }} title="Editar / Reclasificar">
+                            <History size={16} />
+                          </button>
+                          <button onClick={() => handleDeleteClick(item.id!)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#dc2626' }} title="Eliminar">
+                            <Trash2 size={16} />
+                          </button>
+                        </div>
+                      ),
+                      align: 'right',
+                      width: '80px'
                     }
                   ]}
                 />
