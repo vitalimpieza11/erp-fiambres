@@ -1,108 +1,141 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { PageHeader, EmptyState } from '../components/EmptyState';
 import { ErrorState, SkeletonLoader } from '../components/AsyncState';
 import { Card } from '../components/ui/Card';
 import { Table } from '../components/ui/Table';
+import { Input, Select } from '../components/ui/Forms';
 import {
   Wallet, Users, DollarSign, ShieldAlert, ArrowLeft, Activity,
-  CreditCard, ArrowRight, History, TrendingDown, TrendingUp
+  CreditCard, ArrowRight, History, Receipt, FileText, CheckSquare, Square
 } from 'lucide-react';
-import { formatCurrency, formatNumber, parseNumber } from '../utils/format';
+import { formatCurrency, parseNumber } from '../utils/format';
 import { useCustomers } from '../hooks/useCustomers';
-import { useCCMovements } from '../hooks/useCCMovements';
+import { useReceipts } from '../hooks/useReceipts';
 import { db } from '../firebase/firebase';
-import { doc, collection, runTransaction } from 'firebase/firestore';
+import { collection, query, where, getDocs, orderBy, onSnapshot } from 'firebase/firestore';
 import { useAuth } from '../contexts/AuthContext';
-import { Input } from '../components/ui/Forms';
 import { useDateFilter } from '../contexts/DateFilterContext';
+import type { Sale } from '../types/database';
 
-// ─── Vista detalle de un cliente ────────────────────────────────────────────
 export const CCDetail = ({ customer, onBack }: { customer: any; onBack: () => void }) => {
-  const { movements, loading: loadingMovs } = useCCMovements(customer.id);
+  const { receipts, loading: loadingReceipts, createReceipt } = useReceipts();
   const { currentUser } = useAuth();
   const { filterDate } = useDateFilter();
 
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
   const [paymentAmount, setPaymentAmount] = useState('');
-  const [paymentConcept, setPaymentConcept] = useState('Cobro en cuenta corriente');
+  const [paymentMethod, setPaymentMethod] = useState('efectivo');
+  const [paymentConcept, setPaymentConcept] = useState('Cobro de facturas');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  
+  const [pendingSales, setPendingSales] = useState<Sale[]>([]);
+  const [loadingSales, setLoadingSales] = useState(true);
+  const [selectedSales, setSelectedSales] = useState<Set<string>>(new Set());
 
-  const filteredMovements = movements.filter((m: any) => filterDate(m.date));
+  useEffect(() => {
+    const q = query(
+      collection(db, 'sales'), 
+      where('customerId', '==', customer.id),
+      where('paymentMethod', '==', 'cc')
+    );
+    
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const sales: Sale[] = [];
+      snapshot.forEach(doc => {
+        const data = doc.data() as Sale;
+        if (data.status === 'PENDIENTE' || data.status === 'PARCIAL') {
+          sales.push({ ...data, id: doc.id });
+        }
+      });
+      // Sort descending by date
+      sales.sort((a, b) => b.date - a.date);
+      setPendingSales(sales);
+      setLoadingSales(false);
+    });
+    
+    return () => unsubscribe();
+  }, [customer.id]);
+
+  const customerReceipts = receipts.filter(r => r.customerId === customer.id && filterDate(r.date));
+
+  const toggleSaleSelection = (saleId: string) => {
+    const newSelection = new Set(selectedSales);
+    if (newSelection.has(saleId)) {
+      newSelection.delete(saleId);
+    } else {
+      newSelection.add(saleId);
+    }
+    setSelectedSales(newSelection);
+  };
+
+  const calculateTotalSelected = () => {
+    let total = 0;
+    pendingSales.forEach(s => {
+      if (selectedSales.has(s.id!)) {
+        total += s.saldoPendiente !== undefined ? s.saldoPendiente : s.total;
+      }
+    });
+    return total;
+  };
+
+  useEffect(() => {
+    if (isPaymentModalOpen) {
+      setPaymentAmount(calculateTotalSelected().toString());
+    }
+  }, [selectedSales, isPaymentModalOpen]);
 
   const handleRegisterPayment = async () => {
-    console.log('COBRO STEP 3: submit del formulario / inicio de handleRegisterPayment');
     const amount = parseNumber(paymentAmount);
-    console.log('COBRO INFO: monto ingresado =', amount, 'customer.id =', customer.id);
-    if (amount <= 0) {
-      console.log('COBRO ABORT: monto <= 0');
-      return alert('El monto debe ser mayor a 0');
-    }
+    if (amount <= 0) return alert('El monto debe ser mayor a 0');
+    if (selectedSales.size === 0) return alert('Debe seleccionar al menos una factura para cobrar');
+
     setIsSubmitting(true);
     try {
-      const customerRef = doc(db, 'customers', customer.id);
-      const paymentRef = doc(collection(db, 'cc_payments'));
+      // Distribute amount to selected invoices
+      let remainingAmount = amount;
+      const appliedInvoices = [];
       
-      console.log('COBRO STEP 4: antes de runTransaction');
-      await runTransaction(db, async (transaction) => {
-        console.log('COBRO STEP 4.1: dentro de runTransaction, leyendo customerRef');
-        const custSnap = await transaction.get(customerRef);
-        if (!custSnap.exists()) {
-          console.log('COBRO ABORT: Cliente no encontrado en BD');
-          throw new Error('Cliente no encontrado');
-        }
-        
-        const currentBalance = custSnap.data().currentBalance || 0;
-        const newBalance = currentBalance - amount;
-        console.log('COBRO INFO: saldo actual =', currentBalance, '| saldo nuevo =', newBalance);
-        
-        console.log('COBRO STEP 4.2: actualizando customerRef');
-        transaction.update(customerRef, {
-          currentBalance: newBalance,
-          updatedAt: Date.now()
+      // Sort selected sales by oldest first
+      const sortedSelectedSales = pendingSales
+        .filter(s => selectedSales.has(s.id!))
+        .sort((a, b) => a.date - b.date);
+
+      for (const sale of sortedSelectedSales) {
+        if (remainingAmount <= 0) break;
+        const saldo = sale.saldoPendiente !== undefined ? sale.saldoPendiente : sale.total;
+        const toApply = Math.min(saldo, remainingAmount);
+        appliedInvoices.push({
+          saleId: sale.id!,
+          invoiceNumber: sale.invoiceNumber || sale.remitoNumber || '',
+          amountToApply: toApply
         });
-        
-        console.log('COBRO STEP 4.3: creando registro de pago en paymentRef');
-        transaction.set(paymentRef, {
-          customerId: customer.id,
-          date: Date.now(),
-          amount: amount,
-          concept: paymentConcept,
-          referenceNumber: `COB-${String(Date.now()).slice(-6)}`,
-          userId: currentUser?.uid || 'anonymous',
-          createdAt: Date.now()
-        });
-      });
-      console.log('COBRO STEP 5: después de runTransaction (éxito)');
-      
+        remainingAmount -= toApply;
+      }
+
+      await createReceipt({
+        customerId: customer.id,
+        customerName: customer.name,
+        date: Date.now(),
+        amount: amount,
+        method: paymentMethod,
+        observations: paymentConcept
+      }, appliedInvoices);
+
       setIsPaymentModalOpen(false);
       setPaymentAmount('');
-      setPaymentConcept('Cobro en cuenta corriente');
-      console.log('COBRO STEP 6: estados reseteados, fin del flujo');
+      setSelectedSales(new Set());
     } catch (e: any) {
-      console.error('COBRO STEP 7 (ERROR): catch(error)');
-      console.error('COBRO ERROR DETAIL:', {
-        code: e?.code,
-        message: e?.message,
-        stack: e?.stack,
-        fullError: e
-      });
+      console.error(e);
       alert('Error registrando cobro: ' + e.message);
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  const deuda = customer.currentBalance || 0;
+  const deuda = pendingSales.reduce((acc, sale) => acc + (sale.saldoPendiente !== undefined ? sale.saldoPendiente : sale.total), 0);
   const limite = customer.creditLimit || 0;
   const disponible = Math.max(0, limite - deuda);
   const esMoroso = deuda > limite && limite > 0;
-
-  // Totales del historial
-  const totalVentas = filteredMovements.reduce((acc, m) => acc + m.debe, 0);
-  const totalCobros = filteredMovements.reduce((acc, m) => acc + m.haber, 0);
-
-  // Saldo calculado desde el historial (más confiable que currentBalance en escenarios mixtos)
-  const saldoCalculado = filteredMovements.length > 0 ? filteredMovements[0].saldo : deuda;
 
   return (
     <div style={{ paddingBottom: '40px' }}>
@@ -114,21 +147,15 @@ export const CCDetail = ({ customer, onBack }: { customer: any; onBack: () => vo
           </button>
           <div>
             <h1 style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--text-primary)' }}>
-              Cuenta Corriente
+              Cuenta Corriente: {customer.name}
             </h1>
             <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>
-              {customer.name}
-              {customer.cuit ? ` · CUIT: ${customer.cuit}` : ''}
+              Gestión de facturas y cobranzas por comprobante
             </p>
           </div>
         </div>
         <button 
-          onClick={() => {
-            console.log('COBRO STEP 1: click del botón Registrar Cobro');
-            setIsPaymentModalOpen(true);
-            console.log('COBRO STEP 2: apertura del modal');
-          }} 
-
+          onClick={() => setIsPaymentModalOpen(true)} 
           className="btn btn-primary"
           style={{ backgroundColor: '#166534', color: 'white', border: 'none', padding: '8px 16px', borderRadius: '8px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}
         >
@@ -144,25 +171,16 @@ export const CCDetail = ({ customer, onBack }: { customer: any; onBack: () => vo
             Saldo Pendiente
           </p>
           <h3 style={{ fontSize: '1.875rem', fontWeight: 700, color: '#92400e', marginTop: '8px' }}>
-            {formatCurrency(saldoCalculado)}
+            {formatCurrency(deuda)}
           </h3>
         </Card>
 
         <Card padding="md">
           <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontWeight: 600, textTransform: 'uppercase' }}>
-            Total Ventas CC
+            Facturas Pendientes
           </p>
           <h3 style={{ fontSize: '1.875rem', fontWeight: 700, color: '#dc2626', marginTop: '8px' }}>
-            {formatCurrency(totalVentas)}
-          </h3>
-        </Card>
-
-        <Card padding="md">
-          <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontWeight: 600, textTransform: 'uppercase' }}>
-            Total Cobros
-          </p>
-          <h3 style={{ fontSize: '1.875rem', fontWeight: 700, color: '#166534', marginTop: '8px' }}>
-            {formatCurrency(totalCobros)}
+            {pendingSales.length}
           </h3>
         </Card>
 
@@ -189,109 +207,86 @@ export const CCDetail = ({ customer, onBack }: { customer: any; onBack: () => vo
         </Card>
       </div>
 
-      {/* Historial de movimientos */}
-      <Card padding="none">
-        <div style={{
-          padding: '20px',
-          backgroundColor: 'var(--bg-primary)',
-          borderBottom: '1px solid var(--border-color)',
-          borderTopLeftRadius: '12px',
-          borderTopRightRadius: '12px',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '10px'
-        }}>
-          <History size={20} color="var(--primary-color)" />
-          <h3 style={{ fontSize: '1rem', fontWeight: 600 }}>
-            Historial de Movimientos en Cuenta Corriente
-          </h3>
-        </div>
-
-        {loadingMovs ? (
-          <SkeletonLoader rows={4} height="52px" />
-        ) : filteredMovements.length === 0 ? (
-          <div style={{ padding: '40px' }}>
-            <EmptyState
-              icon={History}
-              title="Sin movimientos registrados"
-              description="Las ventas registradas con método de pago 'Cuenta Corriente' en este período aparecerán aquí."
-            />
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
+        {/* Facturas Pendientes */}
+        <Card padding="none">
+          <div style={{ padding: '20px', backgroundColor: 'var(--bg-primary)', borderBottom: '1px solid var(--border-color)', borderTopLeftRadius: '12px', borderTopRightRadius: '12px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <FileText size={20} color="var(--primary-color)" />
+            <h3 style={{ fontSize: '1rem', fontWeight: 600 }}>Facturas Pendientes de Cobro</h3>
           </div>
-        ) : (
-          <Table<typeof movements[0]>
-            data={filteredMovements}
-            keyExtractor={(item) => item.id}
-            columns={[
-              {
-                header: 'Fecha',
-                accessor: (item) => (
-                  <span style={{ fontSize: '0.875rem' }}>
-                    {new Date(item.date).toLocaleDateString('es-AR')}
-                  </span>
-                )
-              },
-              {
-                header: 'Comprobante',
-                accessor: (item) => (
-                  <span style={{ fontFamily: 'monospace', fontWeight: 600, fontSize: '0.875rem' }}>
-                    {item.comprobante}
-                  </span>
-                )
-              },
-              {
-                header: 'Concepto',
-                accessor: (item) => (
-                  <div>
-                    <div style={{ fontWeight: 500, fontSize: '0.875rem' }}>{item.concepto}</div>
-                    <div style={{ fontSize: '0.75rem', marginTop: '2px' }}>
-                      <span style={{
-                        padding: '2px 8px',
-                        borderRadius: '9999px',
-                        fontSize: '0.7rem',
-                        fontWeight: 600,
-                        backgroundColor: item.type === 'venta' ? '#fef3c7' : '#dcfce7',
-                        color: item.type === 'venta' ? '#92400e' : '#166534'
-                      }}>
-                        {item.type === 'venta' ? 'Venta' : 'Cobro'}
-                      </span>
-                    </div>
-                  </div>
-                )
-              },
-              {
-                header: 'Venta (Debe)',
-                accessor: (item) => (
-                  <span style={{ fontWeight: 600, color: item.debe > 0 ? '#dc2626' : 'var(--text-secondary)' }}>
-                    {item.debe > 0 ? formatCurrency(item.debe) : '—'}
-                  </span>
-                ),
-                align: 'right'
-              },
-              {
-                header: 'Cobro (Haber)',
-                accessor: (item) => (
-                  <span style={{ fontWeight: 600, color: item.haber > 0 ? '#166534' : 'var(--text-secondary)' }}>
-                    {item.haber > 0 ? formatCurrency(item.haber) : '—'}
-                  </span>
-                ),
-                align: 'right'
-              },
-              {
-                header: 'Saldo',
-                accessor: (item) => (
-                  <span style={{
-                    fontWeight: 700,
-                    color: item.saldo > 0 ? '#92400e' : item.saldo < 0 ? '#166534' : 'var(--text-secondary)'
-                  }}>
-                    {formatCurrency(item.saldo)}
-                  </span>
-                ),
-                align: 'right'
-              }
-            ]}
-          />
-        )}
-      </Card>
+          {loadingSales ? (
+            <SkeletonLoader rows={4} height="52px" />
+          ) : pendingSales.length === 0 ? (
+            <div style={{ padding: '40px' }}>
+              <EmptyState icon={FileText} title="Al día" description="El cliente no tiene facturas pendientes." />
+            </div>
+          ) : (
+            <Table
+              data={pendingSales}
+              keyExtractor={(item) => item.id!}
+              columns={[
+                {
+                  header: 'Factura',
+                  accessor: (item) => <span style={{ fontFamily: 'monospace', fontWeight: 600 }}>{item.invoiceNumber || item.remitoNumber}</span>
+                },
+                {
+                  header: 'Fecha',
+                  accessor: (item) => new Date(item.date).toLocaleDateString()
+                },
+                {
+                  header: 'Total',
+                  accessor: (item) => formatCurrency(item.total),
+                  align: 'right'
+                },
+                {
+                  header: 'Saldo',
+                  accessor: (item) => (
+                    <span style={{ fontWeight: 700, color: '#dc2626' }}>
+                      {formatCurrency(item.saldoPendiente !== undefined ? item.saldoPendiente : item.total)}
+                    </span>
+                  ),
+                  align: 'right'
+                }
+              ]}
+            />
+          )}
+        </Card>
+
+        {/* Historial de Recibos */}
+        <Card padding="none">
+          <div style={{ padding: '20px', backgroundColor: 'var(--bg-primary)', borderBottom: '1px solid var(--border-color)', borderTopLeftRadius: '12px', borderTopRightRadius: '12px', display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <Receipt size={20} color="var(--primary-color)" />
+            <h3 style={{ fontSize: '1rem', fontWeight: 600 }}>Historial de Cobros (Recibos)</h3>
+          </div>
+          {loadingReceipts ? (
+            <SkeletonLoader rows={4} height="52px" />
+          ) : customerReceipts.length === 0 ? (
+            <div style={{ padding: '40px' }}>
+              <EmptyState icon={Receipt} title="Sin cobros registrados" description="Los recibos de pago aparecerán aquí." />
+            </div>
+          ) : (
+            <Table
+              data={customerReceipts}
+              keyExtractor={(item) => item.id!}
+              columns={[
+                {
+                  header: 'Fecha',
+                  accessor: (item) => new Date(item.date).toLocaleDateString()
+                },
+                {
+                  header: 'Método',
+                  accessor: (item) => <span style={{ textTransform: 'capitalize' }}>{item.method}</span>
+                },
+                {
+                  header: 'Monto',
+                  accessor: (item) => <span style={{ fontWeight: 700, color: '#166534' }}>{formatCurrency(item.amount)}</span>,
+                  align: 'right'
+                }
+              ]}
+            />
+          )}
+        </Card>
+      </div>
 
       {/* Modal Cobro */}
       {isPaymentModalOpen && (
@@ -302,29 +297,77 @@ export const CCDetail = ({ customer, onBack }: { customer: any; onBack: () => vo
         }}>
           <div style={{
             backgroundColor: 'var(--bg-primary)', padding: '24px', borderRadius: '12px',
-            width: '100%', maxWidth: '400px', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)'
+            width: '100%', maxWidth: '600px', maxHeight: '90vh', overflowY: 'auto',
+            boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)'
           }}>
-            <h2 style={{ fontSize: '1.25rem', fontWeight: 700, marginBottom: '16px' }}>Registrar Cobro</h2>
+            <h2 style={{ fontSize: '1.25rem', fontWeight: 700, marginBottom: '16px' }}>Registrar Cobro a {customer.name}</h2>
+            
+            <div style={{ marginBottom: '24px' }}>
+              <h3 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: '12px' }}>Seleccionar Facturas a Pagar:</h3>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '200px', overflowY: 'auto' }}>
+                {pendingSales.length === 0 && <p style={{ fontSize: '0.875rem', color: '#666' }}>No hay facturas pendientes.</p>}
+                {pendingSales.map(sale => {
+                  const isSelected = selectedSales.has(sale.id!);
+                  return (
+                    <div 
+                      key={sale.id} 
+                      onClick={() => toggleSaleSelection(sale.id!)}
+                      style={{ 
+                        display: 'flex', alignItems: 'center', justifyContent: 'space-between', 
+                        padding: '12px', border: `1px solid ${isSelected ? '#16a34a' : '#e2e8f0'}`,
+                        backgroundColor: isSelected ? '#f0fdf4' : '#fff', borderRadius: '8px', cursor: 'pointer' 
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                        {isSelected ? <CheckSquare size={20} color="#16a34a" /> : <Square size={20} color="#94a3b8" />}
+                        <div>
+                          <div style={{ fontWeight: 600 }}>{sale.invoiceNumber || sale.remitoNumber}</div>
+                          <div style={{ fontSize: '0.75rem', color: '#64748b' }}>{new Date(sale.date).toLocaleDateString()}</div>
+                        </div>
+                      </div>
+                      <div style={{ textAlign: 'right' }}>
+                        <div style={{ fontWeight: 700, color: '#dc2626' }}>{formatCurrency(sale.saldoPendiente !== undefined ? sale.saldoPendiente : sale.total)}</div>
+                        <div style={{ fontSize: '0.75rem', color: '#64748b' }}>Total: {formatCurrency(sale.total)}</div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
             <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginBottom: '24px' }}>
-              <Input
-                label="Monto a cobrar ($)"
-                type="number"
-                value={paymentAmount}
-                onChange={e => setPaymentAmount(e.target.value)}
-                placeholder="Ej: 15000"
-                icon={<DollarSign size={16} />}
-              />
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                <Input
+                  label="Monto a cobrar ($)"
+                  type="number"
+                  value={paymentAmount}
+                  onChange={e => setPaymentAmount(e.target.value)}
+                  placeholder="Ej: 15000"
+                  icon={<DollarSign size={16} />}
+                />
+                <Select
+                  label="Método de Pago"
+                  value={paymentMethod}
+                  onChange={e => setPaymentMethod(e.target.value)}
+                  options={[
+                    { value: 'efectivo', label: 'Efectivo' },
+                    { value: 'transferencia', label: 'Transferencia' },
+                    { value: 'cheque', label: 'Cheque' }
+                  ]}
+                />
+              </div>
               <Input
                 label="Concepto / Observación"
                 type="text"
                 value={paymentConcept}
                 onChange={e => setPaymentConcept(e.target.value)}
-                placeholder="Ej: Pago en efectivo"
+                placeholder="Ej: Cobro de facturas atrasadas"
               />
             </div>
+            
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
               <button 
-                onClick={() => setIsPaymentModalOpen(false)} 
+                onClick={() => { setIsPaymentModalOpen(false); setSelectedSales(new Set()); }} 
                 className="btn btn-secondary"
                 disabled={isSubmitting}
               >
@@ -334,7 +377,7 @@ export const CCDetail = ({ customer, onBack }: { customer: any; onBack: () => vo
                 onClick={handleRegisterPayment} 
                 className="btn btn-primary"
                 style={{ backgroundColor: '#166534', color: 'white', border: 'none', padding: '8px 16px', borderRadius: '8px', fontWeight: 600, cursor: 'pointer' }}
-                disabled={isSubmitting}
+                disabled={isSubmitting || selectedSales.size === 0}
               >
                 {isSubmitting ? 'Guardando...' : 'Confirmar Cobro'}
               </button>
@@ -346,14 +389,11 @@ export const CCDetail = ({ customer, onBack }: { customer: any; onBack: () => vo
   );
 };
 
-// ─── Vista principal (lista de clientes) ────────────────────────────────────
 export const CuentaCorriente = () => {
   const { customers, loading, error } = useCustomers();
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
-  if (error) {
-    return <ErrorState message={error} />;
-  }
+  if (error) return <ErrorState message={error} />;
 
   const selectedCustomer = selectedId ? customers.find(c => c.id === selectedId) : null;
 
@@ -361,60 +401,21 @@ export const CuentaCorriente = () => {
     return <CCDetail customer={selectedCustomer} onBack={() => setSelectedId(null)} />;
   }
 
-  // Aggregates para KPIs
   const totalDeuda = customers.reduce((acc, c) => acc + Math.max(0, c.currentBalance || 0), 0);
   const morosos = customers.filter(c => (c.currentBalance || 0) > (c.creditLimit || 0) && c.creditLimit > 0);
   const activos = customers.filter(c => c.isActive);
-  const creditoDisponible = customers.reduce((acc, c) => acc + Math.max(0, (c.creditLimit || 0) - (c.currentBalance || 0)), 0);
-
-  const stats = [
-    { title: 'Clientes con CC', value: activos.length.toString(), icon: Users, color: 'var(--primary-color)', bg: 'var(--primary-light)' },
-    { title: 'Deuda Total a Cobrar', value: formatCurrency(totalDeuda), icon: DollarSign, color: '#dc2626', bg: '#fee2e2' },
-    { title: 'Clientes Morosos', value: morosos.length.toString(), icon: ShieldAlert, color: '#d97706', bg: '#fef3c7' },
-    { title: 'Crédito Disponible', value: formatCurrency(creditoDisponible), icon: CreditCard, color: '#059669', bg: '#d1fae5' },
-    { title: 'Al día', value: (activos.length - morosos.length).toString(), icon: Activity, color: '#4f46e5', bg: '#e0e7ff' },
-  ];
 
   return (
     <>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '24px' }}>
-        <PageHeader title="Cuenta Corriente" description="Saldos y estados de crédito de clientes en tiempo real" />
-      </div>
-
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '16px', marginBottom: '32px' }}>
-        {stats.map((stat, idx) => {
-          const Icon = stat.icon;
-          return (
-            <Card key={idx} padding="sm">
-              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                <div style={{ padding: '10px', backgroundColor: stat.bg, color: stat.color, borderRadius: '10px' }}>
-                  <Icon size={20} />
-                </div>
-                <div>
-                  <p style={{ color: 'var(--text-secondary)', fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase' }}>
-                    {stat.title}
-                  </p>
-                  <h3 style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--text-primary)' }}>
-                    {stat.value}
-                  </h3>
-                </div>
-              </div>
-            </Card>
-          );
-        })}
+        <PageHeader title="Cuenta Corriente" description="Facturas pendientes, cobranzas por comprobante y estados de crédito" />
       </div>
 
       <Card padding="none">
-        <div style={{
-          padding: '20px',
-          backgroundColor: 'var(--bg-primary)',
-          borderBottom: '1px solid var(--border-color)',
-          borderTopLeftRadius: '12px',
-          borderTopRightRadius: '12px'
-        }}>
-          <h3 style={{ fontSize: '1rem', fontWeight: 600 }}>Clientes con Cuenta Corriente</h3>
+        <div style={{ padding: '20px', backgroundColor: 'var(--bg-primary)', borderBottom: '1px solid var(--border-color)', borderTopLeftRadius: '12px', borderTopRightRadius: '12px' }}>
+          <h3 style={{ fontSize: '1rem', fontWeight: 600 }}>Cuentas Corrientes por Cliente</h3>
           <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
-            Hacé click en un cliente para ver su historial completo de movimientos
+            Seleccioná un cliente para conciliar facturas y registrar recibos
           </p>
         </div>
 
@@ -422,14 +423,10 @@ export const CuentaCorriente = () => {
           <SkeletonLoader rows={5} height="56px" />
         ) : customers.length === 0 ? (
           <div style={{ padding: '40px' }}>
-            <EmptyState
-              icon={Wallet}
-              title="Sin cuentas corrientes registradas"
-              description="Registrá clientes con crédito habilitado para ver sus saldos aquí."
-            />
+            <EmptyState icon={Wallet} title="Sin cuentas" description="Registrá clientes con crédito habilitado." />
           </div>
         ) : (
-          <Table<typeof customers[0]>
+          <Table
             data={customers}
             keyExtractor={(item) => item.id!}
             onRowClick={(item) => setSelectedId(item.id!)}
@@ -439,15 +436,11 @@ export const CuentaCorriente = () => {
                 accessor: (item) => (
                   <div>
                     <div style={{ fontWeight: 600 }}>{item.name}</div>
-                    <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-                      {item.cuit || 'Sin CUIT'}
-                      {item.phone ? ` · ${item.phone}` : ''}
-                    </div>
                   </div>
                 )
               },
               {
-                header: 'Saldo Pendiente',
+                header: 'Deuda Total',
                 accessor: (item) => (
                   <span style={{ fontWeight: 700, color: (item.currentBalance || 0) > 0 ? '#dc2626' : '#166534' }}>
                     {formatCurrency(item.currentBalance || 0)}
@@ -456,7 +449,7 @@ export const CuentaCorriente = () => {
                 align: 'right'
               },
               {
-                header: 'Límite de Crédito',
+                header: 'Límite',
                 accessor: (item) => (
                   <span style={{ fontWeight: 500 }}>
                     {(item.creditLimit || 0) > 0 ? formatCurrency(item.creditLimit) : '—'}
@@ -465,49 +458,10 @@ export const CuentaCorriente = () => {
                 align: 'right'
               },
               {
-                header: 'Disponible',
-                accessor: (item) => {
-                  const disponible = Math.max(0, (item.creditLimit || 0) - (item.currentBalance || 0));
-                  return (
-                    <span style={{ fontWeight: 600, color: '#166534' }}>
-                      {(item.creditLimit || 0) > 0 ? formatCurrency(disponible) : '—'}
-                    </span>
-                  );
-                },
-                align: 'right'
-              },
-              {
-                header: 'Días de Pago',
+                header: 'Acciones',
                 accessor: (item) => (
-                  <span style={{ fontSize: '0.875rem' }}>
-                    {item.paymentTerms > 0 ? `${item.paymentTerms} días` : 'Contado'}
-                  </span>
-                ),
-                align: 'center'
-              },
-              {
-                header: 'Estado',
-                accessor: (item) => {
-                  const esMoroso = (item.currentBalance || 0) > (item.creditLimit || 0) && (item.creditLimit || 0) > 0;
-                  const bg = !item.isActive ? '#f1f5f9' : esMoroso ? '#fee2e2' : '#dcfce7';
-                  const color = !item.isActive ? '#475569' : esMoroso ? '#991b1b' : '#166534';
-                  const label = !item.isActive ? 'Inactivo' : esMoroso ? 'Moroso' : 'Al día';
-                  return (
-                    <span style={{ padding: '4px 12px', borderRadius: '9999px', fontSize: '0.75rem', fontWeight: 600, backgroundColor: bg, color }}>
-                      {label}
-                    </span>
-                  );
-                },
-                align: 'center'
-              },
-              {
-                header: '',
-                accessor: (item) => (
-                  <button
-                    onClick={(e) => { e.stopPropagation(); setSelectedId(item.id!); }}
-                    style={{ display: 'flex', alignItems: 'center', gap: '4px', background: 'none', border: 'none', color: 'var(--primary-color)', fontWeight: 600, cursor: 'pointer', fontSize: '0.875rem' }}
-                  >
-                    Ver historial <ArrowRight size={14} />
+                  <button onClick={(e) => { e.stopPropagation(); setSelectedId(item.id!); }} style={{ background: 'none', border: 'none', color: '#2563eb', fontWeight: 600, cursor: 'pointer' }}>
+                    Ver Facturas <ArrowRight size={14} style={{ verticalAlign: 'middle' }} />
                   </button>
                 ),
                 align: 'right'
@@ -519,5 +473,4 @@ export const CuentaCorriente = () => {
     </>
   );
 };
-
 export default CuentaCorriente;

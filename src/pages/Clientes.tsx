@@ -8,17 +8,21 @@ import {
   Search, Plus, Filter, ArrowLeft, Save, 
   Users, DollarSign, Activity, Award, Wallet,
   Store, Handshake, Truck, History, Phone,
-  CreditCard, ShieldAlert, ArrowRight, ArrowDown, Download, Loader2, Edit2, Trash2
+  CreditCard, ShieldAlert, ArrowRight, ArrowDown, Download, Loader2, Edit2, Trash2, Tag
 } from 'lucide-react';
 import { formatCurrency, formatNumber, parseNumber } from '../utils/format';
 import { useCustomers } from '../hooks/useCustomers';
 import { usePriceLists } from '../hooks/usePriceLists';
+import { usePresentaciones } from '../hooks/usePresentaciones';
+import { useMercaderias } from '../hooks/useMercaderias';
 import { CCDetail } from './CuentaCorriente';
 
 
 export const Clientes = () => {
   const { customers, loading, error, saveCustomer, deleteCustomer } = useCustomers();
   const { priceLists } = usePriceLists();
+  const { presentaciones } = usePresentaciones();
+  const { mercaderias } = useMercaderias();
   const [viewMode, setViewMode] = useState<'list' | 'create' | 'cc'>('list');
   const [creditEnabled, setCreditEnabled] = useState(true);
   const [selectedCustomer, setSelectedCustomer] = useState<any | null>(null);
@@ -36,11 +40,13 @@ export const Clientes = () => {
   const [priceListId, setPriceListId] = useState('');
   const [creditLimitStr, setCreditLimitStr] = useState('100000');
   const [paymentTermsStr, setPaymentTermsStr] = useState('30');
+  const [specialPrices, setSpecialPrices] = useState<Record<string, { mode: 'price' | 'margin', value: number }>>({});
   const [isSaving, setIsSaving] = useState(false);
-
-
-
-  if (error) {
+  
+  // UI states for new special price
+  const [newSpecialProduct, setNewSpecialProduct] = useState('');
+  const [newSpecialMode, setNewSpecialMode] = useState<'price' | 'margin'>('price');
+  const [newSpecialValue, setNewSpecialValue] = useState('');  if (error) {
     return <ErrorState message={typeof error === 'string' ? error : (error as any).message || 'Error cargando clientes.'} />;
   }
 
@@ -62,7 +68,8 @@ export const Clientes = () => {
         paymentTerms: creditEnabled ? parseNumber(paymentTermsStr) : 0,
         isActive: true,
         priceListId: priceListId || '',
-        priceListName: priceListId ? (priceLists.find(p => p.id === priceListId)?.name || '') : ''
+        priceListName: priceListId ? (priceLists.find(p => p.id === priceListId)?.name || '') : '',
+        specialPrices
       }, selectedCustomer?.id);
       setViewMode('list');
       setSelectedCustomer(null);
@@ -78,6 +85,7 @@ export const Clientes = () => {
       setCreditLimitStr('100000');
       setPaymentTermsStr('30');
       setPriceListId('');
+      setSpecialPrices({});
     } catch (e: any) {
       console.error(e);
       alert(e.message || "Error al registrar cliente.");
@@ -106,6 +114,7 @@ export const Clientes = () => {
     setPaymentTermsStr(c.paymentTerms?.toString() || '30');
     setCreditEnabled(c.creditLimit > 0 || c.paymentTerms > 0);
     setPriceListId(c.priceListId || '');
+    setSpecialPrices(c.specialPrices || {});
     setViewMode('create');
   };
 
@@ -257,6 +266,95 @@ export const Clientes = () => {
               </div>
             </Card>
 
+            {/* SECCIÓN 6 — PRECIOS ESPECIALES */}
+            <Card style={{ backgroundColor: 'var(--bg-primary)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '20px' }}>
+                <Tag size={20} color="var(--primary-color)" />
+                <h3 style={{ fontSize: '1.125rem', fontWeight: 600 }}>Precios Especiales</h3>
+              </div>
+              
+              <div style={{ padding: '16px', backgroundColor: 'var(--bg-secondary)', borderRadius: '8px', border: '1px solid var(--border-color)', marginBottom: '16px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px' }}>
+                  <div style={{ gridColumn: '1 / -1' }}>
+                    <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '4px' }}>Producto</label>
+                    <select value={newSpecialProduct} onChange={e => setNewSpecialProduct(e.target.value)} className="form-input" style={{ width: '100%', padding: '8px 12px', borderRadius: '6px' }}>
+                      <option value="">Seleccionar producto...</option>
+                      <optgroup label="Mercaderías">
+                        {mercaderias.filter(m => m.isActive).map(m => (
+                          <option key={m.id} value={m.id}>{m.name} (Por Kg)</option>
+                        ))}
+                      </optgroup>
+                      <optgroup label="Presentaciones">
+                        {presentaciones.filter(p => p.isActive).map(p => (
+                          <option key={p.id} value={p.id}>{p.name} (Por Unidad)</option>
+                        ))}
+                      </optgroup>
+                    </select>
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '4px' }}>Modo</label>
+                    <select value={newSpecialMode} onChange={e => setNewSpecialMode(e.target.value as 'price'|'margin')} className="form-input" style={{ width: '100%', padding: '8px 12px', borderRadius: '6px' }}>
+                      <option value="price">Precio Fijo ($)</option>
+                      <option value="margin">Margen Especial (%)</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '4px' }}>Valor</label>
+                    <input type="number" value={newSpecialValue} onChange={e => setNewSpecialValue(e.target.value)} className="form-input" style={{ width: '100%', padding: '8px 12px', borderRadius: '6px' }} placeholder={newSpecialMode === 'price' ? '11500' : '28'} />
+                  </div>
+                </div>
+                <button 
+                  onClick={() => {
+                    if (newSpecialProduct && newSpecialValue) {
+                      setSpecialPrices({
+                        ...specialPrices,
+                        [newSpecialProduct]: { mode: newSpecialMode, value: parseNumber(newSpecialValue) }
+                      });
+                      setNewSpecialProduct('');
+                      setNewSpecialValue('');
+                    }
+                  }}
+                  className="btn btn-secondary btn-sm" style={{ width: '100%' }}
+                >
+                  <Plus size={16} /> Agregar Excepción
+                </button>
+              </div>
+
+              {Object.keys(specialPrices).length > 0 && (
+                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                  <thead>
+                    <tr style={{ borderBottom: '1px solid var(--border-color)' }}>
+                      <th style={{ textAlign: 'left', padding: '8px', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Producto</th>
+                      <th style={{ textAlign: 'right', padding: '8px', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Excepción</th>
+                      <th style={{ padding: '8px' }}></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {Object.entries(specialPrices).map(([prodId, special]) => {
+                      const prodName = mercaderias.find(m => m.id === prodId)?.name || presentaciones.find(p => p.id === prodId)?.name || 'Producto Desconocido';
+                      return (
+                        <tr key={prodId} style={{ borderBottom: '1px solid var(--border-color)' }}>
+                          <td style={{ padding: '8px', fontSize: '0.85rem' }}>{prodName}</td>
+                          <td style={{ padding: '8px', fontSize: '0.85rem', textAlign: 'right', fontWeight: 600 }}>
+                            {special.mode === 'price' ? formatCurrency(special.value) : `${special.value}%`}
+                          </td>
+                          <td style={{ padding: '8px', textAlign: 'right' }}>
+                            <button onClick={() => {
+                              const newSp = { ...specialPrices };
+                              delete newSp[prodId];
+                              setSpecialPrices(newSp);
+                            }} className="btn btn-icon btn-sm" style={{ color: '#dc2626' }}>
+                              <Trash2 size={16} />
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )}
+            </Card>
+
             {/* SECCIÓN 5 — HISTORIAL COMERCIAL */}
             <Card style={{ backgroundColor: '#1e293b', color: '#fff' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '20px' }}>
@@ -319,6 +417,9 @@ export const Clientes = () => {
             setCreditLimitStr('100000');
             setPaymentTermsStr('30');
             setPriceListId('');
+            setSpecialPrices({});
+            setNewSpecialProduct('');
+            setNewSpecialValue('');
             setViewMode('create');
           }}
           className="btn btn-primary"

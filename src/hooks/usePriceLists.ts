@@ -7,12 +7,17 @@ export interface PriceList {
   id?: string;
   name: string;
   target: string;
+  type?: 'presentaciones' | 'mercaderias';
+  mode?: 'auto' | 'manual';
   margin: number;
   isActive: boolean;
   productOverrides?: {
     [productId: string]: {
       margin: number;
+      mode?: 'auto' | 'manual';
+      manualPrice?: number;
       excluded?: boolean;
+      itemType?: 'mercaderia' | 'presentacion' | 'receta';
     };
   };
   createdAt: number;
@@ -39,13 +44,32 @@ export const usePriceLists = () => {
         const list: PriceList[] = [];
         snapshot.forEach((doc) => {
           const data = doc.data();
+          const legacyType = data.type;
+
+          let overrides = data.productOverrides || {};
+
+          // Compatibilidad retroactiva: asignar itemType a cada overide si hay legacyType
+          if (legacyType) {
+            const defaultItemType = legacyType === 'mercaderias' ? 'mercaderia' : 'presentacion';
+            const updatedOverrides: Record<string, any> = {};
+            for (const [key, val] of Object.entries(overrides)) {
+              updatedOverrides[key] = {
+                ...(val as any),
+                itemType: (val as any).itemType || defaultItemType
+              };
+            }
+            overrides = updatedOverrides;
+          }
+
           list.push({
             id: doc.id,
             name: data.name || '',
             target: data.target || '',
+            type: legacyType, // Keep it for backwards compatibility if needed
+            mode: data.mode || 'auto',
             margin: Number(data.margin) || 0,
             isActive: typeof data.isActive === 'boolean' ? data.isActive : true,
-            productOverrides: data.productOverrides || {},
+            productOverrides: overrides,
             createdAt: data.createdAt || Date.now(),
             updatedAt: data.updatedAt || Date.now(),
           });

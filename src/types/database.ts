@@ -15,12 +15,27 @@ export interface Sale {
   subtotal: number;
   discount: number;
   total: number;
-  status: 'pending' | 'completed' | 'cancelled';
-  paymentStatus: 'pending' | 'paid' | 'partial';
-  paymentMethod: string;
+  saldoPendiente: number;
+  status: 'PENDIENTE' | 'PARCIAL' | 'PAGADA' | 'ANULADA';
+  paymentMethod?: string;
   remitoNumber?: string;
+  invoiceNumber?: string;
   orderId?: string;
   date: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface PaymentReceipt {
+  id?: string;
+  customerId: string;
+  customerName: string;
+  date: number;
+  amount: number;
+  method: string;
+  appliedInvoices: { saleId: string; invoiceNumber: string; amountApplied: number }[];
+  unallocatedAmount: number;
+  observations: string;
   createdAt: number;
   updatedAt: number;
 }
@@ -107,6 +122,7 @@ export interface Customer {
   isActive: boolean;
   priceListId?: string;
   priceListName?: string;
+  specialPrices?: Record<string, { mode: 'price' | 'margin', value: number }>;
   createdAt: number;
   updatedAt: number;
 }
@@ -169,6 +185,11 @@ export interface SystemSettings {
   currencies: { code: string; symbol: string; rate: number }[];
   reinvestment_categories: string[];
   expense_categories: string[];
+
+  // Configuración Comercial
+  comercial_margenRiesgo: number;
+  comercial_margenOptimo: number;
+  comercial_alertaCostoAumento: number;
 }
 
 export interface RecipeIngredient {
@@ -207,7 +228,7 @@ export interface Order {
   subtotal: number;
   discount: number;
   total: number;
-  status: 'pending' | 'in_production' | 'delivered' | 'invoiced';
+  status: 'PENDIENTE' | 'EN_PRODUCCION' | 'PRODUCIDO' | 'ENTREGADO' | 'FACTURADO' | 'CERRADO';
   observations?: string;
   date: number;
   createdAt: number;
@@ -267,6 +288,8 @@ export interface Presentacion {
   manoObra?: number; // Costo mano de obra (si corresponde)
   observations: string;
   isActive: boolean;
+  commercialStatus?: 'activo' | 'destacado' | 'lanzamiento' | 'promocion' | 'descontinuado';
+  unidadesPorCaja?: number;
   createdAt?: number;
   updatedAt?: number;
 }

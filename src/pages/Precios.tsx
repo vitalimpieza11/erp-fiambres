@@ -13,6 +13,7 @@ import { useMercaderias } from '../hooks/useMercaderias';
 import { useInsumos } from '../hooks/useInsumos';
 import { useRecipes } from '../hooks/useRecipes';
 import { calculatePresentationCost } from '../core/calculations';
+import { useSettings } from '../hooks/useSettings';
 import { Edit } from 'lucide-react';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -25,6 +26,7 @@ export const Precios = () => {
   const { mercaderias, loading: loadingMerc, error: errorMerc } = useMercaderias();
   const { insumos, loading: loadingIns, error: errorIns } = useInsumos();
   const { recipes, loading: loadingRec, error: errorRec } = useRecipes();
+  const { settings } = useSettings();
 
   const [viewMode, setViewMode] = useState<'list' | 'edit'>('list');
   const [selectedList, setSelectedList] = useState<PriceList | null>(null);
@@ -34,40 +36,79 @@ export const Precios = () => {
   const [listTargetInput, setListTargetInput] = useState('');
   const [listActiveInput, setListActiveInput] = useState(true);
   const [generalMarginStr, setGeneralMarginStr] = useState('30');
+  const [includedTypes, setIncludedTypes] = useState<string[]>(['presentacion']);
+  const [listModeInput, setListModeInput] = useState<'auto' | 'manual'>('auto');
   const [priceItems, setPriceItems] = useState<any[]>([]);
+  const [filterStatuses, setFilterStatuses] = useState<string[]>([]);
   const [isSaving, setIsSaving] = useState(false);
+  const [showReviewModal, setShowReviewModal] = useState(false);
+  const [reviewItems, setReviewItems] = useState<any[]>([]);
+  const [showSimulatorModal, setShowSimulatorModal] = useState(false);
+  const [simulatorIncreasePct, setSimulatorIncreasePct] = useState(0);
   const [editingPresentation, setEditingPresentation] = useState<any | null>(null);
 
   const globalError = errorLists || errorPres || errorMerc || errorIns || errorRec;
 
-  // When selected list or presentaciones change, set up the price items from presentaciones only
+  // Build items function
+  const buildItems = (types: string[], mode: 'auto' | 'manual', baseMargin: number, overrides: any) => {
+    let items: any[] = [];
+    
+    if (types.includes('presentacion')) {
+      const presItems = presentaciones.filter(p => p.isActive).map(p => {
+        const cTot = calculatePresentationCost(p, mercaderias, insumos, recipes);
+        const overrideMargin = overrides?.[p.id!]?.margin ?? baseMargin;
+        const isExcluded = overrides?.[p.id!]?.excluded ?? false;
+        const itemMode = overrides?.[p.id!]?.mode ?? mode;
+        const autoPrice = overrideMargin >= 100 ? cTot * 2 : (cTot / (1 - overrideMargin / 100));
+        const manualPrice = overrides?.[p.id!]?.manualPrice ?? autoPrice;
+
+        return {
+          id: p.id!, name: p.name, brand: p.customerName || 'Al Vacío', gramajeVenta: p.pesoObjetivoGramos,
+          active: p.isActive, excluded: isExcluded, cost: cTot, marginStr: overrideMargin.toString(),
+          mode: itemMode, manualPriceStr: manualPrice.toString(),
+          itemType: 'presentacion', unit: 'Unidad',
+          unidadesPorCaja: p.unidadesPorCaja || 1, commercialStatus: p.commercialStatus || 'activo'
+        };
+      });
+      items = [...items, ...presItems];
+    }
+    
+    if (types.includes('mercaderia')) {
+      const mercItems = mercaderias.filter(m => m.isActive).map(m => {
+        const cTot = m.costoKg || 0;
+        const overrideMargin = overrides?.[m.id!]?.margin ?? baseMargin;
+        const isExcluded = overrides?.[m.id!]?.excluded ?? false;
+        const itemMode = overrides?.[m.id!]?.mode ?? mode;
+        const autoPrice = overrideMargin >= 100 ? cTot * 2 : (cTot / (1 - overrideMargin / 100));
+        const manualPrice = overrides?.[m.id!]?.manualPrice ?? autoPrice;
+
+        return {
+          id: m.id!, name: m.name, brand: 'Mercadería', gramajeVenta: 1000,
+          active: m.isActive, excluded: isExcluded, cost: cTot, marginStr: overrideMargin.toString(),
+          mode: itemMode, manualPriceStr: manualPrice.toString(),
+          itemType: 'mercaderia', unit: 'Kg',
+          unidadesPorCaja: 1, commercialStatus: 'activo'
+        };
+      });
+      items = [...items, ...mercItems];
+    }
+    return items;
+  };
   useEffect(() => {
-    if (selectedList && presentaciones.length > 0) {
+    if (selectedList) {
       setListNameInput(selectedList.name);
       setListTargetInput(selectedList.target);
       setListActiveInput(selectedList.isActive);
       setGeneralMarginStr(selectedList.margin.toString());
       
-      const items = presentaciones
-        .filter(p => p.isActive)
-        .map(p => {
-          const cTot = calculatePresentationCost(p, mercaderias, insumos, recipes);
-
-          const overrideMargin = selectedList.productOverrides?.[p.id!]?.margin ?? selectedList.margin;
-          const isExcluded = selectedList.productOverrides?.[p.id!]?.excluded ?? false;
-
-          return {
-            id: p.id!,
-            name: p.name,
-            brand: p.customerName || 'Al Vacío',
-            gramajeVenta: p.pesoObjetivoGramos,
-            active: p.isActive,
-            excluded: isExcluded,
-            cost: cTot,
-            marginStr: overrideMargin.toString()
-          };
-        });
-      setPriceItems(items);
+      let initTypes = ['presentacion', 'mercaderia'];
+      if (selectedList.type === 'presentaciones') initTypes = ['presentacion'];
+      if (selectedList.type === 'mercaderias') initTypes = ['mercaderia'];
+      
+      const initialMode = selectedList.mode || 'auto';
+      setIncludedTypes(initTypes);
+      setListModeInput(initialMode);
+      setPriceItems(buildItems(initTypes, initialMode, selectedList.margin, selectedList.productOverrides));
     }
   }, [selectedList, presentaciones, mercaderias, insumos, recipes]);
 
@@ -76,6 +117,8 @@ export const Precios = () => {
       name: 'Nueva Lista de Precios',
       target: 'Consumidores Especiales',
       margin: 30,
+      type: 'presentaciones',
+      mode: 'auto',
       isActive: true,
       productOverrides: {},
       createdAt: 0,
@@ -85,6 +128,8 @@ export const Precios = () => {
     setListTargetInput('Consumidores Especiales');
     setGeneralMarginStr('30');
     setListActiveInput(true);
+    setIncludedTypes(['presentacion', 'mercaderia']);
+    setListModeInput('auto');
     setViewMode('edit');
   };
 
@@ -102,16 +147,147 @@ export const Precios = () => {
     setPriceItems(priceItems.map(item => item.id === id ? { ...item, excluded: !item.excluded } : item));
   };
 
+  const updateItemMode = (id: string, mode: 'auto' | 'manual') => {
+    setPriceItems(priceItems.map(item => item.id === id ? { ...item, mode } : item));
+  };
+
+  const updateItemManualPrice = (id: string, priceStr: string) => {
+    setPriceItems(priceItems.map(item => item.id === id ? { ...item, manualPriceStr: priceStr } : item));
+  };
+
+  const handleTypeToggle = (typeStr: string) => {
+    let newTypes = [...includedTypes];
+    if (newTypes.includes(typeStr)) {
+      newTypes = newTypes.filter(t => t !== typeStr);
+    } else {
+      newTypes.push(typeStr);
+    }
+    setIncludedTypes(newTypes);
+    setPriceItems(buildItems(newTypes, listModeInput, parseNumber(generalMarginStr), selectedList?.productOverrides));
+  };
+
+  const handleModeChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const newMode = e.target.value as 'auto' | 'manual';
+    setListModeInput(newMode);
+    setPriceItems(buildItems(includedTypes, newMode, parseNumber(generalMarginStr), selectedList?.productOverrides));
+  };
+
+  const handleApplyGeneralMargin = () => {
+    if (window.confirm("¿Aplicar el margen general a todos los productos activos?")) {
+      setPriceItems(priceItems.map(item => ({ ...item, marginStr: generalMarginStr })));
+    }
+  };
+
+  const handleAdvancedRound = (mode: string) => {
+    if (window.confirm(`¿Aplicar redondeo comercial y pasar los productos a modo Manual?`)) {
+      setPriceItems(priceItems.map(item => {
+        if (!item.active || item.excluded) return item;
+        const margin = parseNumber(item.marginStr);
+        const manualPriceNum = parseNumber(item.manualPriceStr);
+        const isManual = item.mode === 'manual';
+        const autoPrice = margin >= 100 ? item.cost * 2 : (item.cost / (1 - margin / 100));
+        let finalPrice = isManual ? manualPriceNum : autoPrice;
+        
+        if (mode === 'end_90') {
+           finalPrice = Math.floor(finalPrice / 100) * 100 + 90;
+           if (finalPrice < (isManual ? manualPriceNum : autoPrice)) finalPrice += 100;
+        } else if (mode === 'end_99') {
+           finalPrice = Math.floor(finalPrice / 100) * 100 + 99;
+           if (finalPrice < (isManual ? manualPriceNum : autoPrice)) finalPrice += 100;
+        } else if (mode === 'end_50') {
+           finalPrice = Math.floor(finalPrice / 100) * 100 + 50;
+           if (finalPrice < (isManual ? manualPriceNum : autoPrice)) finalPrice += 100;
+        } else if (mode === 'round_10') {
+           finalPrice = Math.round(finalPrice / 10) * 10;
+        } else if (mode === 'round_50') {
+           finalPrice = Math.round(finalPrice / 50) * 50;
+        } else if (mode === 'round_100') {
+           finalPrice = Math.round(finalPrice / 100) * 100;
+        } else if (mode === 'round_500') {
+           finalPrice = Math.round(finalPrice / 500) * 500;
+        }
+        
+        return {
+          ...item,
+          mode: 'manual',
+          manualPriceStr: finalPrice.toString()
+        };
+      }));
+    }
+  };
+
+  const handleReviewChanges = () => {
+    if (!selectedList) return;
+
+    const rItems = priceItems.map(item => {
+      if (!item.active || item.excluded) return null;
+      
+      const oldOverride = selectedList?.productOverrides?.[item.id];
+      const oldMargin = oldOverride?.margin ?? selectedList?.margin ?? parseNumber(generalMarginStr);
+      const oldMode = oldOverride?.mode ?? selectedList?.mode ?? listModeInput;
+      const oldAutoPrice = oldMargin >= 100 ? item.cost * 2 : (item.cost / (1 - oldMargin / 100));
+      const oldFinalPrice = oldMode === 'manual' ? (oldOverride?.manualPrice ?? oldAutoPrice) : oldAutoPrice;
+      const oldRealMargin = oldFinalPrice > 0 ? ((oldFinalPrice - item.cost) / oldFinalPrice) * 100 : 0;
+      
+      const newMargin = parseNumber(item.marginStr);
+      const newManualPrice = parseNumber(item.manualPriceStr);
+      const isManual = item.mode === 'manual';
+      const newAutoPrice = newMargin >= 100 ? item.cost * 2 : (item.cost / (1 - newMargin / 100));
+      const newFinalPrice = isManual ? newManualPrice : newAutoPrice;
+      const newRealMargin = newFinalPrice > 0 ? ((newFinalPrice - item.cost) / newFinalPrice) * 100 : 0;
+      
+      const diffPrice = newFinalPrice - oldFinalPrice;
+      const diffMargin = newRealMargin - oldRealMargin;
+      const diffPct = oldFinalPrice > 0 ? (diffPrice / oldFinalPrice) * 100 : 0;
+      
+      return {
+        id: item.id,
+        name: item.name,
+        cost: item.cost,
+        oldPrice: oldFinalPrice,
+        oldMargin: oldRealMargin,
+        newPrice: newFinalPrice,
+        newMargin: newRealMargin,
+        diffPrice,
+        diffMargin,
+        diffPct
+      };
+    }).filter(Boolean);
+    
+    setReviewItems(rItems);
+    setShowReviewModal(true);
+  };
+
   const handleSavePrices = async () => {
     if (!selectedList) return;
+
+    const belowCostItems = priceItems.filter(item => {
+      if (!item.active || item.excluded) return false;
+      const margin = parseNumber(item.marginStr);
+      const manualPriceNum = parseNumber(item.manualPriceStr);
+      const isManual = item.mode === 'manual';
+      const autoPrice = margin >= 100 ? item.cost * 2 : (item.cost / (1 - margin / 100));
+      const finalPrice = isManual ? manualPriceNum : autoPrice;
+      return finalPrice < item.cost;
+    });
+
+    if (belowCostItems.length > 0) {
+      if (!window.confirm(`ATENCIÓN: Hay ${belowCostItems.length} producto(s) con precio final por debajo del costo (ej. ${belowCostItems[0].name}). ¿Está seguro que desea guardarlos así?`)) {
+        return;
+      }
+    }
+
     setIsSaving(true);
     try {
-      const overrides: Record<string, { margin: number; excluded?: boolean }> = {};
+      const overrides: Record<string, { margin: number; mode?: 'auto' | 'manual'; manualPrice?: number; excluded?: boolean; itemType?: 'mercaderia' | 'presentacion' | 'receta' }> = {};
       priceItems.forEach(item => {
-        if (item.marginStr !== generalMarginStr || item.excluded) {
+        if (item.marginStr !== generalMarginStr || item.excluded || item.mode !== listModeInput || item.mode === 'manual') {
           overrides[item.id] = {
             margin: parseNumber(item.marginStr),
-            ...(item.excluded ? { excluded: true } : {})
+            ...(item.excluded ? { excluded: true } : {}),
+            mode: item.mode,
+            manualPrice: parseNumber(item.manualPriceStr),
+            itemType: item.itemType
           };
         }
       });
@@ -119,12 +295,16 @@ export const Precios = () => {
       const updatedList = {
         name: listNameInput,
         target: listTargetInput,
+        // Eliminamos el type estricto, o lo dejamos indefinido ya que ahora se basa en los items.
+        // type: ...,
+        mode: listModeInput,
         margin: parseNumber(generalMarginStr),
         isActive: listActiveInput,
         productOverrides: overrides
       };
 
       await savePriceList(updatedList, selectedList.id);
+      setShowReviewModal(false);
       setViewMode('list');
       setSelectedList(null);
     } catch (e) {
@@ -146,12 +326,15 @@ export const Precios = () => {
   };
 
   const getCurrentOverrides = () => {
-    const overrides: Record<string, { margin: number; excluded?: boolean }> = {};
+    const overrides: Record<string, { margin: number; mode?: 'auto' | 'manual'; manualPrice?: number; excluded?: boolean; itemType?: 'mercaderia' | 'presentacion' | 'receta' }> = {};
     priceItems.forEach(item => {
-      if (item.marginStr !== generalMarginStr || item.excluded) {
+      if (item.marginStr !== generalMarginStr || item.excluded || item.mode !== listModeInput || item.mode === 'manual') {
         overrides[item.id] = {
           margin: parseNumber(item.marginStr),
-          ...(item.excluded ? { excluded: true } : {})
+          ...(item.excluded ? { excluded: true } : {}),
+          mode: item.mode,
+          manualPrice: parseNumber(item.manualPriceStr),
+          itemType: item.itemType
         };
       }
     });
@@ -159,29 +342,75 @@ export const Precios = () => {
   };
 
   // Helper: Get computed presentation prices for a list
-  const getListProducts = (margin: number, overrides?: any) => {
-    return presentaciones
-      .filter(p => p.isActive)
-      .map(p => {
-        const cTot = calculatePresentationCost(p, mercaderias, insumos, recipes);
-        
-        const itemMargin = overrides?.[p.id!]?.margin ?? margin;
-        const isExcluded = overrides?.[p.id!]?.excluded ?? false;
-        
-        return {
-          name: p.name || 'Sin nombre',
-          brand: p.customerName || 'Al Vacío',
-          gramajeVenta: p.pesoObjetivoGramos,
-          cost: cTot,
-          margin: itemMargin,
-          price: cTot * (1 + itemMargin / 100),
-          isActive: p.isActive && !isExcluded
-        };
-      }).filter(p => p.isActive);
+  const getListProducts = (margin: number, overrides?: any, listMode?: 'auto' | 'manual') => {
+    const mode = listMode || 'auto';
+    let results: any[] = [];
+    
+    // Evaluate if types are implicitly needed based on overrides, but by default we check all active entities
+    const presItems = presentaciones.filter(p => p.isActive).map(p => {
+      const cTot = calculatePresentationCost(p, mercaderias, insumos, recipes);
+      const overrideMargin = overrides?.[p.id!]?.margin ?? margin;
+      const isExcluded = overrides?.[p.id!]?.excluded ?? false;
+      const itemMode = overrides?.[p.id!]?.mode ?? mode;
+      const autoPrice = overrideMargin >= 100 ? cTot * 2 : (cTot / (1 - overrideMargin / 100));
+      const manualPrice = overrides?.[p.id!]?.manualPrice ?? autoPrice;
+      const itemType = overrides?.[p.id!]?.itemType || 'presentacion';
+      
+      const finalPrice = itemMode === 'manual' ? manualPrice : autoPrice;
+      const realMargin = finalPrice > 0 ? ((finalPrice - cTot) / finalPrice) * 100 : 0;
+
+      return {
+        name: p.name || 'Sin nombre',
+        brand: p.customerName || 'Al Vacío',
+        gramajeVenta: p.pesoObjetivoGramos,
+        cost: cTot,
+        margin: realMargin,
+        price: finalPrice,
+        mode: itemMode,
+        itemType: itemType,
+        unit: 'Unidad',
+        unidadesPorCaja: p.unidadesPorCaja || 1,
+        precioCaja: finalPrice * (p.unidadesPorCaja || 1),
+        commercialStatus: p.commercialStatus || 'activo',
+        isActive: p.isActive && !isExcluded
+      };
+    }).filter(p => p.isActive && (overrides ? overrides[p.name] !== undefined || true : true)); // Filter by excluded is inside
+
+    const mercItems = mercaderias.filter(m => m.isActive).map(m => {
+      const cTot = m.costoKg || 0;
+      const overrideMargin = overrides?.[m.id!]?.margin ?? margin;
+      const isExcluded = overrides?.[m.id!]?.excluded ?? false;
+      const itemMode = overrides?.[m.id!]?.mode ?? mode;
+      const autoPrice = overrideMargin >= 100 ? cTot * 2 : (cTot / (1 - overrideMargin / 100));
+      const manualPrice = overrides?.[m.id!]?.manualPrice ?? autoPrice;
+      const itemType = overrides?.[m.id!]?.itemType || 'mercaderia';
+      
+      const finalPrice = itemMode === 'manual' ? manualPrice : autoPrice;
+      const realMargin = finalPrice > 0 ? ((finalPrice - cTot) / finalPrice) * 100 : 0;
+
+      return {
+        name: m.name,
+        brand: 'Mercadería',
+        gramajeVenta: 1000,
+        cost: cTot,
+        margin: realMargin,
+        price: finalPrice,
+        mode: itemMode,
+        itemType: itemType,
+        unit: 'Kg',
+        unidadesPorCaja: 1,
+        precioCaja: finalPrice,
+        commercialStatus: 'activo',
+        isActive: m.isActive && !isExcluded
+      };
+    }).filter(m => m.isActive);
+
+    results = [...presItems, ...mercItems];
+    return results;
   };
 
   // Export: PDF
-  const exportPDF = async (listName: string, margin: number, overrides?: any) => {
+  const exportPDF = async (listName: string, margin: number, overrides?: any, listMode?: 'auto' | 'manual') => {
     const img = new Image();
     img.src = '/logo_circular.png';
     await new Promise((resolve) => {
@@ -195,7 +424,7 @@ export const Precios = () => {
       format: 'a4'
     });
 
-    const activeProducts = getListProducts(margin, overrides);
+    const activeProducts = getListProducts(margin, overrides, listMode);
     
     doc.setFillColor(230, 57, 70);
     doc.rect(0, 0, 210, 38, 'F');
@@ -239,31 +468,39 @@ export const Precios = () => {
     const tableRows = activeProducts.map(p => [
       p.name,
       p.brand,
-      `${p.gramajeVenta}g`,
-      formatCurrency(p.price)
+      p.itemType === 'mercaderia' ? 'Mercadería' : 'Presentación',
+      p.unit,
+      formatCurrency(p.cost),
+      `${p.margin.toFixed(2)}%`,
+      formatCurrency(p.price),
+      p.itemType === 'presentacion' && p.unidadesPorCaja > 1 ? formatCurrency(p.precioCaja) : '-'
     ]);
 
     autoTable(doc, {
       startY: 56,
-      head: [['Producto', 'Marca', 'Presentación', 'Precio Venta']],
+      head: [['Producto', 'Marca', 'Tipo', 'Unidad', 'Costo', 'Margen', 'P. Unit', 'P. Caja']],
       body: tableRows,
       theme: 'striped',
       headStyles: {
         fillColor: [33, 37, 41], 
         textColor: [255, 255, 255],
         fontStyle: 'bold',
-        fontSize: 10
+        fontSize: 9
       },
       styles: {
         font: 'helvetica',
-        fontSize: 9,
+        fontSize: 8,
         cellPadding: 4
       },
       columnStyles: {
-        0: { cellWidth: 90 },
-        1: { cellWidth: 40 },
-        2: { cellWidth: 25, halign: 'center' },
-        3: { cellWidth: 25, halign: 'right' }
+        0: { cellWidth: 45 },
+        1: { cellWidth: 25 },
+        2: { cellWidth: 20 },
+        3: { cellWidth: 15 },
+        4: { cellWidth: 15, halign: 'right' },
+        5: { cellWidth: 15, halign: 'right' },
+        6: { cellWidth: 20, halign: 'right' },
+        7: { cellWidth: 20, halign: 'right' }
       },
       margin: { left: 15, right: 15 }
     });
@@ -280,17 +517,23 @@ export const Precios = () => {
   };
 
   // Export: Excel (CSV with UTF-8 BOM)
-  const exportExcel = (listName: string, margin: number, overrides?: any) => {
-    const activeProducts = getListProducts(margin, overrides);
+  const exportExcel = (listName: string, margin: number, overrides?: any, listMode?: 'auto' | 'manual') => {
+    const activeProducts = getListProducts(margin, overrides, listMode);
     
-    const headers = ['Producto', 'Marca', 'Gramaje', 'Costo Base ($)', 'Margen (%)', 'Precio Final ($)'];
+    const headers = ['Producto', 'Marca', 'Gramaje', 'Tipo', 'Unidad', 'Costo Base ($)', 'Modo', 'Margen Real (%)', 'Precio Unitario ($)', 'Unidades x Caja', 'Precio Caja ($)', 'Estado Comercial'];
     const rows = activeProducts.map(p => [
       `"${p.name.replace(/"/g, '""')}"`,
       `"${p.brand.replace(/"/g, '""')}"`,
       `"${p.gramajeVenta}g"`,
+      p.itemType === 'mercaderia' ? 'Mercadería' : 'Presentación',
+      p.unit,
       p.cost.toFixed(2),
-      `${p.margin}%`,
-      p.price.toFixed(2)
+      p.mode === 'manual' ? 'Manual' : 'Automático',
+      `${p.margin.toFixed(2)}%`,
+      p.price.toFixed(2),
+      p.itemType === 'presentacion' ? p.unidadesPorCaja.toString() : '1',
+      p.precioCaja.toFixed(2),
+      p.commercialStatus
     ]);
 
     const csvContent = "\uFEFF" 
@@ -323,13 +566,16 @@ export const Precios = () => {
             </div>
           </div>
           <div style={{ display: 'flex', gap: '12px' }}>
-            <button onClick={() => exportPDF(listNameInput, parseNumber(generalMarginStr), getCurrentOverrides())} className="btn btn-secondary" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+            <button onClick={() => setShowSimulatorModal(true)} className="btn btn-secondary" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+              Simular Costos
+            </button>
+            <button onClick={() => exportPDF(listNameInput, parseNumber(generalMarginStr), getCurrentOverrides(), listModeInput)} className="btn btn-secondary" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
               <FileText size={18} /> Exportar PDF
             </button>
-            <button onClick={() => exportExcel(listNameInput, parseNumber(generalMarginStr), getCurrentOverrides())} className="btn btn-secondary" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+            <button onClick={() => exportExcel(listNameInput, parseNumber(generalMarginStr), getCurrentOverrides(), listModeInput)} className="btn btn-secondary" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
               <TableIcon size={18} /> Exportar Excel
             </button>
-            <button onClick={handleSavePrices} disabled={isSaving} className="btn btn-primary">
+            <button onClick={handleReviewChanges} disabled={isSaving} className="btn btn-primary">
               {isSaving ? <Loader2 className="animate-spin" size={18} /> : <Save size={18} />}
               {isSaving ? 'Guardando...' : 'Guardar Cambios'}
             </button>
@@ -337,7 +583,7 @@ export const Precios = () => {
         </div>
 
         <Card style={{ marginBottom: '24px' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr 1fr 1fr', gap: '16px', alignItems: 'end' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '16px', alignItems: 'end' }}>
             <div>
               <div style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '6px' }}>Nombre de la Lista</div>
               <input 
@@ -372,6 +618,26 @@ export const Precios = () => {
               </div>
             </div>
             <div>
+              <div style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '6px' }}>Incluir artículos</div>
+              <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', padding: '10px 0' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem', cursor: 'pointer' }}>
+                  <input type="checkbox" checked={includedTypes.includes('mercaderia')} onChange={() => handleTypeToggle('mercaderia')} style={{ transform: 'scale(1.1)' }} />
+                  Mercaderías
+                </label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem', cursor: 'pointer' }}>
+                  <input type="checkbox" checked={includedTypes.includes('presentacion')} onChange={() => handleTypeToggle('presentacion')} style={{ transform: 'scale(1.1)' }} />
+                  Presentaciones
+                </label>
+              </div>
+            </div>
+            <div>
+              <div style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '6px' }}>Modo de Precio</div>
+              <select value={listModeInput} onChange={handleModeChange} style={{ width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-primary)', color: 'var(--text-primary)', outline: 'none' }}>
+                <option value="auto">Automático por Margen</option>
+                <option value="manual">Manual</option>
+              </select>
+            </div>
+            <div>
               <div style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '6px' }}>Estado</div>
               <select
                 value={listActiveInput ? 'active' : 'inactive'}
@@ -394,31 +660,93 @@ export const Precios = () => {
         </Card>
 
         <Card padding="none">
-          <div style={{ padding: '20px', borderBottom: '1px solid var(--border-color)', backgroundColor: 'var(--bg-primary)', borderTopLeftRadius: '12px', borderTopRightRadius: '12px' }}>
+          <div style={{ padding: '20px', borderBottom: '1px solid var(--border-color)', backgroundColor: 'var(--bg-primary)', borderTopLeftRadius: '12px', borderTopRightRadius: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <h3 style={{ fontSize: '1.125rem', fontWeight: 600 }}>Ajuste Individual por Producto</h3>
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+               <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                 <label style={{ fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                   <input type="checkbox" checked={filterStatuses.includes('activo')} onChange={(e) => {
+                     if (e.target.checked) setFilterStatuses([...filterStatuses, 'activo']);
+                     else setFilterStatuses(filterStatuses.filter(s => s !== 'activo'));
+                   }} /> Activos
+                 </label>
+                 <label style={{ fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                   <input type="checkbox" checked={filterStatuses.includes('destacado')} onChange={(e) => {
+                     if (e.target.checked) setFilterStatuses([...filterStatuses, 'destacado']);
+                     else setFilterStatuses(filterStatuses.filter(s => s !== 'destacado'));
+                   }} /> Destacados
+                 </label>
+                 <label style={{ fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                   <input type="checkbox" checked={filterStatuses.includes('promocion')} onChange={(e) => {
+                     if (e.target.checked) setFilterStatuses([...filterStatuses, 'promocion']);
+                     else setFilterStatuses(filterStatuses.filter(s => s !== 'promocion'));
+                   }} /> Promociones
+                 </label>
+                 <label style={{ fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                   <input type="checkbox" checked={filterStatuses.includes('lanzamiento')} onChange={(e) => {
+                     if (e.target.checked) setFilterStatuses([...filterStatuses, 'lanzamiento']);
+                     else setFilterStatuses(filterStatuses.filter(s => s !== 'lanzamiento'));
+                   }} /> Lanzamientos
+                 </label>
+               </div>
+               <button onClick={handleApplyGeneralMargin} className="btn btn-secondary btn-sm" style={{ padding: '6px 12px', fontSize: '0.8rem' }}>Aplicar Margen General a Todos</button>
+               <select onChange={(e) => { handleAdvancedRound(e.target.value); e.target.value = ""; }} className="form-input" style={{ padding: '6px 12px', fontSize: '0.8rem', borderRadius: '6px' }} defaultValue="">
+                 <option value="" disabled>Redondear precios...</option>
+                 <option value="end_90">Terminar en $90</option>
+                 <option value="end_99">Terminar en $99</option>
+                 <option value="end_50">Terminar en $50</option>
+                 <option value="round_10">Redondear a $10</option>
+                 <option value="round_50">Redondear a $50</option>
+                 <option value="round_100">Redondear a $100</option>
+                 <option value="round_500">Redondear a $500</option>
+               </select>
+            </div>
           </div>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr style={{ backgroundColor: 'var(--bg-primary)', borderBottom: '1px solid var(--border-color)' }}>
                 <th style={{ padding: '12px 20px', textAlign: 'left', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Producto</th>
-                <th style={{ padding: '12px 20px', textAlign: 'center', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Incluido en Lista</th>
-                <th style={{ padding: '12px 20px', textAlign: 'left', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Estado Global</th>
+                <th style={{ padding: '12px 20px', textAlign: 'left', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Tipo</th>
+                <th style={{ padding: '12px 20px', textAlign: 'left', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Unidad de Venta</th>
+                <th style={{ padding: '12px 20px', textAlign: 'center', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Incluido</th>
                 <th style={{ padding: '12px 20px', textAlign: 'right', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Costo Base</th>
-                <th style={{ padding: '12px 20px', textAlign: 'right', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Ajuste %</th>
-                <th style={{ padding: '12px 20px', textAlign: 'right', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Precio Final (Auto)</th>
+                <th style={{ padding: '12px 20px', textAlign: 'center', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Modo</th>
+                <th style={{ padding: '12px 20px', textAlign: 'right', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Margen / Precio</th>
+                <th style={{ padding: '12px 20px', textAlign: 'right', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Margen Real</th>
+                <th style={{ padding: '12px 20px', textAlign: 'center', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Estado</th>
+                <th style={{ padding: '12px 20px', textAlign: 'right', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Precio Final</th>
                 <th style={{ padding: '12px 20px', textAlign: 'center', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Acciones</th>
               </tr>
             </thead>
             <tbody>
-              {priceItems.map((item) => {
+              {priceItems.filter(item => filterStatuses.length === 0 || filterStatuses.includes(item.commercialStatus || 'activo')).map((item) => {
                 const margin = parseNumber(item.marginStr);
-                const finalPrice = item.active && !item.excluded ? item.cost * (1 + margin / 100) : 0;
+                const manualPriceNum = parseNumber(item.manualPriceStr);
+                
+                const isManual = item.mode === 'manual';
+                const autoPrice = margin >= 100 ? item.cost * 2 : (item.cost / (1 - margin / 100));
+                const finalPrice = isManual ? manualPriceNum : autoPrice;
+                const realMargin = finalPrice > 0 ? ((finalPrice - item.cost) / finalPrice) * 100 : 0;
                 
                 return (
                   <tr key={item.id} style={{ borderBottom: '1px solid var(--border-color)', backgroundColor: item.active && !item.excluded ? '#fff' : 'var(--bg-primary)' }}>
                     <td style={{ padding: '16px 20px' }}>
                       <div style={{ fontWeight: 600, color: item.active && !item.excluded ? 'var(--text-primary)' : 'var(--text-secondary)' }}>{item.name}</div>
                       <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{item.brand}</div>
+                      {!item.active && (
+                        <div style={{ fontSize: '0.7rem', color: '#ef4444', marginTop: '2px' }}>Inactivo en sistema</div>
+                      )}
+                    </td>
+                    <td style={{ padding: '16px 20px', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                      {item.itemType === 'mercaderia' ? 'Mercadería' : 'Presentación'}
+                      {item.commercialStatus && item.commercialStatus !== 'activo' && (
+                        <div style={{ fontSize: '0.7rem', color: 'var(--primary-color)', marginTop: '2px', fontWeight: 600 }}>
+                          {item.commercialStatus.toUpperCase()}
+                        </div>
+                      )}
+                    </td>
+                    <td style={{ padding: '16px 20px', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                      {item.unit} {item.unit === 'Unidad' ? `(${item.gramajeVenta}g)` : ''}
                     </td>
                     <td style={{ padding: '16px 20px', textAlign: 'center' }}>
                       <input 
@@ -428,47 +756,80 @@ export const Precios = () => {
                         style={{ transform: 'scale(1.2)', cursor: 'pointer' }}
                       />
                     </td>
+                    <td style={{ padding: '16px 20px', textAlign: 'right', color: 'var(--text-secondary)', fontWeight: 500 }}>{formatCurrency(item.cost)}</td>
+                    <td style={{ padding: '16px 20px', textAlign: 'center' }}>
+                      <select 
+                        disabled={item.excluded}
+                        value={item.mode}
+                        onChange={e => updateItemMode(item.id, e.target.value as 'auto' | 'manual')}
+                        style={{ padding: '4px 8px', borderRadius: '6px', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-primary)', fontSize: '0.75rem' }}
+                      >
+                        <option value="auto">Auto</option>
+                        <option value="manual">Manual</option>
+                      </select>
+                    </td>
                     <td style={{ padding: '16px 20px' }}>
-                      {item.active ? (
-                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', color: '#166534', fontSize: '0.85rem', fontWeight: 600, backgroundColor: '#dcfce7', padding: '2px 8px', borderRadius: '9999px' }}>
-                          <CheckCircle2 size={14} /> Activo
-                        </span>
+                      {!isManual ? (
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '4px' }}>
+                          <input 
+                            type="number" 
+                            disabled={item.excluded} 
+                            value={item.marginStr} 
+                            onChange={e => updateItemMargin(item.id, e.target.value)} 
+                            className="form-input"
+                            style={{ width: '70px', textAlign: 'right', padding: '6px', backgroundColor: 'var(--bg-primary)', color: 'var(--text-primary)', border: '1px solid var(--border-color)', borderRadius: '8px' }} 
+                          />
+                          <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>%</span>
+                        </div>
                       ) : (
-                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', color: '#991b1b', fontSize: '0.85rem', fontWeight: 600, backgroundColor: '#fef2f2', padding: '2px 8px', borderRadius: '9999px' }}>
-                          <XCircle size={14} /> Inactivo
-                        </span>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '4px' }}>
+                          <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>$</span>
+                          <input 
+                            type="number" 
+                            disabled={item.excluded} 
+                            value={item.manualPriceStr} 
+                            onChange={e => updateItemManualPrice(item.id, e.target.value)} 
+                            className="form-input"
+                            style={{ width: '90px', textAlign: 'right', padding: '6px', backgroundColor: '#fef3c7', color: 'var(--text-primary)', border: '1px solid #fcd34d', borderRadius: '8px', fontWeight: 600 }} 
+                          />
+                        </div>
                       )}
                     </td>
-                    <td style={{ padding: '16px 20px', textAlign: 'right', color: 'var(--text-secondary)', fontWeight: 500 }}>{formatCurrency(item.cost)}</td>
-                    <td style={{ padding: '16px 20px' }}>
-                      <input 
-                        type="number" 
-                        disabled={item.excluded} 
-                        value={item.marginStr} 
-                        onChange={e => updateItemMargin(item.id, e.target.value)} 
-                        className="form-input"
-                        style={{ width: '80px', margin: '0 0 0 auto', textAlign: 'right', padding: '6px 8px', backgroundColor: 'var(--bg-primary)', color: 'var(--text-primary)', border: '1px solid var(--border-color)', borderRadius: '8px' }} 
-                      />
+                    <td style={{ padding: '16px 20px', textAlign: 'right', fontWeight: 600, color: realMargin >= 0 ? '#16a34a' : '#dc2626' }}>
+                      {item.active && !item.excluded ? `${realMargin.toFixed(2)}%` : '-'}
+                    </td>
+                    <td style={{ padding: '16px 20px', textAlign: 'center' }}>
+                      {item.active && !item.excluded ? (
+                        <span style={{ 
+                          display: 'inline-block', padding: '4px 8px', borderRadius: '4px', fontSize: '0.7rem', fontWeight: 600,
+                          backgroundColor: realMargin > (settings?.comercial_margenOptimo ?? 30) ? '#dcfce7' : realMargin >= (settings?.comercial_margenRiesgo ?? 15) ? '#fef08a' : '#fee2e2',
+                          color: realMargin > (settings?.comercial_margenOptimo ?? 30) ? '#166534' : realMargin >= (settings?.comercial_margenRiesgo ?? 15) ? '#854d0e' : '#991b1b'
+                        }}>
+                          {realMargin > (settings?.comercial_margenOptimo ?? 30) ? '🟢 Rentable' : realMargin >= (settings?.comercial_margenRiesgo ?? 15) ? '🟡 Ajustado' : '🔴 Riesgo'}
+                        </span>
+                      ) : '-'}
                     </td>
                     <td style={{ padding: '16px 20px', textAlign: 'right', fontWeight: 700, fontSize: '1.05rem', color: item.active && !item.excluded ? 'var(--primary-color)' : 'var(--text-secondary)' }}>
                       {item.active && !item.excluded ? formatCurrency(finalPrice) : '-'}
                     </td>
                     <td style={{ padding: '16px 20px', textAlign: 'center' }}>
-                      <button 
-                        onClick={() => {
-                          const pres = presentaciones.find(p => p.id === item.id);
-                          if (pres) {
-                            setEditingPresentation(pres);
-                          } else {
-                            alert("No se encontró la presentación para editar.");
-                          }
-                        }}
-                        className="btn btn-icon btn-sm"
-                        style={{ padding: '6px', border: '1px solid var(--border-color)', borderRadius: '6px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
-                        title="Editar presentación en base de datos"
-                      >
-                        <Edit size={14} /> Editar
-                      </button>
+                      {item.itemType === 'presentacion' && (
+                        <button 
+                          onClick={() => {
+                            const pres = presentaciones.find(p => p.id === item.id);
+                            if (pres) {
+                              setEditingPresentation(pres);
+                            } else {
+                              alert("No se encontró la presentación para editar.");
+                            }
+                          }}
+                          className="btn btn-icon btn-sm"
+                          style={{ padding: '6px', border: '1px solid var(--border-color)', borderRadius: '6px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                          title="Editar presentación en base de datos"
+                        >
+                          <Edit size={14} /> Editar
+                        </button>
+                      )}
                     </td>
                   </tr>
                 );
@@ -490,6 +851,73 @@ export const Precios = () => {
           </button>
         </div>
       </div>
+
+      {(() => {
+        const activeList = priceLists.find(l => l.isActive);
+        let rentables = 0, riesgo = 0, totalMargin = 0;
+        let sortedItems: any[] = [];
+        const opt = settings?.comercial_margenOptimo ?? 30;
+        const rsg = settings?.comercial_margenRiesgo ?? 15;
+        
+        if (activeList) {
+          const items = getListProducts(activeList.margin, activeList.productOverrides, activeList.mode);
+          items.forEach((item: any) => {
+            if (item.margin > opt) rentables++;
+            if (item.margin < rsg) riesgo++;
+            totalMargin += item.margin;
+            sortedItems.push(item);
+          });
+          sortedItems.sort((a, b) => b.margin - a.margin);
+        }
+        
+        const avgMargin = sortedItems.length > 0 ? totalMargin / sortedItems.length : 0;
+        const topMargin = sortedItems.slice(0, 3).map(i => i.name).join(', ') || '-';
+        const lowMargin = sortedItems.slice().reverse().slice(0, 3).map(i => i.name).join(', ') || '-';
+        
+        return (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '16px', marginBottom: '32px' }}>
+            <Card padding="sm">
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <div style={{ padding: '10px', backgroundColor: '#dcfce7', color: '#166534', borderRadius: '10px' }}>
+                  <CheckCircle2 size={20} />
+                </div>
+                <div>
+                  <p style={{ color: 'var(--text-secondary)', fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase' }}>Rentables (&gt;{opt}%)</p>
+                  <h3 style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--text-primary)' }}>{rentables}</h3>
+                </div>
+              </div>
+            </Card>
+            <Card padding="sm">
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <div style={{ padding: '10px', backgroundColor: '#fee2e2', color: '#991b1b', borderRadius: '10px' }}>
+                  <XCircle size={20} />
+                </div>
+                <div>
+                  <p style={{ color: 'var(--text-secondary)', fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase' }}>En Riesgo (&lt;{rsg}%)</p>
+                  <h3 style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--text-primary)' }}>{riesgo}</h3>
+                </div>
+              </div>
+            </Card>
+            <Card padding="sm">
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <div style={{ padding: '10px', backgroundColor: '#e0e7ff', color: '#4f46e5', borderRadius: '10px' }}>
+                  <Percent size={20} />
+                </div>
+                <div>
+                  <p style={{ color: 'var(--text-secondary)', fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase' }}>Margen Promedio</p>
+                  <h3 style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--text-primary)' }}>{avgMargin.toFixed(1)}%</h3>
+                </div>
+              </div>
+            </Card>
+            <Card padding="sm" style={{ gridColumn: 'span 2' }}>
+               <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                 <strong>Top Margen:</strong> {topMargin}<br/>
+                 <strong>Menor Margen:</strong> {lowMargin}
+               </div>
+            </Card>
+          </div>
+        );
+      })()}
 
       {loadingLists || loadingPres ? (
         <LoadingSpinner message="Cargando catálogos de precios..." />
@@ -562,7 +990,7 @@ export const Precios = () => {
               <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: 'auto' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
                   <button 
-                    onClick={() => exportPDF(list.name, list.margin, list.productOverrides)}
+                    onClick={() => exportPDF(list.name, list.margin, list.productOverrides, list.mode)}
                     className="btn btn-secondary" 
                     style={{ padding: '8px', fontSize: '0.8rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
                     title="Descargar Catálogo PDF comercial"
@@ -570,7 +998,7 @@ export const Precios = () => {
                     <FileText size={16} /> PDF
                   </button>
                   <button 
-                    onClick={() => exportExcel(list.name, list.margin, list.productOverrides)}
+                    onClick={() => exportExcel(list.name, list.margin, list.productOverrides, list.mode)}
                     className="btn btn-secondary" 
                     style={{ padding: '8px', fontSize: '0.8rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
                     title="Descargar Planilla Excel"
@@ -732,6 +1160,111 @@ export const Precios = () => {
               >
                 Guardar Cambios
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showReviewModal && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.6)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 9999, padding: '20px' }}>
+          <div style={{ backgroundColor: 'var(--bg-secondary)', borderRadius: '12px', width: '100%', maxWidth: '900px', maxHeight: '90vh', overflowY: 'auto', padding: '24px' }}>
+            <h3 style={{ fontSize: '1.25rem', fontWeight: 700, marginBottom: '16px' }}>Revisión de Cambios de Precios</h3>
+            
+            {reviewItems.filter(i => Math.abs(i.diffPrice) > 0.01 || Math.abs(i.diffMargin) > 0.01).length === 0 ? (
+              <p style={{ color: 'var(--text-secondary)', marginBottom: '20px' }}>No hay cambios de precios o rentabilidad detectados en los productos activos.</p>
+            ) : (
+              <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '20px' }}>
+                <thead>
+                  <tr style={{ borderBottom: '1px solid var(--border-color)', backgroundColor: 'var(--bg-primary)' }}>
+                    <th style={{ padding: '8px', textAlign: 'left', fontSize: '0.8rem' }}>Producto</th>
+                    <th style={{ padding: '8px', textAlign: 'right', fontSize: '0.8rem' }}>Costo</th>
+                    <th style={{ padding: '8px', textAlign: 'right', fontSize: '0.8rem' }}>Precio Actual</th>
+                    <th style={{ padding: '8px', textAlign: 'right', fontSize: '0.8rem' }}>Margen Actual</th>
+                    <th style={{ padding: '8px', textAlign: 'right', fontSize: '0.8rem' }}>Precio Nuevo</th>
+                    <th style={{ padding: '8px', textAlign: 'right', fontSize: '0.8rem' }}>Margen Nuevo</th>
+                    <th style={{ padding: '8px', textAlign: 'right', fontSize: '0.8rem' }}>Variación</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {reviewItems.filter(i => Math.abs(i.diffPrice) > 0.01 || Math.abs(i.diffMargin) > 0.01).map((item, idx) => (
+                    <tr key={idx} style={{ borderBottom: '1px solid var(--border-color)' }}>
+                      <td style={{ padding: '8px', fontSize: '0.85rem' }}>{item.name}</td>
+                      <td style={{ padding: '8px', textAlign: 'right', fontSize: '0.85rem' }}>{formatCurrency(item.cost)}</td>
+                      <td style={{ padding: '8px', textAlign: 'right', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>{formatCurrency(item.oldPrice)}</td>
+                      <td style={{ padding: '8px', textAlign: 'right', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>{item.oldMargin.toFixed(1)}%</td>
+                      <td style={{ padding: '8px', textAlign: 'right', fontSize: '0.85rem', fontWeight: 600 }}>{formatCurrency(item.newPrice)}</td>
+                      <td style={{ padding: '8px', textAlign: 'right', fontSize: '0.85rem', fontWeight: 600 }}>{item.newMargin.toFixed(1)}%</td>
+                      <td style={{ padding: '8px', textAlign: 'right', fontSize: '0.85rem', fontWeight: 600, color: item.diffMargin > 0 ? '#16a34a' : (item.diffMargin < 0 ? '#dc2626' : 'inherit') }}>
+                        {item.diffMargin > 0 ? '🟢 ' : (item.diffMargin < 0 ? '🔴 ' : '🟡 ')}
+                        {item.diffPct > 0 ? '+' : ''}{item.diffPct.toFixed(1)}%
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
+              <button onClick={() => setShowReviewModal(false)} className="btn btn-secondary">Cancelar</button>
+              <button onClick={() => { setShowReviewModal(false); handleSavePrices(); }} className="btn btn-primary" disabled={isSaving}>
+                {isSaving ? 'Guardando...' : 'Confirmar y Guardar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showSimulatorModal && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.6)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 9999, padding: '20px' }}>
+          <div style={{ backgroundColor: 'var(--bg-secondary)', borderRadius: '12px', width: '100%', maxWidth: '900px', maxHeight: '90vh', overflowY: 'auto', padding: '24px' }}>
+            <h3 style={{ fontSize: '1.25rem', fontWeight: 700, marginBottom: '16px' }}>Simulador de Aumento de Costos</h3>
+            
+            <div style={{ marginBottom: '20px' }}>
+              <label style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-secondary)' }}>Aumento General de Costos (%)</label>
+              <input type="number" value={simulatorIncreasePct} onChange={e => setSimulatorIncreasePct(Number(e.target.value))} className="form-input" style={{ marginLeft: '12px', width: '100px', padding: '6px 12px', borderRadius: '6px', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-primary)' }} />
+            </div>
+
+            <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '20px' }}>
+              <thead>
+                <tr style={{ borderBottom: '1px solid var(--border-color)', backgroundColor: 'var(--bg-primary)' }}>
+                  <th style={{ padding: '8px', textAlign: 'left', fontSize: '0.8rem' }}>Producto</th>
+                  <th style={{ padding: '8px', textAlign: 'right', fontSize: '0.8rem' }}>Costo Actual</th>
+                  <th style={{ padding: '8px', textAlign: 'right', fontSize: '0.8rem' }}>Costo Simulado</th>
+                  <th style={{ padding: '8px', textAlign: 'right', fontSize: '0.8rem' }}>Precio Actual</th>
+                  <th style={{ padding: '8px', textAlign: 'right', fontSize: '0.8rem' }}>Margen Actual</th>
+                  <th style={{ padding: '8px', textAlign: 'right', fontSize: '0.8rem' }}>Margen Futuro</th>
+                </tr>
+              </thead>
+              <tbody>
+                {priceItems.filter(item => item.active && !item.excluded).map((item, idx) => {
+                  const costoSimulado = item.cost * (1 + (simulatorIncreasePct / 100));
+                  const marginNum = parseNumber(item.marginStr);
+                  const manualPriceNum = parseNumber(item.manualPriceStr);
+                  const isManual = item.mode === 'manual';
+                  const autoPrice = marginNum >= 100 ? item.cost * 2 : (item.cost / (1 - marginNum / 100));
+                  const finalPrice = isManual ? manualPriceNum : autoPrice;
+                  
+                  const realMargin = finalPrice > 0 ? ((finalPrice - item.cost) / finalPrice) * 100 : 0;
+                  const futureMargin = finalPrice > 0 ? ((finalPrice - costoSimulado) / finalPrice) * 100 : 0;
+                  
+                  return (
+                    <tr key={idx} style={{ borderBottom: '1px solid var(--border-color)' }}>
+                      <td style={{ padding: '8px', fontSize: '0.85rem' }}>{item.name}</td>
+                      <td style={{ padding: '8px', textAlign: 'right', fontSize: '0.85rem' }}>{formatCurrency(item.cost)}</td>
+                      <td style={{ padding: '8px', textAlign: 'right', fontSize: '0.85rem', fontWeight: 600 }}>{formatCurrency(costoSimulado)}</td>
+                      <td style={{ padding: '8px', textAlign: 'right', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>{formatCurrency(finalPrice)}</td>
+                      <td style={{ padding: '8px', textAlign: 'right', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>{realMargin.toFixed(1)}%</td>
+                      <td style={{ padding: '8px', textAlign: 'right', fontSize: '0.85rem', fontWeight: 600, color: futureMargin < 15 ? '#dc2626' : (futureMargin < 30 ? '#d97706' : '#16a34a') }}>
+                        {futureMargin.toFixed(1)}% {futureMargin < 15 && '(Riesgo)'}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
+              <button onClick={() => setShowSimulatorModal(false)} className="btn btn-secondary">Cerrar Simulador</button>
             </div>
           </div>
         </div>

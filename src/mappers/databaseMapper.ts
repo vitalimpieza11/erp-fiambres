@@ -3,6 +3,7 @@ import type { Sale, Purchase, Customer, Supplier, SystemSettings, Mercaderia, In
 
 export class DatabaseMapper {
   static toDomainSale(data: any, id?: string): Sale {
+    const total = parseNumber(data.total);
     return {
       id: id || data.id,
       customerId: data.customerId || '',
@@ -16,11 +17,12 @@ export class DatabaseMapper {
       })) : [],
       subtotal: parseNumber(data.subtotal),
       discount: parseNumber(data.discount),
-      total: parseNumber(data.total),
-      status: data.status || 'pending',
-      paymentStatus: data.paymentStatus || 'pending',
+      total: total,
+      saldoPendiente: data.saldoPendiente !== undefined ? parseNumber(data.saldoPendiente) : total,
+      status: data.status || 'PENDIENTE',
       paymentMethod: data.paymentMethod || 'cash',
       remitoNumber: data.remitoNumber || '',
+      invoiceNumber: data.invoiceNumber || '',
       orderId: data.orderId || undefined,
       date: data.date || Date.now(),
       createdAt: data.createdAt || Date.now(),
@@ -96,6 +98,9 @@ export class DatabaseMapper {
       comercial_listaDefault: data.comercial_listaDefault || '1',
       comercial_margenDefault: parseNumber(data.comercial_margenDefault) || 30,
       comercial_politicaDescuento: data.comercial_politicaDescuento || '1',
+      comercial_margenRiesgo: parseNumber(data.comercial_margenRiesgo) || 15,
+      comercial_margenOptimo: parseNumber(data.comercial_margenOptimo) || 30,
+      comercial_alertaCostoAumento: parseNumber(data.comercial_alertaCostoAumento) || 10,
       
       costo_bolsa: parseNumber(data.costo_bolsa),
       costo_etiqueta: parseNumber(data.costo_etiqueta),

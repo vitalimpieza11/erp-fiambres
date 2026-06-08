@@ -142,7 +142,7 @@ export const Dashboard = () => {
   }, 0);
 
   // Kgs produced current period
-  const todayProducedOrders = filteredOrders.filter((o: any) => o.status === 'delivered' || o.status === 'invoiced');
+  const todayProducedOrders = filteredOrders.filter((o: any) => o.status === 'ENTREGADO' || o.status === 'FACTURADO' || o.status === 'PRODUCIDO');
   const totalKgProducedToday = todayProducedOrders.reduce((acc: number, o: any) => {
     return acc + (o.items || []).reduce((itemAcc: number, item: any) => {
       const pres = presentaciones.find((p: any) => p.id === item.productId);
@@ -152,7 +152,7 @@ export const Dashboard = () => {
     }, 0);
   }, 0);
 
-  const pendingOrdersCount = filteredSales.filter((s: any) => s.status === 'pending').length;
+  const pendingOrdersCount = filteredOrders.filter((o: any) => o.status === 'PENDIENTE' || o.status === 'EN_PRODUCCION').length;
   const clientsWithDebtCount = customers.filter((c: any) => (c.currentBalance || 0) > 0).length;
 
   let criticalStockCount = 0;
@@ -261,7 +261,7 @@ export const Dashboard = () => {
     todayEvents.push({
       time: formatEventTime(o.updatedAt || o.date),
       timestamp: o.updatedAt || o.date,
-      title: 'Pedido Entregado (Producción)',
+      title: 'Pedido Producido',
       desc: `Cliente: ${o.customerName} - ${o.items.length} items producidos`,
       icon: Factory,
       color: '#3b82f6'
@@ -358,7 +358,7 @@ export const Dashboard = () => {
   filteredOrders.slice(0, 5).forEach((o: any) => {
     allEvents.push({
       timestamp: o.updatedAt || o.date,
-      title: o.status === 'delivered' || o.status === 'invoiced' ? 'Pedido Completado' : 'Pedido Registrado',
+      title: o.status === 'ENTREGADO' || o.status === 'FACTURADO' || o.status === 'PRODUCIDO' ? 'Pedido Completado' : 'Pedido Registrado',
       desc: `${o.customerName} - ${formatCurrency(o.total)}`,
       time: getFriendlyTimeStr(o.updatedAt || o.date),
       icon: CheckCircle2

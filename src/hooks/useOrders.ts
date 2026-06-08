@@ -34,7 +34,7 @@ export const useOrders = () => {
             subtotal: Number(data.subtotal) || 0,
             discount: Number(data.discount) || 0,
             total: Number(data.total) || 0,
-            status: data.status || 'pending',
+            status: data.status || 'PENDIENTE',
             observations: data.observaciones || data.observations || '',
             date: data.date || Date.now(),
             createdAt: data.createdAt || Date.now(),
@@ -163,7 +163,7 @@ export const useOrders = () => {
 
     if (id) {
       const existingOrder = orders.find(o => o.id === id);
-      if (existingOrder && (existingOrder.status === 'delivered' || existingOrder.status === 'invoiced')) {
+      if (existingOrder && (existingOrder.status === 'ENTREGADO' || existingOrder.status === 'FACTURADO' || existingOrder.status === 'PRODUCIDO')) {
         throw new Error('Este pedido ya impactó stock. Debe anularse y generarse uno nuevo.');
       }
       const ref = doc(db, 'orders', id);
@@ -234,28 +234,15 @@ export const useOrders = () => {
       paymentMethod?: string;
       discount?: number;
       shippingCost?: number;
-      /**
-       * Map of `${orderId}_${presentacionId}_${mercaderiaId}` → qty in Kg (real consumption).
-       * If provided for a given key, overrides the theoretical consumption.
-       */
       actualConsumptions?: Record<string, number>;
-      /**
-       * Map of `${presentacionId}` → real units produced.
-       * If provided, overrides the theoretical quantity from the order item.
-       */
       actualProduced?: Record<string, number>;
     }
   ) => {
     const orderRef = doc(db, 'orders', orderId);
+    const targetOrder = orders.find(o => o.id === orderId);
+    if (!targetOrder) throw new Error('Pedido no encontrado.');
 
-    // ── DELIVERED: Producción como transformación de stock ──────────────────
-    // A) Descuenta mercaderías (kg) e insumos (u) consumidos en producción
-    // B) Incrementa presentaciones (u) producidas (stock de producto terminado)
-    // REGLA: Ventas NO tocan mercaderías. Solo presentaciones.
-    if (newStatus === 'delivered') {
-      const targetOrder = orders.find(o => o.id === orderId);
-      if (!targetOrder) throw new Error('Pedido no encontrado.');
-
+    if (newStatus === 'PRODUCIDO') {
       const [presSnap, mercSnap, insSnap, recSnap] = await Promise.all([
         getDocs(collection(db, 'presentaciones')),
         getDocs(collection(db, 'mercaderias')),
@@ -263,36 +250,28 @@ export const useOrders = () => {
         getDocs(collection(db, 'recipes'))
       ]);
 
-      const presentaciones: Presentacion[] = [];
-      presSnap.forEach(d => presentaciones.push(DatabaseMapper.toDomainPresentacion(d.data(), d.id)));
-
-      const mercaderias: Mercaderia[] = [];
-      mercSnap.forEach(d => mercaderias.push(DatabaseMapper.toDomainMercaderia(d.data(), d.id)));
-
-      const insumos: Insumo[] = [];
-      insSnap.forEach(d => insumos.push(DatabaseMapper.toDomainInsumo(d.data(), d.id)));
-
-      const recipes: Recipe[] = [];
-      recSnap.forEach(d => {
+      const presentaciones = presSnap.docs.map(d => DatabaseMapper.toDomainPresentacion(d.data(), d.id));
+      const mercaderias = mercSnap.docs.map(d => DatabaseMapper.toDomainMercaderia(d.data(), d.id));
+      const insumos = insSnap.docs.map(d => DatabaseMapper.toDomainInsumo(d.data(), d.id));
+      const recipes = recSnap.docs.map(d => {
         const data = d.data();
-        recipes.push({
+        return {
           id: d.id,
           productId: data.productId || '',
           productName: data.productName || '',
-          customerId: data.customerId || undefined,
-          customerName: data.customerName || undefined,
+          customerId: data.customerId,
+          customerName: data.customerName,
           ingredients: data.ingredients || [],
           costoManoObra: Number(data.costoManoObra) || 0,
           costoAdicional: Number(data.costoAdicional) || 0,
           method: data.method || 'weight',
           createdAt: data.createdAt || Date.now(),
           updatedAt: data.updatedAt || Date.now(),
-        });
+        };
       });
 
       const batch = writeBatch(db);
 
-      // ── A) Descontar mercaderías e insumos (PRODUCCIÓN → CONSUMO) ──────────
       targetOrder.items.forEach((item) => {
         const pres = presentaciones.find(p => p.id === item.productId);
         if (!pres) return;
@@ -300,16 +279,14 @@ export const useOrders = () => {
         const consumption = getPresentationConsumption(pres, item.quantity, mercaderias, insumos, recipes);
         consumption.forEach((c) => {
           const stockMovRef = doc(collection(db, 'stock_movements'));
-
           let finalQty = c.quantity;
-          // Apply real (operator-adjusted) consumption if provided
           const customKey = `${orderId}_${item.productId}_${c.id}`;
           if (options?.actualConsumptions && options.actualConsumptions[customKey] !== undefined) {
             finalQty = options.actualConsumptions[customKey];
           }
 
           const isReal = options?.actualConsumptions && options.actualConsumptions[customKey] !== undefined;
-          const movement = {
+          batch.set(stockMovRef, {
             productId: c.id,
             productName: c.name,
             quantity: -Math.abs(finalQty),
@@ -319,50 +296,54 @@ export const useOrders = () => {
             date: Date.now(),
             observations: `Consumo ${c.isInsumo ? 'Insumo' : 'Mercadería'} en Producción Pedido: ${orderId}${isReal ? ' (Ajuste Real)' : ''}`,
             createdAt: Date.now()
-          };
-          batch.set(stockMovRef, movement);
+          });
         });
-      });
 
-      // ── B) Incrementar presentaciones (PRODUCCIÓN → STOCK TERMINADO) ───────
-      // El stock de presentaciones se genera aquí, no en ventas.
-      targetOrder.items.forEach((item) => {
-        const pres = presentaciones.find(p => p.id === item.productId);
-        if (!pres) return;
-
-        // Use real produced qty if provided and > 0, otherwise theoretical order quantity
         const rawProduced = options?.actualProduced?.[item.productId];
         const producedQty = (rawProduced !== undefined && rawProduced > 0) ? rawProduced : item.quantity;
 
-        if (producedQty <= 0) return;
-
-        const presMovRef = doc(collection(db, 'stock_movements'));
-        const isRealProduced = options?.actualProduced && options.actualProduced[item.productId] !== undefined;
-        const presMovement = {
-          productId: item.productId,
-          productName: item.productName,
-          quantity: Math.abs(producedQty),
-          type: 'in',
-          referenceType: 'production',
-          referenceId: orderId,
-          date: Date.now(),
-          observations: `Producción Pedido: ${orderId} → ${pres.name}${isRealProduced ? ' (Cant. Real)' : ''}`,
-          createdAt: Date.now()
-        };
-        batch.set(presMovRef, presMovement);
+        if (producedQty > 0) {
+          const presMovRef = doc(collection(db, 'stock_movements'));
+          const isRealProduced = options?.actualProduced && options.actualProduced[item.productId] !== undefined;
+          batch.set(presMovRef, {
+            productId: item.productId,
+            productName: item.productName,
+            quantity: Math.abs(producedQty),
+            type: 'in',
+            referenceType: 'production',
+            referenceId: orderId,
+            date: Date.now(),
+            observations: `Producción Pedido: ${orderId} → ${pres.name}${isRealProduced ? ' (Cant. Real)' : ''}`,
+            createdAt: Date.now()
+          });
+        }
       });
 
-      batch.update(orderRef, { status: 'delivered', updatedAt: Date.now() });
+      batch.update(orderRef, { status: 'PRODUCIDO', updatedAt: Date.now() });
       await batch.commit();
 
-    // ── INVOICED: Crea venta que consume SOLO presentaciones ────────────────
-    // REGLA: La venta descuenta únicamente el stock de presentaciones (producto terminado).
-    // Las mercaderías ya fueron descontadas en la etapa de producción (delivered).
-    } else if (newStatus === 'invoiced') {
-      const targetOrder = orders.find(o => o.id === orderId);
-      if (!targetOrder) throw new Error('Pedido no encontrado.');
+    } else if (newStatus === 'ENTREGADO') {
+      const batch = writeBatch(db);
+      
+      targetOrder.items.forEach((item) => {
+        const stockMovRef = doc(collection(db, 'stock_movements'));
+        batch.set(stockMovRef, {
+          productId: item.productId,
+          productName: item.productName,
+          quantity: -Math.abs(item.quantity),
+          type: 'out',
+          referenceType: 'sale',
+          referenceId: orderId,
+          date: Date.now(),
+          observations: `Entrega de Pedido: ${orderId}`,
+          createdAt: Date.now()
+        });
+      });
 
-      // Fetch presentaciones for cost calculation
+      batch.update(orderRef, { status: 'ENTREGADO', updatedAt: Date.now() });
+      await batch.commit();
+
+    } else if (newStatus === 'FACTURADO') {
       const [presSnap, mercSnap, insSnap, recSnap] = await Promise.all([
         getDocs(collection(db, 'presentaciones')),
         getDocs(collection(db, 'mercaderias')),
@@ -370,28 +351,24 @@ export const useOrders = () => {
         getDocs(collection(db, 'recipes'))
       ]);
 
-      const presentaciones: Presentacion[] = [];
-      presSnap.forEach(d => presentaciones.push(DatabaseMapper.toDomainPresentacion(d.data(), d.id)));
-      const mercaderias: Mercaderia[] = [];
-      mercSnap.forEach(d => mercaderias.push(DatabaseMapper.toDomainMercaderia(d.data(), d.id)));
-      const insumos: Insumo[] = [];
-      insSnap.forEach(d => insumos.push(DatabaseMapper.toDomainInsumo(d.data(), d.id)));
-      const recipes: Recipe[] = [];
-      recSnap.forEach(d => {
+      const presentaciones = presSnap.docs.map(d => DatabaseMapper.toDomainPresentacion(d.data(), d.id));
+      const mercaderias = mercSnap.docs.map(d => DatabaseMapper.toDomainMercaderia(d.data(), d.id));
+      const insumos = insSnap.docs.map(d => DatabaseMapper.toDomainInsumo(d.data(), d.id));
+      const recipes = recSnap.docs.map(d => {
         const data = d.data();
-        recipes.push({
+        return {
           id: d.id,
           productId: data.productId || '',
           productName: data.productName || '',
-          customerId: data.customerId || undefined,
-          customerName: data.customerName || undefined,
+          customerId: data.customerId,
+          customerName: data.customerName,
           ingredients: data.ingredients || [],
           costoManoObra: Number(data.costoManoObra) || 0,
           costoAdicional: Number(data.costoAdicional) || 0,
           method: data.method || 'weight',
           createdAt: data.createdAt || Date.now(),
           updatedAt: data.updatedAt || Date.now(),
-        });
+        };
       });
 
       const salePayload = {
@@ -411,10 +388,11 @@ export const useOrders = () => {
         subtotal: targetOrder.subtotal,
         discount: targetOrder.discount,
         total: targetOrder.total,
-        status: 'completed' as const,
-        paymentStatus: (options?.paymentMethod || 'cc') === 'cc' ? 'pending' as const : 'paid' as const,
+        saldoPendiente: targetOrder.total,
+        status: 'PENDIENTE',
         paymentMethod: options?.paymentMethod || 'cc',
         remitoNumber: `REM-${Date.now().toString().slice(-6)}`,
+        invoiceNumber: `FAC-${Date.now().toString().slice(-6)}`,
         orderId: targetOrder.id,
         observations: targetOrder.observations || '',
         date: Date.now(),
@@ -427,41 +405,7 @@ export const useOrders = () => {
       const saleId = saleRef.id;
 
       batch.set(saleRef, { ...salePayload, id: saleId });
-      batch.update(orderRef, { status: 'invoiced', saleId, updatedAt: Date.now() });
-
-      // ── Descontar stock de PRESENTACIONES (no mercaderías) ─────────────────
-      // Esta es la única operación de stock en ventas: consumir producto terminado.
-      targetOrder.items.forEach((item) => {
-        const stockMovRef = doc(collection(db, 'stock_movements'));
-        const movement = {
-          productId: item.productId,          // ID de la presentación (producto terminado)
-          productName: item.productName,
-          quantity: -Math.abs(item.quantity),
-          type: 'out',
-          referenceType: 'sale',
-          referenceId: saleId,
-          date: Date.now(),
-          observations: `Venta Pedido: ${orderId} → ${salePayload.remitoNumber}`,
-          createdAt: Date.now()
-        };
-        batch.set(stockMovRef, movement);
-      });
-
-      // Cash movement if paid immediately
-      if (salePayload.paymentStatus === 'paid') {
-        const cashMovRef = doc(collection(db, 'cash_movements'));
-        const cashMovement = {
-          type: 'in',
-          amount: targetOrder.total,
-          method: options?.paymentMethod || 'cash',
-          description: `Cobro Venta desde Pedido ${targetOrder.customerName} (Ref: ${salePayload.remitoNumber})`,
-          category: 'sale',
-          referenceId: saleId,
-          date: Date.now(),
-          createdAt: Date.now()
-        };
-        batch.set(cashMovRef, cashMovement);
-      }
+      batch.update(orderRef, { status: 'FACTURADO', saleId, updatedAt: Date.now() });
 
       await batch.commit();
 

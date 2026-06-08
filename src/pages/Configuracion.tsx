@@ -174,6 +174,9 @@ export const Configuracion = () => {
                     <Select label="Lista de Precios Predeterminada" options={[{label: 'Lista Mayorista', value: '1'}, {label: 'Lista Minorista', value: '2'}]} value={localSettings.comercial_listaDefault} onChange={e => updateField('comercial_listaDefault', e.target.value)} />
                     <Input label="Margen de Ganancia Default (%)" type="number" value={localSettings.comercial_margenDefault} onChange={e => updateField('comercial_margenDefault', Number(e.target.value))} />
                     <Select label="Política de Descuentos" options={[{label: 'Estricto (Solo Admin)', value: '1'}, {label: 'Flexible (Vendedores)', value: '2'}]} value={localSettings.comercial_politicaDescuento} onChange={e => updateField('comercial_politicaDescuento', e.target.value)} />
+                    <Input label="Umbral Margen Riesgo (%)" type="number" value={localSettings.comercial_margenRiesgo || 15} onChange={e => updateField('comercial_margenRiesgo', Number(e.target.value))} />
+                    <Input label="Umbral Margen Óptimo (%)" type="number" value={localSettings.comercial_margenOptimo || 30} onChange={e => updateField('comercial_margenOptimo', Number(e.target.value))} />
+                    <Input label="Alerta Aumento Costo (%)" type="number" value={localSettings.comercial_alertaCostoAumento || 10} onChange={e => updateField('comercial_alertaCostoAumento', Number(e.target.value))} />
                   </div>
                 </Card>
                 <Card>

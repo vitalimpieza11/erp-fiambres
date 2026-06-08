@@ -16,6 +16,7 @@ import { useMercaderias } from '../hooks/useMercaderias';
 import { useInsumos } from '../hooks/useInsumos';
 import { useRecipes } from '../hooks/useRecipes';
 import { useCustomers } from '../hooks/useCustomers';
+import { usePriceLists } from '../hooks/usePriceLists';
 import { calculatePresentationCost, getPresentationConsumption } from '../core/calculations';
 import { useDateFilter } from '../contexts/DateFilterContext';
 
@@ -30,6 +31,7 @@ export const Pedidos = () => {
   const { insumos } = useInsumos();
   const { recipes, loading: loadingRecipes } = useRecipes();
   const { customers, loading: loadingCustomers } = useCustomers();
+  const { priceLists } = usePriceLists();
 
   // Navigation / Modal States
   const [isFormOpen, setIsFormOpen] = useState(false);
@@ -45,8 +47,8 @@ export const Pedidos = () => {
   const [customerId, setCustomerId] = useState('');
   const [discountStr, setDiscountStr] = useState('0');
   const [observaciones, setObservaciones] = useState('');
-  const [status, setStatus] = useState<any>('pending');
-  const [orderItems, setOrderItems] = useState<{ productId: string; quantity: number; price: number }[]>([]);
+  const [status, setStatus] = useState<any>('PENDIENTE');
+  const [orderItems, setOrderItems] = useState<{ productId: string; quantity: number; price: number; priceOrigin?: string }[]>([]);
 
   const globalError = errorOrders;
 
@@ -60,19 +62,20 @@ export const Pedidos = () => {
       setCustomerId(order.customerId);
       setDiscountStr((order.discount || 0).toString());
       setObservaciones(order.observaciones || '');
-      setStatus(order.status || 'pending');
+      setStatus(order.status || 'PENDIENTE');
       setOrderItems(order.items.map((i: any) => ({
         productId: i.productId,
         quantity: i.quantity,
-        price: i.price
+        price: i.price,
+        priceOrigin: i.priceOrigin || 'Precio Base'
       })));
     } else {
       setEditingId(null);
       setCustomerId('');
       setDiscountStr('0');
       setObservaciones('');
-      setStatus('pending');
-      setOrderItems([{ productId: '', quantity: 1, price: 0 }]);
+      setStatus('PENDIENTE');
+      setOrderItems([{ productId: '', quantity: 1, price: 0, priceOrigin: '' }]);
     }
     setIsFormOpen(true);
   };
@@ -82,7 +85,7 @@ export const Pedidos = () => {
     setCustomerId('');
     setDiscountStr('0');
     setObservaciones('');
-    setStatus('pending');
+    setStatus('PENDIENTE');
     setOrderItems([]);
   };
 
@@ -91,16 +94,51 @@ export const Pedidos = () => {
     const pres = presentaciones.find(p => p.id === presId);
     if (!pres) return;
 
-    // Costo real calculado desde mercadería + insumos + mano de obra
+    const customer = customers.find(c => c.id === customerId);
+    let finalPrice = 0;
+    let priceOrigin = 'Precio Base';
     const costo = calculatePresentationCost(pres, mercaderias, insumos, recipes);
-    // Precio sugerido: costo + 40% margen por defecto
-    const defaultPrice = pres.precioVentaKg > 0
-      ? pres.precioVentaKg * (pres.pesoObjetivoGramos / 1000)
-      : costo * 1.4;
+
+    // 1° Precio especial del cliente
+    const specialPrice = customer?.specialPrices?.[presId];
+    if (specialPrice) {
+      if (specialPrice.mode === 'price') {
+        finalPrice = specialPrice.value;
+      } else {
+        finalPrice = costo / (1 - specialPrice.value / 100);
+      }
+      priceOrigin = 'Precio especial cliente';
+    } 
+    // 2° Lista de precios asignada al cliente
+    else if (customer?.priceListId) {
+      const pList = priceLists.find(l => l.id === customer.priceListId);
+      if (pList) {
+        const override = pList.productOverrides?.[presId];
+        if (override) {
+          if (override.mode === 'manual') {
+            finalPrice = override.manualPrice || 0;
+          } else {
+            const margin = override.margin || pList.margin;
+            finalPrice = margin >= 100 ? costo * 2 : (costo / (1 - margin / 100));
+          }
+        } else {
+          finalPrice = pList.margin >= 100 ? costo * 2 : (costo / (1 - pList.margin / 100));
+        }
+        priceOrigin = `Lista: ${pList.name}`;
+      }
+    }
+
+    // 3° Precio base del producto (fallback)
+    if (finalPrice <= 0) {
+      finalPrice = pres.precioVentaKg > 0
+        ? pres.precioVentaKg * (pres.pesoObjetivoGramos / 1000)
+        : costo * 1.4;
+    }
 
     const updated = [...orderItems];
     updated[index].productId = presId;
-    updated[index].price = defaultPrice;
+    updated[index].price = finalPrice;
+    updated[index].priceOrigin = priceOrigin;
     setOrderItems(updated);
   };
 
@@ -125,7 +163,8 @@ export const Pedidos = () => {
           productId: item.productId,
           productName: pres?.name || '',
           quantity: item.quantity,
-          price: item.price
+          price: item.price,
+          priceOrigin: item.priceOrigin || 'Precio Base'
         };
       }),
       subtotal,
@@ -172,7 +211,7 @@ export const Pedidos = () => {
     if (!billingOrderId) return;
     setIsSaving(true);
     try {
-      await updateOrderStatus(billingOrderId, 'invoiced', { paymentMethod });
+      await updateOrderStatus(billingOrderId, 'FACTURADO', { paymentMethod });
       setBillingOrderId(null);
     } catch (e: any) {
       alert('Error al facturar pedido: ' + e.message);
@@ -183,8 +222,8 @@ export const Pedidos = () => {
 
   // KPIs
   const totalCount = filteredOrders.length;
-  const pendingProdCount = filteredOrders.filter(o => o.status === 'pending' || o.status === 'in_production').length;
-  const deliveredCount = filteredOrders.filter(o => o.status === 'delivered').length;
+  const pendingProdCount = filteredOrders.filter(o => o.status === 'PENDIENTE' || o.status === 'EN_PRODUCCION').length;
+  const deliveredCount = filteredOrders.filter(o => o.status === 'ENTREGADO' || o.status === 'PRODUCIDO').length;
   const avgMargin = filteredOrders.length > 0 
     ? filteredOrders.reduce((sum, o) => sum + (o.marginPercent || 0), 0) / filteredOrders.length 
     : 0;
@@ -302,7 +341,7 @@ export const Pedidos = () => {
                 </div>
                 <button 
                   type="button" 
-                  onClick={() => setOrderItems([...orderItems, { productId: '', quantity: 1, price: 0 }])}
+                  onClick={() => setOrderItems([...orderItems, { productId: '', quantity: 1, price: 0, priceOrigin: '' }])}
                   className="btn btn-secondary-light btn-sm"
                 >
                   + Agregar Producto
@@ -331,16 +370,24 @@ export const Pedidos = () => {
                         setOrderItems(updated);
                       }}
                     />
-                    <Input 
-                      label="Precio Unitario ($)"
-                      type="number"
-                      value={item.price.toString()}
-                      onChange={e => {
-                        const updated = [...orderItems];
-                        updated[index].price = parseNumber(e.target.value);
-                        setOrderItems(updated);
-                      }}
-                    />
+                    <div>
+                      <Input 
+                        label="Precio Unitario ($)"
+                        type="number"
+                        value={item.price.toString()}
+                        onChange={e => {
+                          const updated = [...orderItems];
+                          updated[index].price = parseNumber(e.target.value);
+                          updated[index].priceOrigin = 'Editado manualmente';
+                          setOrderItems(updated);
+                        }}
+                      />
+                      {item.priceOrigin && (
+                        <div style={{ fontSize: '0.65rem', color: 'var(--primary-color)', marginTop: '4px', fontWeight: 600 }}>
+                          {item.priceOrigin}
+                        </div>
+                      )}
+                    </div>
                     <button 
                       type="button"
                       onClick={() => setOrderItems(orderItems.filter((_, i) => i !== index))}
@@ -491,15 +538,18 @@ export const Pedidos = () => {
               {
                 header: 'Estado',
                 accessor: (item) => {
-                  const colors = {
-                    pending: { bg: '#e2e8f0', text: '#475569', label: 'Pendiente' },
-                    in_production: { bg: '#fef3c7', text: '#d97706', label: 'En Producción' },
-                    delivered: { bg: '#dcfce7', text: '#15803d', label: 'Entregado' },
-                    invoiced: { bg: '#e0e7ff', text: '#4f46e5', label: 'Facturado' }
-                  }[item.status || 'pending'];
+                  const colors: any = {
+                    PENDIENTE: { bg: '#e2e8f0', text: '#475569', label: 'Pendiente' },
+                    EN_PRODUCCION: { bg: '#fef3c7', text: '#d97706', label: 'En Producción' },
+                    PRODUCIDO: { bg: '#dcfce7', text: '#15803d', label: 'Producido' },
+                    ENTREGADO: { bg: '#cffafe', text: '#0891b2', label: 'Entregado' },
+                    FACTURADO: { bg: '#e0e7ff', text: '#4f46e5', label: 'Facturado' },
+                    CERRADO: { bg: '#f3f4f6', text: '#9ca3af', label: 'Cerrado' }
+                  };
+                  const color = colors[item.status] || colors['PENDIENTE'];
                   return (
-                    <span style={{ padding: '4px 12px', borderRadius: '9999px', fontSize: '0.75rem', fontWeight: 600, backgroundColor: colors.bg, color: colors.text }}>
-                      {colors.label}
+                    <span style={{ padding: '4px 12px', borderRadius: '9999px', fontSize: '0.75rem', fontWeight: 600, backgroundColor: color.bg, color: color.text }}>
+                      {color.label}
                     </span>
                   );
                 },
@@ -517,37 +567,25 @@ export const Pedidos = () => {
                     >
                       <Eye size={16} />
                     </button>
-                    {item.status === 'pending' && (
+                    {item.status === 'PENDIENTE' && (
                       <button 
-                        onClick={() => handleTransitionStatus(item.id!, 'in_production')} 
+                        onClick={() => handleTransitionStatus(item.id!, 'EN_PRODUCCION')} 
                         className="btn btn-secondary-light btn-sm"
                         style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '4px 8px' }}
                       >
-                        <Play size={12} /> Producir
+                        <Play size={12} /> A Producción
                       </button>
                     )}
-                    {item.status === 'in_production' && (
+                    {(item.status === 'PRODUCIDO' || item.status === 'EN_PRODUCCION') && (
                       <button 
-                        onClick={() => handleTransitionStatus(item.id!, 'delivered')} 
+                        onClick={() => handleTransitionStatus(item.id!, 'ENTREGADO')} 
                         className="btn btn-success-light btn-sm"
-                        style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '4px 8px', backgroundColor: '#dcfce7', color: '#166534', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '4px 8px', backgroundColor: '#cffafe', color: '#0891b2', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
                       >
-                        <CheckCircle size={12} /> Entregar
+                        <Truck size={12} /> Entregar
                       </button>
                     )}
-                    {item.status === 'delivered' && (
-                      <button 
-                        onClick={() => {
-                          setBillingOrderId(item.id!);
-                          setPaymentMethod('cc');
-                        }} 
-                        className="btn btn-primary btn-sm"
-                        style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '4px 8px' }}
-                      >
-                        <FileText size={12} /> Facturar Pedido
-                      </button>
-                    )}
-                    {['pending', 'in_production'].includes(item.status || 'pending') && (
+                    {['PENDIENTE', 'EN_PRODUCCION'].includes(item.status) && (
                       <button onClick={() => openForm(item)} className="btn btn-icon" title="Editar">
                         <Edit2 size={16} color="#2563eb" />
                       </button>

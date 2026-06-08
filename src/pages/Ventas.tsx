@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { formatCurrency, formatNumber, parseNumber } from '../utils/format';
 import { useSales } from '../hooks/useSales';
+import { useOrders } from '../hooks/useOrders';
 import { usePresentaciones } from '../hooks/usePresentaciones';
 import { useMercaderias } from '../hooks/useMercaderias';
 import { useInsumos } from '../hooks/useInsumos';
@@ -31,10 +32,12 @@ interface SaleFormItem {
   paquetesStr: string;
   precioUnitario: number;
   costoUnitario: number;
+  priceOrigin?: string;
 }
 
 export const Ventas = () => {
   const { sales, loading: loadingSales, error: errorSales, createSale, updateSale, deleteSale } = useSales();
+  const { orders, loading: loadingOrders, updateOrderStatus } = useOrders();
   // Presentaciones: única entidad de venta
   const { presentaciones, loading: loadingPres, error: errorPres } = usePresentaciones();
   const { mercaderias } = useMercaderias();
@@ -45,9 +48,13 @@ export const Ventas = () => {
   const { filterDate, viewType } = useDateFilter();
 
   const globalError = errorSales || errorPres || errorCustomers || errorLists;
-  const filteredSales = sales.filter((s: any) => filterDate(s.date));
-
-
+  const filteredSales = sales.filter((s: any) => filterDate(s.date) && !s.orderId); // Ventas manuales
+  const filteredOrders = orders.filter((o: any) => filterDate(o.date));
+  
+  const combinedOperations = [
+    ...filteredSales.map(s => ({ ...s, tipoItem: 'Venta Manual', estadoProduccion: 'ENTREGADO' })),
+    ...filteredOrders.map(o => ({ ...o, tipoItem: 'Pedido', estadoProduccion: o.status }))
+  ].sort((a, b) => b.date - a.date);
   const [isCreating, setIsCreating] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [showRemito, setShowRemito] = useState(false);
@@ -78,6 +85,37 @@ export const Ventas = () => {
     }
   }, [priceLists, priceListId]);
 
+  const getPriceHierarchy = (presId: string, currentCustomerId: string, currentPriceListId: string, costo: number): { finalPrice: number, origin: string } => {
+    const customer = customers.find(c => c.id === currentCustomerId);
+    
+    // 1° Precio Especial Cliente
+    const specialPrice = customer?.specialPrices?.[presId];
+    if (specialPrice) {
+      if (specialPrice.mode === 'price') return { finalPrice: specialPrice.value, origin: 'Precio especial cliente' };
+      return { finalPrice: costo / (1 - specialPrice.value / 100), origin: 'Precio especial cliente' };
+    }
+
+    // 2° Lista de Precios
+    const pList = priceLists.find(l => l.id === currentPriceListId);
+    if (pList) {
+      const override = pList.productOverrides?.[presId];
+      if (override) {
+        if (override.mode === 'manual') return { finalPrice: override.manualPrice || 0, origin: `Lista: ${pList.name}` };
+        const margin = override.margin || pList.margin;
+        return { finalPrice: margin >= 100 ? costo * 2 : (costo / (1 - margin / 100)), origin: `Lista: ${pList.name}` };
+      }
+      return { finalPrice: pList.margin >= 100 ? costo * 2 : (costo / (1 - pList.margin / 100)), origin: `Lista: ${pList.name}` };
+    }
+
+    // 3° Precio Base
+    const pres = presentaciones.find(p => p.id === presId);
+    if (pres && pres.precioVentaKg > 0) {
+      return { finalPrice: pres.precioVentaKg * (pres.pesoObjetivoGramos / 1000), origin: 'Precio Base' };
+    }
+    
+    return { finalPrice: costo * 1.4, origin: 'Precio Base sugerido' };
+  };
+
   const handlePriceListChange = (newListId: string) => {
     setPriceListId(newListId);
     const selectedListObj = priceLists.find(l => l.id === newListId);
@@ -88,15 +126,14 @@ export const Ventas = () => {
       const pres = presentaciones.find(p => p.id === item.productId);
       if (!pres) return item;
 
-      // Cost calculated from presentación's recipe/base + insumos
       const costo = calculatePresentationCost(pres, mercaderias, insumos, recipes);
-      const margin = selectedListObj?.productOverrides?.[item.productId]?.margin ?? selectedListObj?.margin ?? 40;
-      const newPrice = costo * (1 + margin / 100);
+      const { finalPrice, origin } = getPriceHierarchy(item.productId, customerId, newListId, costo);
 
       return {
         ...item,
-        precioUnitario: newPrice,
-        costoUnitario: costo
+        precioUnitario: finalPrice,
+        costoUnitario: costo,
+        priceOrigin: origin
       };
     }));
   };
@@ -148,19 +185,17 @@ export const Ventas = () => {
     const pres = presentaciones.find(p => p.id === presId);
     if (!pres) return;
 
-    // Costo derivado desde la presentación (mercadería + insumos + mano obra)
     const costo = calculatePresentationCost(pres, mercaderias, insumos, recipes);
-    const selectedListObj = priceLists.find(l => l.id === priceListId);
-    const margin = selectedListObj?.productOverrides?.[presId]?.margin ?? selectedListObj?.margin ?? 40;
-    const precio = costo * (1 + margin / 100);
+    const { finalPrice, origin } = getPriceHierarchy(presId, customerId, priceListId, costo);
 
     setItems(items.map(item => item.id === id ? {
       ...item,
       productId: presId,
       productName: pres.name,
       gramaje: `${pres.pesoObjetivoGramos}g`,
-      precioUnitario: precio,
-      costoUnitario: costo
+      precioUnitario: finalPrice,
+      costoUnitario: costo,
+      priceOrigin: origin
     } : item));
   };
 
@@ -176,7 +211,8 @@ export const Ventas = () => {
       gramaje: '--',
       paquetesStr: '1',
       precioUnitario: 0,
-      costoUnitario: 0
+      costoUnitario: 0,
+      priceOrigin: ''
     }]);
   };
 
@@ -225,8 +261,7 @@ export const Ventas = () => {
           price: item.precioUnitario,
           cost: item.costoUnitario
         })),
-        status: 'completed' as const,
-        paymentStatus: formaPago === 'cc' ? 'pending' as const : 'paid' as const,
+        status: formaPago === 'cc' ? 'PENDIENTE' : 'PAGADA',
         paymentMethod: formaPago,
         remitoNumber: `REM-${Date.now().toString().slice(-6)}`,
         date: Date.now(),
@@ -721,12 +756,21 @@ export const Ventas = () => {
                         />
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '6px' }}>
                           <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)', backgroundColor: 'var(--bg-secondary)', padding: '2px 8px', borderRadius: '9999px', border: '1px solid var(--border-color)' }}>{item.gramaje}</span>
-                          <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{formatCurrency(item.precioUnitario)} c/u</span>
-                          {item.productId && (
-                            <span style={{ fontSize: '0.8rem', fontWeight: 600, color: isInsufficient ? '#ef4444' : '#16a34a' }}>
-                              Disponible: {available} paq.
-                            </span>
-                          )}
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                              <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{formatCurrency(item.precioUnitario)} c/u</span>
+                              {item.productId && (
+                                <span style={{ fontSize: '0.8rem', fontWeight: 600, color: isInsufficient ? '#ef4444' : '#16a34a' }}>
+                                  Disponible: {available} paq.
+                                </span>
+                              )}
+                            </div>
+                            {item.priceOrigin && (
+                              <span style={{ fontSize: '0.65rem', color: 'var(--primary-color)', fontWeight: 600 }}>
+                                {item.priceOrigin}
+                              </span>
+                            )}
+                          </div>
                         </div>
                       </div>
 
@@ -841,7 +885,7 @@ export const Ventas = () => {
 
   // CALCULAR RESUMEN DIARIO DESDE LAS VENTAS REALES
   const dailyTotal = filteredSales.reduce((acc, sale) => acc + sale.total, 0);
-  const pendingDeliveries = filteredSales.filter(s => s.status === 'pending').length;
+  const pendingDeliveries = filteredSales.filter(s => s.status === 'PENDIENTE').length;
   const avgTicket = filteredSales.length > 0 ? dailyTotal / filteredSales.length : 0;
 
   const periodLabel = {
@@ -907,9 +951,9 @@ export const Ventas = () => {
           </div>
         </div>
 
-        {loadingSales ? (
+        {loadingSales || loadingOrders ? (
           <SkeletonLoader rows={4} height="52px" />
-        ) : filteredSales.length === 0 ? (
+        ) : combinedOperations.length === 0 ? (
           <div style={{ padding: '40px' }}>
             <EmptyState 
               icon={ShoppingCart} 
@@ -919,63 +963,55 @@ export const Ventas = () => {
           </div>
         ) : (
           <Table 
-            data={filteredSales}
-            keyExtractor={(item) => item.id!}
+            data={combinedOperations}
+            keyExtractor={(item) => item.id! + item.tipoItem}
             columns={[
-              { header: 'Comprobante', accessor: (item) => <span style={{ fontFamily: 'monospace', fontWeight: 600 }}>{item.remitoNumber}</span>, width: '150px' },
-              { header: 'Fecha', accessor: (item) => new Date(item.date).toLocaleDateString() },
+              { header: 'Tipo', accessor: (item) => <span style={{ fontWeight: 600, color: item.tipoItem === 'Pedido' ? '#2563eb' : '#059669' }}>{item.tipoItem}</span> },
               { header: 'Cliente', accessor: (item) => <span style={{ fontWeight: 600 }}>{item.customerName}</span> },
-              { header: 'Total', accessor: (item) => <span style={{ fontWeight: 700 }}>{formatCurrency(item.total)}</span> },
+              { header: 'Fecha', accessor: (item) => new Date(item.date).toLocaleDateString() },
+              { header: 'Importe', accessor: (item) => <span style={{ fontWeight: 700 }}>{formatCurrency(item.total)}</span> },
+              { header: 'Estado Producción', accessor: (item) => <span style={{ fontSize: '0.75rem', fontWeight: 600, padding: '4px 8px', borderRadius: '4px', backgroundColor: '#e2e8f0' }}>{item.estadoProduccion}</span> },
               { 
-                header: 'Estado Pago', 
-                accessor: (item) => (
-                  <span style={{ 
-                    padding: '4px 12px', borderRadius: '9999px', fontSize: '0.75rem', fontWeight: 600,
-                    backgroundColor: item.paymentStatus === 'paid' ? '#dcfce7' : '#fee2e2',
-                    color: item.paymentStatus === 'paid' ? '#166534' : '#dc2626'
-                  }}>
-                    {item.paymentStatus === 'paid' ? 'Cobrado' : 'Pendiente'}
-                  </span>
-                ),
+                header: 'Estado Comercial', 
+                accessor: (item) => {
+                  let badgeText: string = item.status || 'PENDIENTE';
+                  let bg = '#e2e8f0';
+                  let color = '#475569';
+                  if (item.tipoItem === 'Pedido') {
+                    if ((item as any).saleId || item.status === 'FACTURADO' || item.status === 'CERRADO') {
+                      badgeText = 'FACTURADO';
+                      bg = '#dcfce7'; color = '#166534';
+                    } else {
+                      badgeText = 'PENDIENTE FACTURAR';
+                      bg = '#fef3c7'; color = '#92400e';
+                    }
+                  } else {
+                    badgeText = item.status || 'PENDIENTE';
+                    if (badgeText === 'PAGADA') { bg = '#dcfce7'; color = '#166534'; }
+                    else if (badgeText === 'PENDIENTE') { bg = '#fee2e2'; color = '#991b1b'; }
+                    else if (badgeText === 'PARCIAL') { bg = '#fef3c7'; color = '#92400e'; }
+                  }
+                  return <span style={{ padding: '4px 12px', borderRadius: '9999px', fontSize: '0.75rem', fontWeight: 600, backgroundColor: bg, color }}>{badgeText}</span>;
+                },
                 align: 'center'
               },
               { 
                 header: 'Acciones', 
                 accessor: (item) => (
                   <div style={{ display: 'flex', gap: '8px', justifyContent: 'center' }}>
-                    <button onClick={() => handleOpenPreview(item)} className="btn btn-secondary-light btn-sm" style={{ padding: '4px 8px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-                      <FileText size={14} />
-                    </button>
-                    <button 
-                      onClick={(e) => { 
-                        e.stopPropagation(); 
-                        if (item.orderId) {
-                          alert('Esta venta fue generada desde un Pedido. Debe editar o eliminar el Pedido original.');
-                          return;
-                        }
-                        handleEditSale(item); 
-                      }} 
-                      className="btn btn-icon" 
-                      title={item.orderId ? "Bloqueado: Editá el Pedido original" : "Editar"}
-                      style={{ opacity: item.orderId ? 0.4 : 1, cursor: item.orderId ? 'not-allowed' : 'pointer' }}
-                    >
-                      <Edit2 size={16} color="#2563eb" />
-                    </button>
-                    <button 
-                      onClick={(e) => { 
-                        e.stopPropagation(); 
-                        if (item.orderId) {
-                          alert('Esta venta fue generada desde un Pedido. Debe editar o eliminar el Pedido original.');
-                          return;
-                        }
-                        handleDeleteSale(item); 
-                      }} 
-                      className="btn btn-icon" 
-                      title={item.orderId ? "Bloqueado: Eliminá el Pedido original" : "Eliminar"}
-                      style={{ opacity: item.orderId ? 0.4 : 1, cursor: item.orderId ? 'not-allowed' : 'pointer' }}
-                    >
-                      <Trash2 size={16} color="#dc2626" />
-                    </button>
+                    {item.tipoItem === 'Pedido' && (item.status === 'PRODUCIDO' || item.status === 'ENTREGADO') && !(item as any).saleId && (
+                      <button 
+                        onClick={(e) => { e.stopPropagation(); updateOrderStatus(item.id!, 'FACTURADO'); }} 
+                        className="btn btn-primary btn-sm" style={{ padding: '4px 8px', fontSize: '0.75rem' }}
+                      >
+                        FACTURAR
+                      </button>
+                    )}
+                    {item.tipoItem !== 'Pedido' && (
+                      <button onClick={() => handleOpenPreview(item)} className="btn btn-secondary-light btn-sm" style={{ padding: '4px 8px' }}>
+                        <FileText size={14} />
+                      </button>
+                    )}
                   </div>
                 ),
                 align: 'center'

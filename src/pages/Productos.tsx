@@ -62,6 +62,8 @@ export const Productos = () => {
   const [presManoObra, setPresManoObra] = useState('0');
   const [presObs, setPresObs] = useState('');
   const [presTypeToggle, setPresTypeToggle] = useState<'simple' | 'recipe'>('simple');
+  const [presUnidadesCaja, setPresUnidadesCaja] = useState('1');
+  const [presCommercialStatus, setPresCommercialStatus] = useState<'activo' | 'destacado' | 'lanzamiento' | 'promocion' | 'descontinuado'>('activo');
 
   // Form States - Recetas
   const [recName, setRecName] = useState('');
@@ -130,6 +132,8 @@ export const Productos = () => {
       setPresManoObra((item.manoObra || 0).toString());
       setPresObs(item.observations);
       setPresTypeToggle(item.productoBaseId ? 'simple' : 'recipe');
+      setPresUnidadesCaja((item.unidadesPorCaja || 1).toString());
+      setPresCommercialStatus(item.commercialStatus || 'activo');
     } else {
       setEditingId(null);
       setPresName('');
@@ -145,6 +149,8 @@ export const Productos = () => {
       setPresManoObra('0');
       setPresObs('');
       setPresTypeToggle('simple');
+      setPresUnidadesCaja('1');
+      setPresCommercialStatus('activo');
     }
     setIsFormOpen(true);
   };
@@ -269,7 +275,9 @@ export const Productos = () => {
           precioVentaKg: parseNumber(presPrecioKg),
           manoObra: parseNumber(presManoObra) || 0,
           observations: presObs || '',
-          isActive: true
+          isActive: true,
+          unidadesPorCaja: parseNumber(presUnidadesCaja) > 0 ? parseNumber(presUnidadesCaja) : 1,
+          commercialStatus: presCommercialStatus
         }, editingId || undefined);
       } else if (activeTab === 'recetas') {
         const pres = presentaciones.find(p => p.id === recProductId);
@@ -376,7 +384,9 @@ export const Productos = () => {
       precioVentaKg: parseNumber(presPrecioKg),
       manoObra: parseNumber(presManoObra),
       isActive: true,
-      observations: ''
+      observations: '',
+      unidadesPorCaja: parseNumber(presUnidadesCaja) > 0 ? parseNumber(presUnidadesCaja) : 1,
+      commercialStatus: presCommercialStatus
     };
     
     const weightKg = tempPres.pesoObjetivoGramos / 1000;
@@ -584,7 +594,39 @@ export const Productos = () => {
               data={presentaciones}
               keyExtractor={p => p.id!}
               columns={[
-                { header: 'Nombre Presentación', accessor: p => <span style={{ fontWeight: 600 }}>{p.name}</span> },
+                { 
+                  header: 'Nombre Presentación', 
+                  accessor: p => {
+                    const statusColors: any = {
+                      activo: { bg: '#dcfce7', text: '#166534' },
+                      destacado: { bg: '#dbeafe', text: '#1e40af' },
+                      promocion: { bg: '#ffedd5', text: '#c2410c' },
+                      lanzamiento: { bg: '#f3e8ff', text: '#7e22ce' },
+                      pausado: { bg: '#f1f5f9', text: '#475569' },
+                      descontinuado: { bg: '#fee2e2', text: '#991b1b' }
+                    };
+                    const status = p.commercialStatus || 'activo';
+                    const sColor = statusColors[status] || statusColors.activo;
+
+                    return (
+                      <div>
+                        <div style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          {p.name}
+                          {status !== 'activo' && (
+                            <span style={{ fontSize: '0.65rem', padding: '2px 6px', borderRadius: '4px', backgroundColor: sColor.bg, color: sColor.text, textTransform: 'uppercase', fontWeight: 700 }}>
+                              {status}
+                            </span>
+                          )}
+                        </div>
+                        {(p.unidadesPorCaja || 1) > 1 && (
+                          <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                            📦 {p.unidadesPorCaja} un. por caja
+                          </div>
+                        )}
+                      </div>
+                    );
+                  } 
+                },
                 { header: 'Cliente', accessor: p => p.customerName || 'Todos' },
                 { header: 'Tipo', accessor: p => p.productoBaseId ? <span style={{ color: '#0ea5e9', fontWeight: 500 }}>Simple</span> : <span style={{ color: '#ec4899', fontWeight: 500 }}>Compuesto</span> },
                 { header: 'Peso Objetivo', accessor: p => `${p.pesoObjetivoGramos} g` },
@@ -979,6 +1021,23 @@ export const Productos = () => {
                     />
                   </div>
 
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                    <Input label="Unidades por Caja (Opcional)" type="number" value={presUnidadesCaja} onChange={e => setPresUnidadesCaja(e.target.value)} placeholder="Ej: 12" />
+                    <Select 
+                      label="Estado Comercial" 
+                      value={presCommercialStatus} 
+                      onChange={e => setPresCommercialStatus(e.target.value as any)} 
+                      options={[
+                        { value: 'activo', label: 'Activo' },
+                        { value: 'destacado', label: 'Destacado' },
+                        { value: 'promocion', label: 'Promoción' },
+                        { value: 'lanzamiento', label: 'Lanzamiento' },
+                        { value: 'pausado', label: 'Pausado' },
+                        { value: 'descontinuado', label: 'Discontinuado' }
+                      ]} 
+                    />
+                  </div>
+
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px' }}>
                     <div>
                       <Input label="Precio Venta por Kg ($)" type="number" value={presPrecioKg} onChange={e => setPresPrecioKg(e.target.value)} />
@@ -1071,6 +1130,28 @@ export const Productos = () => {
                           <span>Rentabilidad / Margen %</span>
                           <span style={{ color: presMargin >= 30 ? '#10b981' : presMargin >= 15 ? '#f59e0b' : '#ef4444' }}>{formatNumber(presMargin, '%')}</span>
                         </div>
+                        
+                        {parseNumber(presUnidadesCaja) > 1 && (
+                          <div style={{ marginTop: '16px', padding: '12px', backgroundColor: '#e0e7ff', borderRadius: '8px', border: '1px solid #c7d2fe' }}>
+                            <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#3730a3', marginBottom: '8px', borderBottom: '1px solid #c7d2fe', paddingBottom: '4px' }}>Métricas por Caja ({parseNumber(presUnidadesCaja)} Unidades)</div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', padding: '4px 0', color: '#3730a3' }}>
+                              <span>Precio Caja:</span>
+                              <span style={{ fontWeight: 700 }}>{formatCurrency(pricePerUnit * parseNumber(presUnidadesCaja))}</span>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', padding: '4px 0', color: '#3730a3' }}>
+                              <span>Costo Caja:</span>
+                              <span style={{ fontWeight: 600 }}>{formatCurrency(presEstimatedCost * parseNumber(presUnidadesCaja))}</span>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', padding: '4px 0', color: '#3730a3' }}>
+                              <span>Utilidad Caja:</span>
+                              <span style={{ fontWeight: 600 }}>{formatCurrency(utilUnit * parseNumber(presUnidadesCaja))}</span>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', padding: '4px 0', color: '#3730a3' }}>
+                              <span>Margen Caja:</span>
+                              <span style={{ fontWeight: 700 }}>{formatNumber(presMargin, '%')}</span>
+                            </div>
+                          </div>
+                        )}
                         
                         <div style={{ marginTop: '16px', fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '8px', borderBottom: '1px solid var(--border-color)', paddingBottom: '4px' }}>Pricing Inverso</div>
                         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', padding: '4px 0' }}>

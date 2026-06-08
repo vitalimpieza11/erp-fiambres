@@ -16,6 +16,9 @@ export interface SystemSettings {
   comercial_listaDefault: string;
   comercial_margenDefault: number;
   comercial_politicaDescuento: string;
+  comercial_margenRiesgo?: number;
+  comercial_margenOptimo?: number;
+  comercial_alertaCostoAumento?: number;
   
   costo_bolsa: number;
   costo_etiqueta: number;
@@ -63,6 +66,9 @@ const defaultSettings: SystemSettings = {
   comercial_listaDefault: "1",
   comercial_margenDefault: 30,
   comercial_politicaDescuento: "1",
+  comercial_margenRiesgo: 15,
+  comercial_margenOptimo: 30,
+  comercial_alertaCostoAumento: 10,
   
   costo_bolsa: 0,
   costo_etiqueta: 0,

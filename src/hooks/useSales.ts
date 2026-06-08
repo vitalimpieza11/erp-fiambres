@@ -62,8 +62,10 @@ export const useSales = () => {
 
     const newSale = {
       ...saleData,
+      status: 'PENDIENTE',
       subtotal: calc.subtotal,
       total: calc.total,
+      saldoPendiente: calc.total,
       discount: discountPercent,
       id: saleId,
       createdAt: Date.now(),
@@ -93,7 +95,7 @@ export const useSales = () => {
     }
 
     // Cash movement if completed or paid
-    if (saleData.status === 'completed' || saleData.paymentStatus === 'paid') {
+    if (saleData.status === 'PAGADA') {
       const cashMovRef = doc(collection(db, 'cash_movements'));
       const cashMovement = {
         type: 'in',
@@ -146,7 +148,6 @@ export const useSales = () => {
     // 2. Process NEW stock movements
     const itemsToProcess = data.items || oldSale.items;
     const statusToProcess = data.status !== undefined ? data.status : oldSale.status;
-    const paymentStatusToProcess = data.paymentStatus !== undefined ? data.paymentStatus : oldSale.paymentStatus;
     const paymentMethodToProcess = data.paymentMethod !== undefined ? data.paymentMethod : oldSale.paymentMethod;
     const totalToProcess = data.total !== undefined ? data.total : oldSale.total;
     const remitoToProcess = data.remitoNumber !== undefined ? data.remitoNumber : oldSale.remitoNumber;
@@ -170,7 +171,7 @@ export const useSales = () => {
     }
 
     // 3. Process NEW cash movements
-    if (statusToProcess === 'completed' || paymentStatusToProcess === 'paid') {
+    if (statusToProcess === 'PAGADA' || statusToProcess === 'PARCIAL') {
       const cashMovRef = doc(collection(db, 'cash_movements'));
       const cashMovement = {
         type: 'in',
