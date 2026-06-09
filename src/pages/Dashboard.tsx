@@ -1,43 +1,25 @@
-import React from 'react';
+import React, { useState, useMemo } from 'react';
 import { 
-  DollarSign, ShoppingCart, Package, Users, Activity,
-  TrendingUp, Factory, AlertTriangle, Clock,
-  ArrowUpRight, ArrowDownRight, Wallet, Truck, MapPin, 
-  CheckCircle2, CreditCard, Box, Map, Star
+  Activity, TrendingUp, Package, Wallet, Landmark, BarChart3, Clock, ArrowUpRight, ArrowDownRight, Users, CheckCircle2, AlertTriangle, Box
 } from 'lucide-react';
 import { PageHeader, EmptyState } from '../components/EmptyState';
 import { Card, CardHeader } from '../components/ui/Card';
 import { LoadingSpinner, ErrorState } from '../components/AsyncState';
+import { Table } from '../components/ui/Table';
 import { useSales } from '../hooks/useSales';
-import { usePurchases } from '../hooks/usePurchases';
-import { useOrders } from '../hooks/useOrders';
-import { useCustomers } from '../hooks/useCustomers';
 import { useCashMovements } from '../hooks/useCashMovements';
 import { useStockMovements } from '../hooks/useStockMovements';
 import { useMercaderias } from '../hooks/useMercaderias';
 import { useInsumos } from '../hooks/useInsumos';
 import { usePresentaciones } from '../hooks/usePresentaciones';
+import { useCustomers } from '../hooks/useCustomers';
 import { useSuppliers } from '../hooks/useSuppliers';
-import { useSettings } from '../hooks/useSettings';
 import { formatCurrency, formatNumber } from '../utils/format';
-import { useDateFilter } from '../contexts/DateFilterContext';
 
-const getFriendlyTimeStr = (timestamp: number) => {
-  if (!timestamp) return '';
-  const diffMs = Date.now() - timestamp;
-  const diffMins = Math.floor(diffMs / 60000);
-  if (diffMins < 1) return 'Ahora';
-  if (diffMins < 60) return `Hace ${diffMins} min`;
-  const diffHours = Math.floor(diffMins / 60);
-  if (diffHours < 24) return `Hace ${diffHours} ${diffHours === 1 ? 'hora' : 'horas'}`;
-  return new Date(timestamp).toLocaleDateString();
-};
+const CAPITAL_CATEGORIES = ['aporte_socio', 'inversion_inicial', 'bien_capital', 'maquinaria', 'tecnologia', 'vehiculos', 'vehiculo', 'equipamiento', 'herramientas'];
 
 export const Dashboard = () => {
-  const { settings, loading: loadingSettings, error: errorSettings } = useSettings();
   const { sales, loading: loadingSales, error: errorSales } = useSales();
-  const { purchases, loading: loadingPurchases, error: errorPurchases } = usePurchases();
-  const { orders, loading: loadingOrders, error: errorOrders } = useOrders();
   const { mercaderias, loading: loadingMercaderias, error: errorMercaderias } = useMercaderias();
   const { insumos, loading: loadingInsumos, error: errorInsumos } = useInsumos();
   const { presentaciones, loading: loadingPresentaciones, error: errorPresentaciones } = usePresentaciones();
@@ -46,512 +28,378 @@ export const Dashboard = () => {
   const { movements, loading: loadingMovements, error: errorMovements } = useCashMovements();
   const { productStocks, loading: loadingStocks, error: errorStocks } = useStockMovements();
 
-  const loading = loadingSettings || loadingSales || loadingPurchases || loadingOrders || loadingMercaderias || loadingInsumos || loadingPresentaciones || loadingCustomers || loadingSuppliers || loadingMovements || loadingStocks;
-  const error = errorSettings || errorSales || errorPurchases || errorOrders || errorMercaderias || errorInsumos || errorPresentaciones || errorCustomers || errorSuppliers || errorMovements || errorStocks;
+  const [activeTab, setActiveTab] = useState<'ejecutivo' | 'stock' | 'rentabilidad' | 'flujo' | 'valor'>('ejecutivo');
 
-  if (error) {
-    return <ErrorState message={typeof error === 'string' ? error : (error as any).message || 'Error cargando dashboard real.'} />;
-  }
+  const loading = loadingSales || loadingMercaderias || loadingInsumos || loadingPresentaciones || loadingCustomers || loadingSuppliers || loadingMovements || loadingStocks;
+  const error = errorSales || errorMercaderias || errorInsumos || errorPresentaciones || errorCustomers || errorSuppliers || errorMovements || errorStocks;
 
-  if (loading) {
-    return <LoadingSpinner message="Sincronizando Centro Operativo con Firestore..." />;
-  }
+  // 1. Stock Valorizado
+  const stockValorizado = useMemo(() => {
+    let totalMercaderia = 0;
+    let totalInsumos = 0;
+    let totalProductoTerminado = 0;
 
-  if (sales.length === 0 && purchases.length === 0 && orders.length === 0 && movements.length === 0) {
-    return (
-      <div style={{ padding: '40px', maxWidth: '600px', margin: '0 auto', textAlign: 'center' }}>
-        <PageHeader title="Panel Control Operativo" description="Resumen consolidado en tiempo real" />
-        <div style={{ marginTop: '48px' }}>
-          <EmptyState 
-            icon={Activity} 
-            title="Aún no hay movimientos registrados" 
-            description="Registre pedidos, ventas, compras y producción para comenzar a ver métricas reales." 
-          />
-        </div>
-      </div>
-    );
-  }
+    const list: any[] = [];
 
-  // 1. Calculations & Stats
-  const { filterDate, viewType, selectedYear, selectedMonth, selectedDay, getRange } = useDateFilter();
+    mercaderias.forEach(m => {
+      const qty = productStocks[m.id!] || 0;
+      if (qty <= 0) return;
+      const total = qty * m.costoKg;
+      totalMercaderia += total;
+      list.push({ id: m.id, type: 'Mercadería', name: m.name, qty, cost: m.costoKg, total });
+    });
 
-  const getRate = (code: string) => {
-    const list = settings?.currencies || [];
-    const match = list.find((c: any) => c.code === code);
-    return match ? match.rate : 1;
-  };
+    insumos.forEach(i => {
+      const qty = productStocks[i.id!] || 0;
+      if (qty <= 0) return;
+      const total = qty * i.costoUnitario;
+      totalInsumos += total;
+      list.push({ id: i.id, type: i.name.toLowerCase().includes('bolsa') || i.name.toLowerCase().includes('envase') ? 'Envases' : (i.name.toLowerCase().includes('etiqueta') ? 'Etiquetas' : 'Insumos'), name: i.name, qty, cost: i.costoUnitario, total });
+    });
 
-  const toArs = (amount: number, currency: string) => {
-    return amount * getRate(currency || 'ARS');
-  };
+    presentaciones.forEach(p => {
+      const qty = productStocks[p.id!] || 0;
+      if (qty <= 0) return;
+      // Estimate cost from base product + inputs if possible, or fallback to an arbitrary logic for now. We assume a generic cost if not calculated.
+      let cost = 0;
+      if (p.productoBaseId) {
+        const base = mercaderias.find(m => m.id === p.productoBaseId);
+        if (base) cost += base.costoKg * (p.pesoObjetivoGramos / 1000);
+      }
+      cost += p.manoObra || 0;
+      const total = qty * cost;
+      totalProductoTerminado += total;
+      list.push({ id: p.id, type: 'Producto Terminado', name: p.name, qty, cost, total });
+    });
 
-  const filteredSales = sales.filter((s: any) => filterDate(s.date));
-  const filteredPurchases = purchases.filter((p: any) => filterDate(p.date));
-  const filteredOrders = orders.filter((o: any) => filterDate(o.updatedAt || o.date));
-  const filteredMovements = movements.filter((m: any) => filterDate(m.date || m.createdAt));
+    return { totalMercaderia, totalInsumos, totalProductoTerminado, total: totalMercaderia + totalInsumos + totalProductoTerminado, list };
+  }, [mercaderias, insumos, presentaciones, productStocks]);
 
-  const getPrevRange = () => {
-    let start = 0;
-    let end = 0;
-    if (viewType === 'day') {
-      const prevDate = new Date(selectedYear, selectedMonth, selectedDay - 1);
-      start = new Date(prevDate.getFullYear(), prevDate.getMonth(), prevDate.getDate(), 0, 0, 0, 0).getTime();
-      end = new Date(prevDate.getFullYear(), prevDate.getMonth(), prevDate.getDate(), 23, 59, 59, 999).getTime();
-    } else if (viewType === 'month') {
-      start = new Date(selectedYear, selectedMonth - 1, 1, 0, 0, 0, 0).getTime();
-      end = new Date(selectedYear, selectedMonth, 0, 23, 59, 59, 999).getTime();
-    } else if (viewType === 'year') {
-      start = new Date(selectedYear - 1, 0, 1, 0, 0, 0, 0).getTime();
-      end = new Date(selectedYear - 1, 11, 31, 23, 59, 59, 999).getTime();
-    }
-    return { start, end };
-  };
+  // 2. Rentabilidad por Producto
+  const rentabilidad = useMemo(() => {
+    const stats: Record<string, { name: string, sales: number, cost: number, profit: number, units: number }> = {};
+    
+    sales.filter(s => s.status !== 'ANULADA').forEach(s => {
+      s.items.forEach(item => {
+        if (!stats[item.productId]) stats[item.productId] = { name: item.productName, sales: 0, cost: 0, profit: 0, units: 0 };
+        const rev = item.price * item.quantity;
+        const cst = (item.cost || 0) * item.quantity;
+        stats[item.productId].sales += rev;
+        stats[item.productId].cost += cst;
+        stats[item.productId].profit += (rev - cst);
+        stats[item.productId].units += item.quantity;
+      });
+    });
 
-  const { start: prevStart, end: prevEnd } = getPrevRange();
-  const prevSales = sales.filter((s: any) => s.date >= prevStart && s.date <= prevEnd);
+    const list = Object.values(stats).map(s => ({
+      ...s,
+      margin: s.sales > 0 ? (s.profit / s.sales) * 100 : 0
+    })).sort((a, b) => b.profit - a.profit);
 
-  const totalSalesToday = filteredSales.reduce((acc: number, s: any) => acc + s.total, 0);
-  const totalSalesYesterday = prevSales.reduce((acc: number, s: any) => acc + s.total, 0);
+    return {
+      list,
+      masRentables: list.slice(0, 5),
+      menosRentables: [...list].sort((a, b) => a.margin - b.margin).slice(0, 5)
+    };
+  }, [sales]);
 
-  let salesTrendStr = 'Igual';
-  let salesTrendUp = true;
-  if (viewType !== 'all') {
-    if (totalSalesYesterday > 0) {
-      const diff = ((totalSalesToday - totalSalesYesterday) / totalSalesYesterday) * 100;
-      salesTrendUp = diff >= 0;
-      salesTrendStr = `${diff >= 0 ? '+' : ''}${diff.toFixed(1)}%`;
-    } else if (totalSalesToday > 0) {
-      salesTrendStr = '+100%';
-      salesTrendUp = true;
-    }
-  }
+  // 3. Liquidez y Pasivos (Base Financiera)
+  const finData = useMemo(() => {
+    let liquidez = 0;
+    let pasivos = 0;
+    let activosFijos = 0;
+    let ingresosOp = 0;
+    let egresosOp = 0;
 
-  // Profit/Utility current period
-  const totalCostToday = filteredSales.reduce((acc: number, s: any) => {
-    return acc + (s.items || []).reduce((itemAcc: number, item: any) => itemAcc + (item.quantity * (item.cost || 0)), 0);
-  }, 0);
-  const utilityToday = Math.max(0, totalSalesToday - totalCostToday);
+    const pasivosList: any[] = [];
 
-  // Kgs sold current period
-  const totalKgSoldToday = filteredSales.reduce((acc: number, s: any) => {
-    return acc + (s.items || []).reduce((itemAcc: number, item: any) => {
-      const pres = presentaciones.find((p: any) => p.id === item.productId);
-      const gramaje = pres?.pesoObjetivoGramos || 200;
-      return itemAcc + (item.quantity * (gramaje / 1000));
-    }, 0);
-  }, 0);
+    movements.forEach(m => {
+      const cat = (m.category || '').toLowerCase();
+      const isNonMoney = cat === 'aporte_socio' && m.aporteType && m.aporteType !== 'dinero';
+      const isCapital = CAPITAL_CATEGORIES.some(c => cat.includes(c));
 
-  // Kgs produced current period
-  const todayProducedOrders = filteredOrders.filter((o: any) => o.status === 'ENTREGADO' || o.status === 'FACTURADO' || o.status === 'PRODUCIDO');
-  const totalKgProducedToday = todayProducedOrders.reduce((acc: number, o: any) => {
-    return acc + (o.items || []).reduce((itemAcc: number, item: any) => {
-      const pres = presentaciones.find((p: any) => p.id === item.productId);
-      const gramaje = pres?.pesoObjetivoGramos || 200;
-      const producedQty = (o.actualProduced && o.actualProduced[item.productId]) || item.quantity;
-      return itemAcc + (producedQty * (gramaje / 1000));
-    }, 0);
-  }, 0);
+      // Liquidity
+      if (!isNonMoney && m.type !== 'transfer') {
+        if (m.type === 'in') liquidez += m.amount;
+        else if (m.type === 'out') liquidez -= m.amount;
+      }
 
-  const pendingOrdersCount = filteredOrders.filter((o: any) => o.status === 'PENDIENTE' || o.status === 'EN_PRODUCCION').length;
-  const clientsWithDebtCount = customers.filter((c: any) => (c.currentBalance || 0) > 0).length;
+      // Activos Fijos
+      if (isCapital && m.aporteType !== 'dinero') {
+        if (m.type === 'in') activosFijos += m.amount;
+      }
 
-  let criticalStockCount = 0;
-  mercaderias.forEach(m => { if ((productStocks[m.id!] || 0) <= 10) criticalStockCount++; });
-  insumos.forEach(i => { if ((productStocks[i.id!] || 0) <= 50) criticalStockCount++; });
-  presentaciones.forEach(p => { if ((productStocks[p.id!] || 0) <= 5) criticalStockCount++; });
+      // Pasivos (pending outs)
+      if (m.status === 'pendiente' && m.type === 'out') {
+        const amt = m.pendingAmount ?? m.amount;
+        pasivos += amt;
+        pasivosList.push(m);
+      }
 
-  const periodLabel = {
-    day: 'de hoy',
-    month: 'del mes',
-    year: 'del año',
-    all: 'totales'
-  }[viewType];
+      // Operativo
+      if (!isCapital && m.type !== 'transfer') {
+        if (m.type === 'in') ingresosOp += m.amount;
+        else if (m.type === 'out') egresosOp += m.amount;
+      }
+    });
 
-  const trendLabel = {
-    day: 'vs ayer',
-    month: 'vs mes ant.',
-    year: 'vs año ant.',
-    all: ''
-  }[viewType];
+    // Also consider Customer Debts as Pending Collections
+    const cobrosPendientes = customers.reduce((sum, c) => sum + (c.currentBalance || 0), 0);
+    // Supplier Debts as Pending Payments (if not already in movements, but prompt says "Toda info de Base Financiera", we assume movements pasivos + suppliers)
+    const pagosPendientes = pasivos + suppliers.reduce((sum, s) => sum + ((s as any).currentBalance || 0), 0);
 
-  // Capital Operativo calculations
-  const { end: periodEnd } = getRange();
-  const totalCajaFisicaArs = movements
-    .filter((m: any) => (m.date || m.createdAt) <= periodEnd && (m.origin === 'cash' || (!m.origin && m.method === 'cash')))
-    .reduce((sum: number, m: any) => sum + (m.type === 'in' ? 1 : -1) * toArs(m.amount, m.currency || 'ARS'), 0);
+    return { liquidez, activosFijos, pasivos, pasivosList, cobrosPendientes, pagosPendientes, gananciaAcumulada: ingresosOp - egresosOp };
+  }, [movements, customers, suppliers]);
 
-  const totalBancosArs = movements
-    .filter((m: any) => (m.date || m.createdAt) <= periodEnd && (m.origin === 'bank' || (!m.origin && m.method !== 'cash')))
-    .reduce((sum: number, m: any) => sum + (m.type === 'in' ? 1 : -1) * toArs(m.amount, m.currency || 'ARS'), 0);
+  // 4. Flujo de Fondos Proyectado
+  const flujo = useMemo(() => {
+    const proj7 = finData.liquidez + (finData.cobrosPendientes * 0.3) - (finData.pagosPendientes * 0.5);
+    const proj15 = finData.liquidez + (finData.cobrosPendientes * 0.7) - (finData.pagosPendientes * 0.8);
+    const proj30 = finData.liquidez + finData.cobrosPendientes - finData.pagosPendientes;
+    return { proj7, proj15, proj30 };
+  }, [finData]);
 
-  const totalObligacionesArs = suppliers.reduce((acc: number, s: any) => acc + ((s as any).currentBalance || 0), 0);
-  const capitalOperativo = totalCajaFisicaArs + totalBancosArs - totalObligacionesArs;
+  // 5. Valor de Empresa
+  const valorEmpresa = finData.liquidez + stockValorizado.total + finData.activosFijos - finData.pagosPendientes;
 
-  const stats = [
-    { title: `Ventas ${periodLabel}`, value: formatCurrency(totalSalesToday), icon: DollarSign, trend: salesTrendStr, isUp: salesTrendUp, labelSuffix: trendLabel },
-    { title: `Utilidad est. ${periodLabel}`, value: formatCurrency(utilityToday), icon: TrendingUp, trend: totalSalesToday > 0 ? '+100%' : 'Igual', isUp: true, labelSuffix: trendLabel },
-    { title: `Kg vendidos ${periodLabel}`, value: `${totalKgSoldToday.toFixed(1)} kg`, icon: Package, trend: totalKgSoldToday > 0 ? '+100%' : 'Igual', isUp: true, labelSuffix: trendLabel },
-    { title: `Kg producidos ${periodLabel}`, value: `${totalKgProducedToday.toFixed(1)} kg`, icon: Factory, trend: totalKgProducedToday > 0 ? '+100%' : 'Igual', isUp: true, labelSuffix: trendLabel },
-    { title: 'Pedidos pendientes', value: pendingOrdersCount.toString(), icon: ShoppingCart, trend: pendingOrdersCount > 0 ? `+${pendingOrdersCount}` : 'Igual', isUp: true, labelSuffix: 'período' },
-    { title: 'Clientes con deuda', value: clientsWithDebtCount.toString(), icon: Users, trend: clientsWithDebtCount > 0 ? `+${clientsWithDebtCount}` : 'Igual', isUp: false, alert: true, labelSuffix: 'saldo' },
-    { title: 'Stock crítico', value: criticalStockCount.toString(), icon: AlertTriangle, trend: criticalStockCount > 0 ? 'Crítico' : 'Al día', isUp: false, alert: criticalStockCount > 0, labelSuffix: 'actual' },
-    { title: 'Capital Operativo', value: formatCurrency(capitalOperativo), icon: Wallet, trend: capitalOperativo >= 0 ? 'Saludable' : 'Riesgo', isUp: capitalOperativo >= 0, labelSuffix: 'Caja+Bco-Oblig' },
+  if (error) return <ErrorState message="Error cargando módulos de gestión empresarial." />;
+  if (loading) return <LoadingSpinner message="Calculando inteligencia de negocios..." />;
+
+  const tabs = [
+    { id: 'ejecutivo', label: 'Centro de Decisiones', icon: Activity },
+    { id: 'stock', label: 'Stock Valorizado', icon: Package },
+    { id: 'rentabilidad', label: 'Rentabilidad por Producto', icon: TrendingUp },
+    { id: 'flujo', label: 'Flujo de Fondos', icon: Clock },
+    { id: 'valor', label: 'Valor de la Empresa', icon: Landmark }
   ];
-
-  // 2. Intelligent Alerts
-  const generatedAlerts: any[] = [];
-  if (criticalStockCount > 0) {
-    generatedAlerts.push({
-      title: `${criticalStockCount} ${criticalStockCount === 1 ? 'producto tiene' : 'productos tienen'} stock crítico`,
-      type: 'error',
-      icon: AlertTriangle
-    });
-  }
-  if (clientsWithDebtCount > 0) {
-    generatedAlerts.push({
-      title: `${clientsWithDebtCount} ${clientsWithDebtCount === 1 ? 'cliente tiene' : 'clientes tienen'} saldo deudor`,
-      type: 'warning',
-      icon: Users
-    });
-  }
-  // Placeholder until cost logic is fully implemented on Presentaciones
-  const lowMarginProducts: any[] = []; // Disable temporarily for simplicity, can be re-enabled if needed
-
-  generatedAlerts.push({
-    title: `${mercaderias.length + insumos.length + presentaciones.length} items activos en el catálogo multicapa`,
-    type: 'info',
-    icon: Package
-  });
-
-  const formatEventTime = (timestamp: number) => {
-    const d = new Date(timestamp);
-    if (viewType === 'day') {
-      return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    }
-    return `${d.getDate()}/${d.getMonth() + 1} ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
-  };
-
-  // 3. Operational Timeline today
-  const todayEvents: any[] = [];
-  const todaySales = filteredSales;
-  todaySales.forEach((s: any) => {
-    todayEvents.push({
-      time: formatEventTime(s.date),
-      timestamp: s.date,
-      title: 'Venta comercial',
-      desc: `Remito ${s.remitoNumber || 'N/A'} - ${s.customerName} (${formatCurrency(s.total)})`,
-      icon: ShoppingCart,
-      color: '#8b5cf6'
-    });
-  });
-
-  const todayPurchases = filteredPurchases;
-  todayPurchases.forEach((p: any) => {
-    todayEvents.push({
-      time: formatEventTime(p.date),
-      timestamp: p.date,
-      title: 'Compra registrada',
-      desc: `Factura ${p.invoiceNumber || 'N/A'} - ${p.supplierName} (${formatCurrency(p.total)})`,
-      icon: Truck,
-      color: '#f59e0b'
-    });
-  });
-
-  todayProducedOrders.forEach((o: any) => {
-    todayEvents.push({
-      time: formatEventTime(o.updatedAt || o.date),
-      timestamp: o.updatedAt || o.date,
-      title: 'Pedido Producido',
-      desc: `Cliente: ${o.customerName} - ${o.items.length} items producidos`,
-      icon: Factory,
-      color: '#3b82f6'
-    });
-  });
-
-  const sortedTimeline = todayEvents
-    .sort((a, b) => b.timestamp - a.timestamp)
-    .slice(0, 5);
-
-  if (sortedTimeline.length === 0) {
-    sortedTimeline.push({
-      time: '--:--',
-      timestamp: 0,
-      title: 'Sin actividad en el período',
-      desc: 'No se registran transacciones operativas durante el período seleccionado.',
-      icon: Activity,
-      color: '#64748b'
-    });
-  }
-
-  // 4. Tops del Negocio
-  const productQuantities: Record<string, number> = {};
-  filteredSales.forEach((s: any) => {
-    (s.items || []).forEach((item: any) => {
-      productQuantities[item.productName] = (productQuantities[item.productName] || 0) + item.quantity;
-    });
-  });
-  const topProductsList = Object.entries(productQuantities)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 3)
-    .map(entry => entry[0]);
-  while (topProductsList.length < 3) {
-    topProductsList.push(topProductsList.length === 0 ? 'Sin ventas registradas' : '--');
-  }
-
-  const productProfits: Record<string, number> = {};
-  filteredSales.forEach((s: any) => {
-    (s.items || []).forEach((item: any) => {
-      const revenue = item.quantity * item.price;
-      const cost = item.quantity * (item.cost || 0);
-      productProfits[item.productName] = (productProfits[item.productName] || 0) + (revenue - cost);
-    });
-  });
-  const topRentablesList = Object.entries(productProfits)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 3)
-    .map(entry => entry[0]);
-  while (topRentablesList.length < 3) {
-    topRentablesList.push(topRentablesList.length === 0 ? 'Sin ventas registradas' : '--');
-  }
-
-  const customerTotals: Record<string, number> = {};
-  filteredSales.forEach((s: any) => {
-    customerTotals[s.customerName] = (customerTotals[s.customerName] || 0) + s.total;
-  });
-  const topCustomersList = Object.entries(customerTotals)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 3)
-    .map(entry => entry[0]);
-  while (topCustomersList.length < 3) {
-    topCustomersList.push(topCustomersList.length === 0 ? 'Sin clientes registrados' : '--');
-  }
-
-  const topZonesList = ['Centro', 'Distribución Central', 'Entregas Locales'];
-
-  // 5. Caja Rápida
-  const balanceCaja = totalCajaFisicaArs + totalBancosArs;
-  const ingresosHoy = filteredMovements.filter((m: any) => m.type === 'in').reduce((acc: number, m: any) => acc + toArs(m.amount, m.currency || 'ARS'), 0);
-  const egresosHoy = filteredMovements.filter((m: any) => m.type === 'out').reduce((acc: number, m: any) => acc + toArs(m.amount, m.currency || 'ARS'), 0);
-  const totalCobrar30d = customers.reduce((acc: number, c: any) => acc + (c.currentBalance || 0), 0);
-  const totalPagar30d = totalObligacionesArs;
-
-  const caja = [
-    { label: 'Caja al período', value: formatCurrency(balanceCaja), color: 'var(--text-primary)' },
-    { label: 'Ingresos período', value: formatCurrency(ingresosHoy), color: '#16a34a' },
-    { label: 'Egresos período', value: formatCurrency(egresosHoy), color: '#dc2626' },
-    { label: 'A cobrar (30d)', value: formatCurrency(totalCobrar30d), color: '#d97706' },
-    { label: 'A pagar (30d)', value: formatCurrency(totalPagar30d), color: '#dc2626' },
-  ];
-
-  // 6. Actividad Reciente
-  const allEvents: any[] = [];
-  filteredSales.slice(0, 5).forEach((s: any) => {
-    allEvents.push({
-      timestamp: s.date,
-      title: `Nuevo pedido ${s.remitoNumber || ''}`,
-      desc: s.customerName,
-      time: getFriendlyTimeStr(s.date),
-      icon: Box
-    });
-  });
-
-  filteredOrders.slice(0, 5).forEach((o: any) => {
-    allEvents.push({
-      timestamp: o.updatedAt || o.date,
-      title: o.status === 'ENTREGADO' || o.status === 'FACTURADO' || o.status === 'PRODUCIDO' ? 'Pedido Completado' : 'Pedido Registrado',
-      desc: `${o.customerName} - ${formatCurrency(o.total)}`,
-      time: getFriendlyTimeStr(o.updatedAt || o.date),
-      icon: CheckCircle2
-    });
-  });
-
-  filteredMovements.slice(0, 5).forEach((m: any) => {
-    allEvents.push({
-      timestamp: m.createdAt || m.date,
-      title: m.type === 'in' ? 'Ingreso de caja' : 'Egreso de caja',
-      desc: m.description,
-      time: getFriendlyTimeStr(m.createdAt || m.date),
-      icon: m.type === 'in' ? DollarSign : CreditCard
-    });
-  });
-
-  const sortedActivity = allEvents
-    .sort((a, b) => b.timestamp - a.timestamp)
-    .slice(0, 4);
-
-  if (sortedActivity.length === 0) {
-    sortedActivity.push({
-      timestamp: 0,
-      title: 'Sin actividad registrada',
-      desc: 'Comience a operar para ver las actividades aquí.',
-      time: '',
-      icon: Star
-    });
-  }
 
   return (
     <>
-      <PageHeader title="Centro Operativo" description="Resumen inteligente del negocio en tiempo real basado en datos reales de Firestore" />
-      
-      {/* 1. Resumen del Día */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '20px', marginBottom: '24px' }}>
-        {stats.map((stat, idx) => {
-          const Icon = stat.icon;
+      <PageHeader title="Gestión Empresarial" description="Módulos de inteligencia de negocios para toma de decisiones." />
+
+      <div style={{ display: 'flex', gap: '8px', marginBottom: '24px', borderBottom: '1px solid var(--border-color)', paddingBottom: '12px', flexWrap: 'wrap' }}>
+        {tabs.map(tab => {
+          const TabIcon = tab.icon;
+          const isActive = activeTab === tab.id;
           return (
-            <Card key={idx}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                <div>
-                  <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', fontWeight: 500, marginBottom: '8px' }}>{stat.title}</p>
-                  <h3 style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '8px' }}>{stat.value}</h3>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.875rem', color: stat.isUp ? '#16a34a' : '#dc2626' }}>
-                    {stat.trend !== 'Igual' && stat.trend !== 'Crítico' && stat.trend !== 'Al día' ? (stat.isUp ? <ArrowUpRight size={16} /> : <ArrowDownRight size={16} />) : <Activity size={16} />}
-                    <span style={{ fontWeight: 500 }}>{stat.trend}</span>
-                    <span style={{ color: 'var(--text-secondary)' }}>{stat.labelSuffix}</span>
-                  </div>
-                </div>
-                <div style={{ padding: '10px', backgroundColor: stat.alert ? '#fee2e2' : 'var(--primary-light)', color: stat.alert ? '#dc2626' : 'var(--primary-color)', borderRadius: '10px' }}>
-                  <Icon size={20} />
-                </div>
-              </div>
-            </Card>
-          );
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id as any)}
+              style={{
+                display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 18px', border: 'none', borderRadius: '8px', cursor: 'pointer',
+                backgroundColor: isActive ? 'var(--primary-color)' : 'transparent',
+                color: isActive ? '#fff' : 'var(--text-secondary)',
+                fontWeight: isActive ? 700 : 500,
+                transition: 'all 0.2s',
+                boxShadow: isActive ? 'var(--shadow-sm)' : 'none'
+              }}
+            >
+              <TabIcon size={18} />
+              {tab.label}
+            </button>
+          )
         })}
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 3fr', gap: '24px', marginBottom: '24px' }}>
-        {/* 2. Alertas Inteligentes */}
-        <Card padding="none" style={{ display: 'flex', flexDirection: 'column' }}>
-          <div style={{ padding: '20px', borderBottom: '1px solid var(--border-color)', backgroundColor: '#fafafa' }}>
-             <CardHeader title="Alertas Inteligentes" subtitle="Requieren atención" />
-          </div>
-          <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '12px', flex: 1 }}>
-            {generatedAlerts.map((alert, idx) => {
-              const bg = alert.type === 'error' ? '#fef2f2' : alert.type === 'warning' ? '#fefce8' : '#f0fdf4';
-              const border = alert.type === 'error' ? '#fecaca' : alert.type === 'warning' ? '#fef08a' : '#bbf7d0';
-              const color = alert.type === 'error' ? '#dc2626' : alert.type === 'warning' ? '#ca8a04' : '#16a34a';
-              const AlertIcon = alert.icon;
-              return (
-                <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '12px', backgroundColor: bg, border: `1px solid ${border}`, borderRadius: '8px' }}>
-                  <AlertIcon size={20} color={color} />
-                  <span style={{ fontSize: '0.875rem', fontWeight: 500, color: color }}>{alert.title}</span>
-                </div>
-              );
-            })}
-          </div>
-        </Card>
+      <div style={{ minHeight: '60vh' }}>
+        {activeTab === 'ejecutivo' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px' }}>
+              <Card padding="sm" style={{ borderLeft: '4px solid #0d9488' }}>
+                <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontWeight: 600, textTransform: 'uppercase' }}>Dinero Disponible</p>
+                <h3 style={{ fontSize: '1.5rem', fontWeight: 800, color: '#0f766e', marginTop: '8px' }}>{formatCurrency(finData.liquidez)}</h3>
+              </Card>
+              <Card padding="sm" style={{ borderLeft: '4px solid #16a34a' }}>
+                <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontWeight: 600, textTransform: 'uppercase' }}>Ganancia Acumulada</p>
+                <h3 style={{ fontSize: '1.5rem', fontWeight: 800, color: '#166534', marginTop: '8px' }}>{formatCurrency(finData.gananciaAcumulada)}</h3>
+              </Card>
+              <Card padding="sm" style={{ borderLeft: '4px solid #b45309' }}>
+                <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontWeight: 600, textTransform: 'uppercase' }}>Evolución Patrimonial</p>
+                <h3 style={{ fontSize: '1.5rem', fontWeight: 800, color: '#92400e', marginTop: '8px' }}>{formatCurrency(valorEmpresa)}</h3>
+              </Card>
+              <Card padding="sm" style={{ borderLeft: '4px solid #dc2626' }}>
+                <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontWeight: 600, textTransform: 'uppercase' }}>Deudas / Obligaciones</p>
+                <h3 style={{ fontSize: '1.5rem', fontWeight: 800, color: '#991b1b', marginTop: '8px' }}>{formatCurrency(finData.pagosPendientes)}</h3>
+              </Card>
+            </div>
 
-        {/* 5. Caja Rápida & 4. Tops del Negocio */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-          {/* Caja Rápida */}
-          <Card padding="none">
-             <div style={{ padding: '20px', borderBottom: '1px solid var(--border-color)' }}>
-                <CardHeader title="Estado de Caja" subtitle="Resumen financiero inmediato real" />
-             </div>
-             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', padding: '24px', gap: '16px' }}>
-                {caja.map((item, idx) => (
-                  <div key={idx} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', borderRight: idx < 4 ? '1px solid var(--border-color)' : 'none' }}>
-                    <span style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', marginBottom: '8px', fontWeight: 500 }}>{item.label}</span>
-                    <span style={{ fontSize: '1.25rem', fontWeight: 700, color: item.color }}>{item.value}</span>
-                  </div>
-                ))}
-             </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
+              <Card>
+                <CardHeader title="Top Productos Más Rentables" subtitle="Mayor ganancia neta absoluta" />
+                <div style={{ padding: '24px' }}>
+                  {rentabilidad.masRentables.length > 0 ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                      {rentabilidad.masRentables.map((item, i) => (
+                        <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '12px', border: '1px solid var(--border-color)', borderRadius: '8px', backgroundColor: '#f0fdf4' }}>
+                          <div>
+                            <span style={{ fontWeight: 600 }}>{item.name}</span>
+                            <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Margen: {item.margin.toFixed(1)}%</div>
+                          </div>
+                          <b style={{ color: '#16a34a' }}>+{formatCurrency(item.profit)}</b>
+                        </div>
+                      ))}
+                    </div>
+                  ) : <EmptyState icon={Box} title="Sin datos" description="No hay ventas registradas." />}
+                </div>
+              </Card>
+              
+              <Card>
+                <CardHeader title="Productos Menos Rentables" subtitle="Atención a márgenes bajos" />
+                <div style={{ padding: '24px' }}>
+                  {rentabilidad.menosRentables.length > 0 ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                      {rentabilidad.menosRentables.map((item, i) => (
+                        <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '12px', border: '1px solid var(--border-color)', borderRadius: '8px', backgroundColor: item.margin < 15 ? '#fef2f2' : '#fefce8' }}>
+                          <div>
+                            <span style={{ fontWeight: 600 }}>{item.name}</span>
+                            <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Margen: {item.margin.toFixed(1)}%</div>
+                          </div>
+                          <b style={{ color: item.profit <= 0 ? '#dc2626' : '#d97706' }}>{formatCurrency(item.profit)}</b>
+                        </div>
+                      ))}
+                    </div>
+                  ) : <EmptyState icon={Box} title="Sin datos" description="No hay ventas registradas." />}
+                </div>
+              </Card>
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'stock' && (
+          <Card>
+            <CardHeader title="Stock Valorizado Total" subtitle={`Valor total en plaza: ${formatCurrency(stockValorizado.total)}`} />
+            <div style={{ padding: '24px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px', marginBottom: '24px' }}>
+                <div style={{ padding: '16px', backgroundColor: '#f0fdfa', borderRadius: '8px', border: '1px solid #ccfbf1' }}>
+                  <p style={{ fontSize: '0.875rem', fontWeight: 600, color: '#0f766e' }}>Mercadería</p>
+                  <h3 style={{ fontSize: '1.5rem', fontWeight: 800, color: '#0d9488' }}>{formatCurrency(stockValorizado.totalMercaderia)}</h3>
+                </div>
+                <div style={{ padding: '16px', backgroundColor: '#eff6ff', borderRadius: '8px', border: '1px solid #bfdbfe' }}>
+                  <p style={{ fontSize: '0.875rem', fontWeight: 600, color: '#1d4ed8' }}>Insumos/Envases</p>
+                  <h3 style={{ fontSize: '1.5rem', fontWeight: 800, color: '#2563eb' }}>{formatCurrency(stockValorizado.totalInsumos)}</h3>
+                </div>
+                <div style={{ padding: '16px', backgroundColor: '#fdf4ff', borderRadius: '8px', border: '1px solid #fae8ff' }}>
+                  <p style={{ fontSize: '0.875rem', fontWeight: 600, color: '#a21caf' }}>Producto Terminado</p>
+                  <h3 style={{ fontSize: '1.5rem', fontWeight: 800, color: '#c026d3' }}>{formatCurrency(stockValorizado.totalProductoTerminado)}</h3>
+                </div>
+              </div>
+              <Table 
+                data={stockValorizado.list.sort((a, b) => b.total - a.total)}
+                keyExtractor={item => item.id!}
+                columns={[
+                  { header: 'Tipo', accessor: item => <span style={{ fontSize: '0.8rem', padding: '2px 8px', borderRadius: '12px', backgroundColor: 'var(--bg-secondary)', fontWeight: 600 }}>{item.type}</span>, width: '150px' },
+                  { header: 'Item', accessor: item => item.name },
+                  { header: 'Cantidad', accessor: item => formatNumber(item.qty), width: '120px' },
+                  { header: 'Costo Unit.', accessor: item => formatCurrency(item.cost), width: '120px' },
+                  { header: 'Valor Total', accessor: item => <b style={{ color: 'var(--primary-color)' }}>{formatCurrency(item.total)}</b>, width: '150px' }
+                ]}
+              />
+            </div>
           </Card>
+        )}
 
-          {/* Tops */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px' }}>
-            <Card>
-              <h4 style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', marginBottom: '16px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <Package size={16} /> Productos Top
-              </h4>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                {topProductsList.map((item, i) => (
-                  <div key={i} style={{ fontSize: '0.875rem', fontWeight: 500 }}>{i+1}. {item}</div>
-                ))}
-              </div>
-            </Card>
-            <Card>
-              <h4 style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', marginBottom: '16px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <TrendingUp size={16} /> Más Rentables
-              </h4>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                {topRentablesList.map((item, i) => (
-                  <div key={i} style={{ fontSize: '0.875rem', fontWeight: 500 }}>{i+1}. {item}</div>
-                ))}
-              </div>
-            </Card>
-            <Card>
-              <h4 style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', marginBottom: '16px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <Users size={16} /> Mejores Clientes
-              </h4>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                {topCustomersList.map((item, i) => (
-                  <div key={i} style={{ fontSize: '0.875rem', fontWeight: 500 }}>{i+1}. {item}</div>
-                ))}
-              </div>
-            </Card>
-            <Card>
-              <h4 style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', marginBottom: '16px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <MapPin size={16} /> Zonas Calientes
-              </h4>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                {topZonesList.map((item, i) => (
-                  <div key={i} style={{ fontSize: '0.875rem', fontWeight: 500 }}>{i+1}. {item}</div>
-                ))}
-              </div>
-            </Card>
-          </div>
-        </div>
-      </div>
-
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
-        {/* 3. Hoy en el Negocio */}
-        <Card>
-          <CardHeader title="Hoy en el Negocio" subtitle="Línea de tiempo operativa real" />
-          <div style={{ marginTop: '24px', display: 'flex', flexDirection: 'column', gap: '20px', position: 'relative' }}>
-             <div style={{ position: 'absolute', left: '19px', top: '10px', bottom: '10px', width: '2px', backgroundColor: 'var(--border-color)' }}></div>
-             {sortedTimeline.map((item, idx) => {
-               const ItemIcon = item.icon;
-               return (
-                 <div key={idx} style={{ display: 'flex', gap: '16px', position: 'relative', zIndex: 1 }}>
-                   <div style={{ backgroundColor: item.color, width: '40px', height: '40px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', flexShrink: 0, boxShadow: '0 0 0 4px var(--bg-secondary)' }}>
-                     <ItemIcon size={20} />
-                   </div>
-                   <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', paddingTop: '2px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{item.title}</span>
-                        <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', backgroundColor: 'var(--bg-primary)', padding: '2px 6px', borderRadius: '4px' }}>{item.time}</span>
+        {activeTab === 'rentabilidad' && (
+          <Card>
+            <CardHeader title="Rentabilidad por Producto" subtitle="Ventas vs Costos Históricos" />
+            <div style={{ padding: '24px' }}>
+              <Table 
+                data={rentabilidad.list}
+                keyExtractor={item => item.name}
+                columns={[
+                  { header: 'Producto', accessor: item => item.name },
+                  { header: 'Unidades Vendidas', accessor: item => formatNumber(item.units), width: '150px' },
+                  { header: 'Total Ventas', accessor: item => <b style={{ color: '#16a34a' }}>{formatCurrency(item.sales)}</b>, width: '150px' },
+                  { header: 'Total Costos', accessor: item => <b style={{ color: '#dc2626' }}>{formatCurrency(item.cost)}</b>, width: '150px' },
+                  { header: 'Ganancia Neta', accessor: item => <b style={{ color: item.profit >= 0 ? '#1d4ed8' : '#991b1b' }}>{formatCurrency(item.profit)}</b>, width: '150px' },
+                  { header: 'Margen %', accessor: item => (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <div style={{ width: '60px', height: '6px', backgroundColor: 'var(--bg-secondary)', borderRadius: '3px', overflow: 'hidden' }}>
+                        <div style={{ height: '100%', width: `${Math.min(100, Math.max(0, item.margin))}%`, backgroundColor: item.margin >= 30 ? '#16a34a' : item.margin > 10 ? '#f59e0b' : '#dc2626' }} />
                       </div>
-                      <span style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>{item.desc}</span>
-                   </div>
-                 </div>
-               );
-             })}
-          </div>
-        </Card>
+                      <span style={{ fontWeight: 'bold', color: item.margin >= 30 ? '#16a34a' : item.margin > 10 ? '#f59e0b' : '#dc2626' }}>{item.margin.toFixed(1)}%</span>
+                    </div>
+                  ), width: '150px' }
+                ]}
+              />
+            </div>
+          </Card>
+        )}
 
-        {/* 6. Actividad Reciente */}
-        <Card>
-          <CardHeader title="Actividad Reciente" subtitle="Últimos movimientos registrados reales" />
-          <div style={{ marginTop: '24px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-            {sortedActivity.map((item, idx) => {
-              const ItemIcon = item.icon;
-              return (
-                <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: '16px', padding: '12px', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
-                   <div style={{ backgroundColor: 'var(--primary-light)', padding: '10px', borderRadius: '8px', color: 'var(--primary-color)' }}>
-                     <ItemIcon size={20} />
-                   </div>
-                   <div style={{ flex: 1 }}>
-                     <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{item.title}</div>
-                     <div style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>{item.desc}</div>
-                   </div>
-                   <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontWeight: 500 }}>
-                     {item.time}
-                   </div>
+        {activeTab === 'flujo' && (
+          <Card>
+            <CardHeader title="Flujo de Fondos Proyectado" subtitle="Evolución estimada de liquidez a corto plazo" />
+            <div style={{ padding: '24px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '24px', marginBottom: '32px' }}>
+                <div style={{ padding: '20px', border: '1px solid var(--border-color)', borderRadius: '12px' }}>
+                  <h4 style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', marginBottom: '8px' }}>Liquidez Actual (Hoy)</h4>
+                  <b style={{ fontSize: '1.75rem', color: '#0f766e' }}>{formatCurrency(finData.liquidez)}</b>
                 </div>
-              );
-            })}
-          </div>
-        </Card>
+                <div style={{ padding: '20px', border: '1px solid var(--border-color)', borderRadius: '12px' }}>
+                  <h4 style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', marginBottom: '8px' }}>Cobros Pendientes</h4>
+                  <b style={{ fontSize: '1.75rem', color: '#16a34a' }}>+{formatCurrency(finData.cobrosPendientes)}</b>
+                </div>
+                <div style={{ padding: '20px', border: '1px solid var(--border-color)', borderRadius: '12px' }}>
+                  <h4 style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', marginBottom: '8px' }}>Pagos Pendientes</h4>
+                  <b style={{ fontSize: '1.75rem', color: '#dc2626' }}>-{formatCurrency(finData.pagosPendientes)}</b>
+                </div>
+              </div>
+
+              <h3 style={{ fontSize: '1.2rem', fontWeight: 700, marginBottom: '24px', color: '#1e293b' }}>Proyección Estimada de Liquidez</h3>
+              <div style={{ display: 'flex', gap: '24px' }}>
+                <div style={{ flex: 1, padding: '24px', backgroundColor: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '12px', textAlign: 'center' }}>
+                  <p style={{ fontWeight: 600, color: '#64748b', marginBottom: '8px' }}>A 7 días</p>
+                  <h3 style={{ fontSize: '2rem', fontWeight: 800, color: flujo.proj7 >= 0 ? '#1d4ed8' : '#dc2626' }}>{formatCurrency(flujo.proj7)}</h3>
+                </div>
+                <div style={{ flex: 1, padding: '24px', backgroundColor: '#f1f5f9', border: '1px solid #cbd5e1', borderRadius: '12px', textAlign: 'center' }}>
+                  <p style={{ fontWeight: 600, color: '#475569', marginBottom: '8px' }}>A 15 días</p>
+                  <h3 style={{ fontSize: '2rem', fontWeight: 800, color: flujo.proj15 >= 0 ? '#1d4ed8' : '#dc2626' }}>{formatCurrency(flujo.proj15)}</h3>
+                </div>
+                <div style={{ flex: 1, padding: '24px', backgroundColor: '#e2e8f0', border: '1px solid #94a3b8', borderRadius: '12px', textAlign: 'center' }}>
+                  <p style={{ fontWeight: 600, color: '#334155', marginBottom: '8px' }}>A 30 días</p>
+                  <h3 style={{ fontSize: '2rem', fontWeight: 800, color: flujo.proj30 >= 0 ? '#1d4ed8' : '#dc2626' }}>{formatCurrency(flujo.proj30)}</h3>
+                </div>
+              </div>
+              <p style={{ marginTop: '24px', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>* Proyección algorítmica asumiendo prorrateo de cobros y pagos pendientes a lo largo del mes.</p>
+            </div>
+          </Card>
+        )}
+
+        {activeTab === 'valor' && (
+          <Card>
+            <CardHeader title="Valor Dinámico de la Empresa" subtitle="Cálculo patrimonial integral en tiempo real" />
+            <div style={{ padding: '32px' }}>
+               <div style={{ maxWidth: '600px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '16px', fontSize: '1.1rem' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '16px', backgroundColor: '#f0fdf4', borderRadius: '8px' }}>
+                    <span style={{ fontWeight: 600 }}>Liquidez Total</span>
+                    <b style={{ color: '#166534' }}>{formatCurrency(finData.liquidez)}</b>
+                  </div>
+                  
+                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '16px', backgroundColor: '#f0fdf4', borderRadius: '8px' }}>
+                    <span style={{ fontWeight: 600 }}>(+) Stock Valorizado</span>
+                    <b style={{ color: '#166534' }}>{formatCurrency(stockValorizado.total)}</b>
+                  </div>
+
+                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '16px', backgroundColor: '#f0fdf4', borderRadius: '8px' }}>
+                    <span style={{ fontWeight: 600 }}>(+) Activos Fijos</span>
+                    <b style={{ color: '#166534' }}>{formatCurrency(finData.activosFijos)}</b>
+                  </div>
+
+                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '16px', backgroundColor: '#fef2f2', borderRadius: '8px' }}>
+                    <span style={{ fontWeight: 600 }}>(-) Pasivos / Obligaciones</span>
+                    <b style={{ color: '#991b1b' }}>{formatCurrency(finData.pagosPendientes)}</b>
+                  </div>
+
+                  <div style={{ height: '2px', backgroundColor: 'var(--border-color)', margin: '8px 0' }} />
+
+                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '24px', backgroundColor: '#1e293b', color: '#fff', borderRadius: '8px', fontSize: '1.25rem' }}>
+                    <span style={{ fontWeight: 800 }}>= VALOR DE LA EMPRESA</span>
+                    <b style={{ fontWeight: 900, color: '#38bdf8' }}>{formatCurrency(valorEmpresa)}</b>
+                  </div>
+               </div>
+            </div>
+          </Card>
+        )}
+
       </div>
     </>
   );

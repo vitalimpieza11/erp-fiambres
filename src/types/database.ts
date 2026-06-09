@@ -95,6 +95,18 @@ export interface CashMovement {
   partnerId?: string; // For Aportes de Socio
   aporteType?: 'dinero' | 'bien_capital' | 'vehiculo' | 'mercaderia' | 'equipamiento' | 'tecnologia' | 'otro';
   
+  // Relations
+  customerId?: string;
+  customerName?: string;
+  supplierId?: string;
+  supplierName?: string;
+  
+  // Status y Pasivos
+  status?: 'completado' | 'pendiente' | 'anulado';
+  dueDate?: number; // Vencimiento para pasivos
+  originalAmount?: number; // Importe original (si es pago parcial)
+  pendingAmount?: number; // Saldo pendiente
+  
   // Manual Override & Audit
   isManualOverride?: boolean;
   auditLog?: {

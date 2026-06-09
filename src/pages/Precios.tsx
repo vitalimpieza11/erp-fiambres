@@ -101,9 +101,12 @@ export const Precios = () => {
       setListActiveInput(selectedList.isActive);
       setGeneralMarginStr(selectedList.margin.toString());
       
-      let initTypes = ['presentacion', 'mercaderia'];
-      if (selectedList.type === 'presentaciones') initTypes = ['presentacion'];
-      if (selectedList.type === 'mercaderias') initTypes = ['mercaderia'];
+      let initTypes = selectedList.includedTypes && selectedList.includedTypes.length > 0 
+        ? selectedList.includedTypes 
+        : ['presentacion', 'mercaderia'];
+      
+      if (selectedList.type === 'presentaciones' && (!selectedList.includedTypes || selectedList.includedTypes.length === 0)) initTypes = ['presentacion'];
+      if (selectedList.type === 'mercaderias' && (!selectedList.includedTypes || selectedList.includedTypes.length === 0)) initTypes = ['mercaderia'];
       
       const initialMode = selectedList.mode || 'auto';
       setIncludedTypes(initTypes);
@@ -300,6 +303,7 @@ export const Precios = () => {
         mode: listModeInput,
         margin: parseNumber(generalMarginStr),
         isActive: listActiveInput,
+        includedTypes: includedTypes,
         productOverrides: overrides
       };
 
@@ -470,15 +474,13 @@ export const Precios = () => {
       p.brand,
       p.itemType === 'mercaderia' ? 'Mercadería' : 'Presentación',
       p.unit,
-      formatCurrency(p.cost),
-      `${p.margin.toFixed(2)}%`,
       formatCurrency(p.price),
       p.itemType === 'presentacion' && p.unidadesPorCaja > 1 ? formatCurrency(p.precioCaja) : '-'
     ]);
 
     autoTable(doc, {
       startY: 56,
-      head: [['Producto', 'Marca', 'Tipo', 'Unidad', 'Costo', 'Margen', 'P. Unit', 'P. Caja']],
+      head: [['Producto', 'Marca', 'Tipo', 'Unidad', 'P. Unit', 'P. Caja']],
       body: tableRows,
       theme: 'striped',
       headStyles: {
@@ -493,14 +495,12 @@ export const Precios = () => {
         cellPadding: 4
       },
       columnStyles: {
-        0: { cellWidth: 45 },
-        1: { cellWidth: 25 },
-        2: { cellWidth: 20 },
+        0: { cellWidth: 55 },
+        1: { cellWidth: 35 },
+        2: { cellWidth: 25 },
         3: { cellWidth: 15 },
-        4: { cellWidth: 15, halign: 'right' },
-        5: { cellWidth: 15, halign: 'right' },
-        6: { cellWidth: 20, halign: 'right' },
-        7: { cellWidth: 20, halign: 'right' }
+        4: { cellWidth: 25, halign: 'right' },
+        5: { cellWidth: 25, halign: 'right' }
       },
       margin: { left: 15, right: 15 }
     });

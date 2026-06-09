@@ -20,7 +20,8 @@ import {
   PieChart,
   LogOut,
   ClipboardList,
-  Activity
+  Activity,
+  Database
 } from 'lucide-react';
 
 import { X } from 'lucide-react';
@@ -63,6 +64,7 @@ export const Sidebar = ({ isOpen, onClose }: SidebarProps) => {
     {
       title: 'Finanzas',
       items: [
+        { path: '/base-financiera', icon: Database, label: 'Base Financiera' },
         { path: '/dashboard-financiero', icon: Activity, label: 'Dashboard Financiero' },
         { path: '/caja-bancos', icon: Landmark, label: 'Caja y Bancos' },
         { path: '/cuenta-corriente', icon: Wallet, label: 'Cuenta Corriente' },

@@ -11,6 +11,7 @@ export interface PriceList {
   mode?: 'auto' | 'manual';
   margin: number;
   isActive: boolean;
+  includedTypes?: string[];
   productOverrides?: {
     [productId: string]: {
       margin: number;
@@ -69,6 +70,7 @@ export const usePriceLists = () => {
             mode: data.mode || 'auto',
             margin: Number(data.margin) || 0,
             isActive: typeof data.isActive === 'boolean' ? data.isActive : true,
+            includedTypes: data.includedTypes || [],
             productOverrides: overrides,
             createdAt: data.createdAt || Date.now(),
             updatedAt: data.updatedAt || Date.now(),

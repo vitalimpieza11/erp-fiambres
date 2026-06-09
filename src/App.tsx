@@ -20,7 +20,9 @@ import {
   Reportes,
   Produccion,
   Login,
-  DashboardFinanciero
+  DashboardFinanciero,
+  BaseFinanciera,
+  MigracionFinanciera
 } from './pages';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { DateFilterProvider } from './contexts/DateFilterContext';
@@ -117,6 +119,16 @@ function App() {
               <Route
                 path="dashboard-financiero"
                 element={<DashboardFinanciero />}
+              />
+
+              <Route
+                path="base-financiera"
+                element={<BaseFinanciera />}
+              />
+
+              <Route
+                path="migracion-financiera"
+                element={<MigracionFinanciera />}
               />
 
               <Route

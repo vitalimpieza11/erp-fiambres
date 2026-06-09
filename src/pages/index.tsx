@@ -20,6 +20,8 @@ export { Rentabilidad } from './Rentabilidad';
 export { Reportes } from './Reportes';
 export { Dashboard } from './Dashboard';
 export { DashboardFinanciero } from './DashboardFinanciero';
+export { BaseFinanciera } from './BaseFinanciera';
+export { MigracionFinanciera } from './MigracionFinanciera';
 export { Login } from './Login';
 
 // --- Stock moved to Stock.tsx ---

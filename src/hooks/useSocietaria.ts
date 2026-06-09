@@ -190,154 +190,41 @@ export const useSocietaria = () => {
 
   // Distributions CRUD
   const createDistribution = async (dist: Omit<PartnerDistribution, 'id' | 'createdAt'>) => {
-    const batch = writeBatch(db);
-    const ref = doc(collection(db, 'partner_distributions'));
-    batch.set(ref, { ...dist, createdAt: Date.now() });
-
-    // Link to cash
-    const cashRef = doc(collection(db, 'cash_movements'));
-    batch.set(cashRef, {
-      type: 'out',
-      amount: dist.amount,
-      currency: dist.currency,
-      method: 'transfer',
-      origin: 'bank',
-      description: `Distribución Societaria: ${dist.partnerName} (${dist.type})`,
-      category: 'distribucion',
-      referenceId: ref.id,
-      date: dist.date,
-      createdAt: Date.now()
-    });
-    await batch.commit();
+    throw new Error('Bloqueo Arquitectónico: Operación prohibida. Utilice cash_movements en su lugar.');
   };
 
   const updateDistribution = async (id: string, data: Partial<PartnerDistribution>) => {
-    const old = distributions.find(d => d.id === id);
-    if (!old) throw new Error('Not found');
-    
-    const batch = writeBatch(db);
-    batch.update(doc(db, 'partner_distributions', id), { ...data });
-
-    const cashSnap = await getDocs(query(collection(db, 'cash_movements'), where('referenceId', '==', id)));
-    const merged = { ...old, ...data };
-    cashSnap.forEach(d => {
-      batch.update(d.ref, {
-        amount: merged.amount,
-        currency: merged.currency,
-        date: merged.date,
-        description: `Distribución Societaria: ${merged.partnerName} (${merged.type}) (Editada)`
-      });
-    });
-    await batch.commit();
+    throw new Error('Bloqueo Arquitectónico: Operación prohibida. Utilice cash_movements en su lugar.');
   };
 
   const deleteDistribution = async (id: string) => {
-    const batch = writeBatch(db);
-    batch.delete(doc(db, 'partner_distributions', id));
-    const cashSnap = await getDocs(query(collection(db, 'cash_movements'), where('referenceId', '==', id)));
-    cashSnap.forEach(d => batch.delete(d.ref));
-    await batch.commit();
+    throw new Error('Bloqueo Arquitectónico: Operación prohibida. Utilice cash_movements en su lugar.');
   };
 
   // Reinvestments CRUD
   const createReinvestment = async (reinv: Omit<Reinvestment, 'id' | 'createdAt'>) => {
-    const batch = writeBatch(db);
-    const ref = doc(collection(db, 'reinvestments'));
-    batch.set(ref, { ...reinv, createdAt: Date.now() });
-
-    const cashRef = doc(collection(db, 'cash_movements'));
-    batch.set(cashRef, {
-      type: 'out',
-      amount: reinv.amount,
-      currency: reinv.currency,
-      method: 'transfer',
-      origin: 'bank',
-      description: `Reinversión: ${reinv.category}`,
-      category: 'reinversion',
-      referenceId: ref.id,
-      date: reinv.date,
-      createdAt: Date.now()
-    });
-    await batch.commit();
+    throw new Error('Bloqueo Arquitectónico: Operación prohibida. Utilice cash_movements en su lugar.');
   };
 
   const updateReinvestment = async (id: string, data: Partial<Reinvestment>) => {
-    const old = reinvestments.find(r => r.id === id);
-    if (!old) throw new Error('Not found');
-    
-    const batch = writeBatch(db);
-    batch.update(doc(db, 'reinvestments', id), { ...data });
-
-    const cashSnap = await getDocs(query(collection(db, 'cash_movements'), where('referenceId', '==', id)));
-    const merged = { ...old, ...data };
-    cashSnap.forEach(d => {
-      batch.update(d.ref, {
-        amount: merged.amount,
-        currency: merged.currency,
-        date: merged.date,
-        description: `Reinversión: ${merged.category} (Editada)`
-      });
-    });
-    await batch.commit();
+    throw new Error('Bloqueo Arquitectónico: Operación prohibida. Utilice cash_movements en su lugar.');
   };
 
   const deleteReinvestment = async (id: string) => {
-    const batch = writeBatch(db);
-    batch.delete(doc(db, 'reinvestments', id));
-    const cashSnap = await getDocs(query(collection(db, 'cash_movements'), where('referenceId', '==', id)));
-    cashSnap.forEach(d => batch.delete(d.ref));
-    await batch.commit();
+    throw new Error('Bloqueo Arquitectónico: Operación prohibida. Utilice cash_movements en su lugar.');
   };
 
   // Contributions CRUD
   const createContribution = async (cont: Omit<PartnerContribution, 'id' | 'createdAt'>) => {
-    const batch = writeBatch(db);
-    const ref = doc(collection(db, 'partner_contributions'));
-    batch.set(ref, { ...cont, createdAt: Date.now() });
-
-    const cashRef = doc(collection(db, 'cash_movements'));
-    batch.set(cashRef, {
-      type: cont.type === 'contribution' ? 'in' : 'out',
-      amount: cont.amount,
-      currency: cont.currency,
-      method: 'transfer',
-      origin: 'bank',
-      description: `${cont.type === 'contribution' ? 'Aporte' : 'Devolución'}: ${cont.partnerName}`,
-      category: 'aporte',
-      referenceId: ref.id,
-      date: cont.date,
-      createdAt: Date.now()
-    });
-    await batch.commit();
+    throw new Error('Bloqueo Arquitectónico: Operación prohibida. Utilice cash_movements en su lugar.');
   };
 
   const updateContribution = async (id: string, data: Partial<PartnerContribution>) => {
-    const old = contributions.find(c => c.id === id);
-    if (!old) throw new Error('Not found');
-    
-    const batch = writeBatch(db);
-    batch.update(doc(db, 'partner_contributions', id), { ...data });
-
-    const cashSnap = await getDocs(query(collection(db, 'cash_movements'), where('referenceId', '==', id)));
-    const merged = { ...old, ...data };
-    cashSnap.forEach(d => {
-      batch.update(d.ref, {
-        type: merged.type === 'contribution' ? 'in' : 'out',
-        amount: merged.amount,
-        currency: merged.currency,
-        date: merged.date,
-        description: `${merged.type === 'contribution' ? 'Aporte' : 'Devolución'}: ${merged.partnerName} (Editado)`
-      });
-    });
-    await batch.commit();
+    throw new Error('Bloqueo Arquitectónico: Operación prohibida. Utilice cash_movements en su lugar.');
   };
 
   const deleteContribution = async (id: string) => {
-    const batch = writeBatch(db);
-    batch.delete(doc(db, 'partner_contributions', id));
-    const cashSnap = await getDocs(query(collection(db, 'cash_movements'), where('referenceId', '==', id)));
-    cashSnap.forEach(d => batch.delete(d.ref));
-    await batch.commit();
+    throw new Error('Bloqueo Arquitectónico: Operación prohibida. Utilice cash_movements en su lugar.');
   };
 
   return {

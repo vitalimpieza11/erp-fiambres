@@ -49,10 +49,7 @@ export const useProfitDistributions = () => {
   }, [currentUser]);
 
   const createDistribution = async (distribution: Omit<ProfitDistribution, 'id' | 'createdAt'>) => {
-    await addDoc(collection(db, 'profit_distributions'), {
-      ...distribution,
-      createdAt: Date.now()
-    });
+    throw new Error('Bloqueo Arquitectónico: Operación prohibida. Utilice cash_movements en su lugar.');
   };
 
   return {

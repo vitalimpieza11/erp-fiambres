@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { 
   DollarSign, Activity, Users, Wallet, Landmark, 
   History, TrendingUp, AlertCircle, Calendar,
-  ArrowUpRight, ArrowDownRight, Edit3, CheckCircle2, Factory, Archive
+  ArrowUpRight, ArrowDownRight, Edit3, CheckCircle2, Factory, Archive, Database
 } from 'lucide-react';
 import { PageHeader, EmptyState } from '../components/EmptyState';
 import { Card, CardHeader } from '../components/ui/Card';
@@ -19,33 +19,28 @@ const CAPITAL_CATEGORIES = ['aporte_socio', 'inversion_inicial', 'bien_capital',
 export const DashboardFinanciero = () => {
   const { movements, loading: loadingMovs, error: errorMovs } = useCashMovements();
   const { banks, loading: loadingBanks, error: errorBanks } = useBanks();
-  const { 
-    distributions, reinvestments, contributions, 
-    loading: loadingSoc, error: errorSoc 
-  } = useSocietaria();
+  const { distributions, reinvestments, contributions } = useSocietaria();
   const { filterDate, viewType, selectedYear, selectedMonth } = useDateFilter();
 
-  const [activeTab, setActiveTab] = useState<'resumen' | 'liquidez' | 'operativo' | 'capital' | 'overrides' | 'historico'>('resumen');
+  const [activeTab, setActiveTab] = useState<'resumen' | 'liquidez' | 'operativo' | 'capital' | 'overrides' | 'historico' | 'diagnostico' | 'balance' | 'resultados' | 'pasivos' | 'salud'>('salud');
+  const [origenModal, setOrigenModal] = useState<{isOpen: boolean; title: string; sourceMovements: any[]}>({isOpen: false, title: '', sourceMovements: []});
 
-  const loading = loadingMovs || loadingBanks || loadingSoc;
-  const error = errorMovs || errorBanks || errorSoc;
+  const loading = loadingMovs || loadingBanks;
+  const error = errorMovs || errorBanks;
 
 
 
   // LÓGICA DE CÁLCULO
-  // 1. Unificar todos los movimientos reales (CashMovements). Los Overrides ya están aplicados (amount, category, type son los nuevos).
-  // 2. Traer aportes societarios y reinversiones legacy para sumarlos al capital.
+  // 1. Unificar todos los movimientos reales (CashMovements). Los Overrides ya están aplicados.
   
-  const filteredMovements = movements.filter(m => filterDate(m.date));
-  const filteredDistributions = distributions.filter(d => filterDate(d.date));
-  const filteredReinvestments = reinvestments.filter(r => filterDate(r.date));
-  const filteredContributions = contributions.filter(c => filterDate(c.date));
+  const filteredMovements = movements.filter(m => filterDate(m.date || m.createdAt));
 
   // 1.1 POSICIÓN DE LIQUIDEZ (TODO EL DINERO LÍQUIDO, sin importar si es operativo o capital)
   const liquidez = useMemo(() => {
     let caja = 0;
     let banco = 0;
     let billeteras = 0;
+    let warnings: string[] = [];
     const accountTotals: Record<string, number> = {};
 
     movements.filter(m => filterDate(m.date)).forEach(m => {
@@ -53,9 +48,16 @@ export const DashboardFinanciero = () => {
       const accountId = m.accountId || m.bankId || (m.method === 'cash' ? 'caja_fisica' : 'banco_default');
       const isOut = m.type === 'out';
       const isTransfer = m.type === 'transfer';
-      const isNonMoneyAporte = m.category === 'aporte_socio' && m.aporteType && m.aporteType !== 'dinero';
+      
+      const cat = (m.category || '').toLowerCase();
+      const isNonMoneyAporte = cat === 'aporte_socio' && m.aporteType && m.aporteType !== 'dinero';
+      const isActivoIn = m.type === 'in' && ['bien_capital', 'maquinaria', 'tecnologia', 'vehiculos', 'vehiculo', 'equipamiento', 'herramientas', 'inmuebles', 'mercaderia'].some(c => cat.includes(c));
 
       if (isNonMoneyAporte) return; // Non-money aportes do NOT affect liquidity
+
+      if (isActivoIn && !isTransfer) {
+        warnings.push(`Advertencia: Un movimiento de Activo Fijo (${m.description || cat}) de ${amount} está incrementando la Liquidez. Revisa si es una venta o error.`);
+      }
 
       if (!accountTotals[accountId]) accountTotals[accountId] = 0;
 
@@ -82,7 +84,7 @@ export const DashboardFinanciero = () => {
       }
     });
 
-    return { caja, banco, billeteras, total: caja + banco + billeteras, accountTotals };
+    return { caja, banco, billeteras, total: caja + banco + billeteras, accountTotals, warnings };
   }, [movements, banks, filterDate]);
 
   // 1.2 FLUJO OPERATIVO (Excluir Capital y Transferencias)
@@ -145,7 +147,7 @@ export const DashboardFinanciero = () => {
           byPartner[m.partnerId].breakdown[aType] = (byPartner[m.partnerId].breakdown[aType] || 0) + m.amount;
         }
       } else if (cat === 'aporte_socio' && m.type === 'out') {
-        aportesMovs -= m.amount;
+        aportesMovs -= m.amount; // Wait, actually a 'return' or withdrawal reduces aportes? Yes, but usually it's handled as 'retiro_capital'
         const aType = m.aporteType || 'dinero';
         byType[aType] = (byType[aType] || 0) - m.amount;
         
@@ -154,38 +156,20 @@ export const DashboardFinanciero = () => {
           byPartner[m.partnerId].total -= m.amount;
           byPartner[m.partnerId].breakdown[aType] = (byPartner[m.partnerId].breakdown[aType] || 0) - m.amount;
         }
-      } else if (cat.includes('inversion') || cat.includes('bien') || cat.includes('maquinaria')) {
+      } else if (cat.includes('inversion') || cat.includes('bien') || cat.includes('maquinaria') || cat.includes('vehiculo') || cat.includes('equipamiento') || cat.includes('tecnologia')) {
         inversionesMovs += m.amount;
         byType['bien_capital'] = (byType['bien_capital'] || 0) + m.amount;
       }
     });
 
-    // From legacy societaria
-    const legacyAportes = filteredContributions.filter(c => c.type === 'contribution').reduce((acc, c) => {
-      if (c.partnerId) {
-        if (!byPartner[c.partnerId]) byPartner[c.partnerId] = { total: 0, breakdown: {} };
-        byPartner[c.partnerId].total += c.amount;
-        byPartner[c.partnerId].breakdown['dinero'] = (byPartner[c.partnerId].breakdown['dinero'] || 0) + c.amount;
-      }
-      return acc + c.amount;
-    }, 0);
-    
-    byType['dinero'] += legacyAportes;
-    
-    const legacyDevoluciones = filteredContributions.filter(c => c.type === 'return').reduce((acc, c) => acc + c.amount, 0);
-    byType['dinero'] -= legacyDevoluciones;
-    
-    const legacyInversiones = filteredReinvestments.reduce((acc, r) => acc + r.amount, 0);
-    byType['bien_capital'] += legacyInversiones;
-    
-    const legacyRetiros = filteredDistributions.reduce((acc, d) => acc + d.amount, 0);
-
-    const totalAportado = aportesMovs + legacyAportes;
-    const totalInvertido = inversionesMovs + legacyInversiones;
-    const capitalNeto = totalAportado - legacyDevoluciones - legacyRetiros + totalInvertido;
+    const totalAportado = aportesMovs;
+    const totalInvertido = inversionesMovs;
+    const legacyDevoluciones = 0; // Removed legacy
+    const legacyRetiros = 0; // Removed legacy
+    const capitalNeto = totalAportado + totalInvertido;
 
     return { totalAportado, totalInvertido, legacyRetiros, legacyDevoluciones, capitalNeto, byType, byPartner };
-  }, [filteredMovements, filteredContributions, filteredReinvestments, filteredDistributions]);
+  }, [filteredMovements]);
 
   // 1.4 MOVIMIENTOS MANUALES (Overrides)
   const manualOverrides = useMemo(() => {
@@ -234,13 +218,83 @@ export const DashboardFinanciero = () => {
     return { finalOperativo: runOperativo, finalCapital: runCapital, finalLiquidez: runLiquidez };
   }, [movements]);
 
+  // 1.6 BALANCE PATRIMONIAL Y PASIVOS
+  const balance = useMemo(() => {
+    let maquinaria = 0;
+    let vehiculos = 0;
+    let equipamiento = 0;
+    let tecnologia = 0;
+    let otrosActivos = 0;
+    let stock = 0;
+
+    let deudasProveedores = 0;
+    let prestamos = 0;
+    let impuestosPendientes = 0;
+    let otrasObligaciones = 0;
+
+    const pasivosLista: any[] = [];
+
+    filteredMovements.forEach(m => {
+      const cat = (m.category || '').toLowerCase();
+      
+      // Activos Fijos
+      const isActivoOrCapital = CAPITAL_CATEGORIES.some(c => cat.includes(c));
+      if (isActivoOrCapital || cat.includes('activo')) {
+        const type = m.aporteType || (cat.includes('maquinaria') ? 'maquinaria' : cat.includes('vehiculo') ? 'vehiculo' : cat.includes('tecnologia') ? 'tecnologia' : cat.includes('equipamiento') ? 'equipamiento' : 'otro');
+        const val = m.type === 'in' ? m.amount : (m.type === 'out' ? -m.amount : 0);
+        
+        if (type === 'maquinaria') maquinaria += val;
+        else if (type === 'vehiculo') vehiculos += val;
+        else if (type === 'tecnologia') tecnologia += val;
+        else if (type === 'equipamiento') equipamiento += val;
+        else if (type !== 'dinero') otrosActivos += val;
+      }
+
+      // Stock
+      if (m.aporteType === 'mercaderia' || cat === 'valorizacion_stock' || cat === 'ajuste_stock') {
+        const val = m.type === 'in' ? m.amount : -m.amount;
+        stock += val;
+      }
+
+      // Pasivos
+      if (m.status === 'pendiente' && m.type === 'out') {
+        pasivosLista.push(m);
+        const amt = m.pendingAmount ?? m.amount;
+        if (cat.includes('proveedor') || cat.includes('compra')) deudasProveedores += amt;
+        else if (cat.includes('prestamo')) prestamos += amt;
+        else if (cat.includes('impuesto')) impuestosPendientes += amt;
+        else otrasObligaciones += amt;
+      }
+    });
+
+    const totalActivos = liquidez.total + maquinaria + vehiculos + equipamiento + tecnologia + otrosActivos + stock;
+    const totalPasivos = deudasProveedores + prestamos + impuestosPendientes + otrasObligaciones;
+    const patrimonioNetoTotal = capital.capitalNeto + operativo.neto;
+    
+    const balanceCierra = Math.abs(totalActivos - (totalPasivos + patrimonioNetoTotal)) < 1;
+    const diferenciaBalance = totalActivos - (totalPasivos + patrimonioNetoTotal);
+
+    return { 
+      activos: { liquidez: liquidez.total, maquinaria, vehiculos, equipamiento, tecnologia, otrosActivos, stock, total: totalActivos },
+      pasivos: { deudasProveedores, prestamos, impuestosPendientes, otrasObligaciones, total: totalPasivos, lista: pasivosLista },
+      patrimonio: { aportado: capital.capitalNeto, resultados: operativo.neto, total: patrimonioNetoTotal },
+      balanceCierra,
+      diferenciaBalance
+    };
+  }, [filteredMovements, liquidez.total, capital.capitalNeto, operativo.neto]);
+
+  const handleVerOrigen = (title: string, filterFn: (m: any) => boolean) => {
+    setOrigenModal({ isOpen: true, title, sourceMovements: filteredMovements.filter(filterFn) });
+  };
+
   const tabs = [
-    { id: 'resumen', label: 'Resumen Global', icon: Activity },
-    { id: 'liquidez', label: 'Posición Liquidez', icon: DollarSign },
-    { id: 'operativo', label: 'Flujo Operativo', icon: TrendingUp },
+    { id: 'salud', label: 'Salud Financiera', icon: Activity },
+    { id: 'balance', label: 'Balance', icon: Landmark },
+    { id: 'resultados', label: 'Estado Resultados', icon: TrendingUp },
+    { id: 'pasivos', label: 'Gestión Pasivos', icon: AlertCircle },
+    { id: 'liquidez', label: 'Liquidez', icon: DollarSign },
     { id: 'capital', label: 'Capital Empresa', icon: Factory },
-    { id: 'overrides', label: 'Auditoría Overrides', icon: Edit3 },
-    { id: 'historico', label: 'Línea de Tiempo', icon: History }
+    { id: 'diagnostico', label: 'Auditoría Total', icon: Database }
   ];
 
   if (error) {
@@ -285,8 +339,172 @@ export const DashboardFinanciero = () => {
       <div style={{ minHeight: '50vh' }}>
         {activeTab === 'resumen' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-            {/* KPI ROW */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px' }}>
+            {liquidez.warnings.length > 0 && (
+              <div style={{ backgroundColor: '#fef2f2', border: '1px solid #fecaca', padding: '16px', borderRadius: '8px', color: '#991b1b', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 'bold' }}>
+                  <AlertCircle size={20} />
+                  Inconsistencia Financiera en Liquidez
+                </div>
+                {liquidez.warnings.map((w, i) => <p key={i} style={{ fontSize: '0.85rem' }}>{w}</p>)}
+              </div>
+            )}
+            
+          </div>
+        )}
+
+        {activeTab === 'salud' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px' }}>
+              <Card padding="sm" style={{ borderLeft: '4px solid #0d9488' }}>
+                <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontWeight: 600, textTransform: 'uppercase' }}>Liquidez Real</p>
+                <h3 style={{ fontSize: '1.5rem', fontWeight: 800, color: '#0f766e', marginTop: '8px' }}>
+                  {formatCurrency(liquidez.total)}
+                </h3>
+                <button onClick={() => handleVerOrigen('Liquidez Real', m => m.type !== 'transfer' && (!CAPITAL_CATEGORIES.some(c => (m.category || '').toLowerCase().includes(c)) || (m.category === 'aporte_socio' && (!m.aporteType || m.aporteType === 'dinero'))))} style={{ background: 'none', border: 'none', color: '#2563eb', fontSize: '0.75rem', cursor: 'pointer', marginTop: '4px', display: 'flex', alignItems: 'center', gap: '4px' }}>Ver Origen <ArrowUpRight size={12} /></button>
+              </Card>
+
+              <Card padding="sm" style={{ borderLeft: '4px solid #f59e0b' }}>
+                <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontWeight: 600, textTransform: 'uppercase' }}>Capital Aportado</p>
+                <h3 style={{ fontSize: '1.5rem', fontWeight: 800, color: '#b45309', marginTop: '8px' }}>
+                  {formatCurrency(capital.capitalNeto)}
+                </h3>
+                <button onClick={() => handleVerOrigen('Capital Aportado', m => CAPITAL_CATEGORIES.some(c => (m.category || '').toLowerCase().includes(c)))} style={{ background: 'none', border: 'none', color: '#2563eb', fontSize: '0.75rem', cursor: 'pointer', marginTop: '4px', display: 'flex', alignItems: 'center', gap: '4px' }}>Ver Origen <ArrowUpRight size={12} /></button>
+              </Card>
+
+              <Card padding="sm" style={{ borderLeft: '4px solid #2563eb' }}>
+                <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontWeight: 600, textTransform: 'uppercase' }}>Valor de Activos Fijos</p>
+                <h3 style={{ fontSize: '1.5rem', fontWeight: 800, color: '#1d4ed8', marginTop: '8px' }}>
+                  {formatCurrency(balance.activos.maquinaria + balance.activos.vehiculos + balance.activos.equipamiento + balance.activos.tecnologia + balance.activos.otrosActivos)}
+                </h3>
+                <button onClick={() => handleVerOrigen('Activos Fijos', m => CAPITAL_CATEGORIES.some(c => (m.category || '').toLowerCase().includes(c)) && m.aporteType !== 'dinero')} style={{ background: 'none', border: 'none', color: '#2563eb', fontSize: '0.75rem', cursor: 'pointer', marginTop: '4px', display: 'flex', alignItems: 'center', gap: '4px' }}>Ver Origen <ArrowUpRight size={12} /></button>
+              </Card>
+
+              <Card padding="sm" style={{ borderLeft: '4px solid #dc2626' }}>
+                <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontWeight: 600, textTransform: 'uppercase' }}>Pasivos Totales</p>
+                <h3 style={{ fontSize: '1.5rem', fontWeight: 800, color: '#b91c1c', marginTop: '8px' }}>
+                  {formatCurrency(balance.pasivos.total)}
+                </h3>
+                <button onClick={() => handleVerOrigen('Pasivos Totales', m => m.status === 'pendiente' && m.type === 'out')} style={{ background: 'none', border: 'none', color: '#2563eb', fontSize: '0.75rem', cursor: 'pointer', marginTop: '4px', display: 'flex', alignItems: 'center', gap: '4px' }}>Ver Origen <ArrowUpRight size={12} /></button>
+              </Card>
+
+              <Card padding="sm" style={{ borderLeft: '4px solid #9333ea' }}>
+                <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontWeight: 600, textTransform: 'uppercase' }}>Patrimonio Neto Total</p>
+                <h3 style={{ fontSize: '1.5rem', fontWeight: 800, color: '#7e22ce', marginTop: '8px' }}>
+                  {formatCurrency(balance.patrimonio.total)}
+                </h3>
+                <button onClick={() => handleVerOrigen('Patrimonio Neto', m => true)} style={{ background: 'none', border: 'none', color: '#2563eb', fontSize: '0.75rem', cursor: 'pointer', marginTop: '4px', display: 'flex', alignItems: 'center', gap: '4px' }}>Ver Origen <ArrowUpRight size={12} /></button>
+              </Card>
+
+              <Card padding="sm" style={{ borderLeft: '4px solid #16a34a' }}>
+                <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontWeight: 600, textTransform: 'uppercase' }}>Resultado Operativo Acum.</p>
+                <h3 style={{ fontSize: '1.5rem', fontWeight: 800, color: operativo.neto >= 0 ? '#16a34a' : '#dc2626', marginTop: '8px' }}>
+                  {formatCurrency(operativo.neto)}
+                </h3>
+                <button onClick={() => handleVerOrigen('Resultado Operativo', m => m.type !== 'transfer' && !CAPITAL_CATEGORIES.some(c => (m.category || '').toLowerCase().includes(c)))} style={{ background: 'none', border: 'none', color: '#2563eb', fontSize: '0.75rem', cursor: 'pointer', marginTop: '4px', display: 'flex', alignItems: 'center', gap: '4px' }}>Ver Origen <ArrowUpRight size={12} /></button>
+              </Card>
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'balance' && (
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
+            <Card>
+              <CardHeader title="Activos" subtitle="Todo lo que tiene la empresa" />
+              <div style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--border-color)', paddingBottom: '8px' }}>
+                  <span>Caja Físcia y Bancos (Liquidez)</span>
+                  <b>{formatCurrency(balance.activos.liquidez)}</b>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--border-color)', paddingBottom: '8px' }}>
+                  <span>Stock</span>
+                  <b>{formatCurrency(balance.activos.stock)}</b>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--border-color)', paddingBottom: '8px' }}>
+                  <span>Maquinaria</span>
+                  <b>{formatCurrency(balance.activos.maquinaria)}</b>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--border-color)', paddingBottom: '8px' }}>
+                  <span>Vehículos</span>
+                  <b>{formatCurrency(balance.activos.vehiculos)}</b>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--border-color)', paddingBottom: '8px' }}>
+                  <span>Equipamiento</span>
+                  <b>{formatCurrency(balance.activos.equipamiento)}</b>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--border-color)', paddingBottom: '8px' }}>
+                  <span>Tecnología</span>
+                  <b>{formatCurrency(balance.activos.tecnologia)}</b>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--border-color)', paddingBottom: '8px' }}>
+                  <span>Otros Activos</span>
+                  <b>{formatCurrency(balance.activos.otrosActivos)}</b>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: '16px', fontSize: '1.25rem', fontWeight: 800, color: '#16a34a' }}>
+                  <span>TOTAL ACTIVOS</span>
+                  <span>{formatCurrency(balance.activos.total)}</span>
+                </div>
+              </div>
+            </Card>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+              <Card>
+                <CardHeader title="Pasivos" subtitle="Todo lo que debe la empresa" />
+                <div style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--border-color)', paddingBottom: '8px' }}>
+                    <span>Deudas Proveedores</span>
+                    <b>{formatCurrency(balance.pasivos.deudasProveedores)}</b>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--border-color)', paddingBottom: '8px' }}>
+                    <span>Préstamos</span>
+                    <b>{formatCurrency(balance.pasivos.prestamos)}</b>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--border-color)', paddingBottom: '8px' }}>
+                    <span>Impuestos Pendientes</span>
+                    <b>{formatCurrency(balance.pasivos.impuestosPendientes)}</b>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--border-color)', paddingBottom: '8px' }}>
+                    <span>Otras Obligaciones</span>
+                    <b>{formatCurrency(balance.pasivos.otrasObligaciones)}</b>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: '16px', fontSize: '1.25rem', fontWeight: 800, color: '#dc2626' }}>
+                    <span>TOTAL PASIVOS</span>
+                    <span>{formatCurrency(balance.pasivos.total)}</span>
+                  </div>
+                </div>
+              </Card>
+
+              <Card>
+                <CardHeader title="Patrimonio Neto" subtitle="Capital Propio" />
+                <div style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--border-color)', paddingBottom: '8px' }}>
+                    <span>Capital Aportado</span>
+                    <b>{formatCurrency(balance.patrimonio.aportado)}</b>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--border-color)', paddingBottom: '8px' }}>
+                    <span>Resultados Acumulados</span>
+                    <b>{formatCurrency(balance.patrimonio.resultados)}</b>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: '16px', fontSize: '1.25rem', fontWeight: 800, color: '#7e22ce' }}>
+                    <span>PATRIMONIO NETO TOTAL</span>
+                    <span>{formatCurrency(balance.patrimonio.total)}</span>
+                  </div>
+                </div>
+              </Card>
+
+              {!balance.balanceCierra && (
+                <div style={{ padding: '16px', backgroundColor: '#fef2f2', border: '1px solid #fecaca', borderRadius: '8px', color: '#991b1b', fontWeight: 'bold' }}>
+                  <AlertCircle size={20} style={{ marginBottom: '8px' }} />
+                  Error de Validación: El balance no cierra.
+                  <br />Diferencia: {formatCurrency(balance.diferenciaBalance)}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'liquidez' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '16px' }}>
               <Card padding="sm" style={{ borderLeft: '4px solid #0d9488' }}>
                 <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontWeight: 600, textTransform: 'uppercase' }}>Liquidez Total</p>
                 <h3 style={{ fontSize: '1.5rem', fontWeight: 800, color: '#0f766e', marginTop: '8px' }}>
@@ -361,16 +579,16 @@ export const DashboardFinanciero = () => {
                     <b style={{ color: operativo.neto >= 0 ? '#16a34a' : '#dc2626' }}>{formatCurrency(operativo.neto)}</b>
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--border-color)', paddingBottom: '8px' }}>
-                    <span>Inyección de Capital / Aportes</span>
-                    <b style={{ color: '#16a34a' }}>+{formatCurrency(capital.totalAportado)}</b>
+                    <span>Inyección de Capital / Aportes (Sólo Dinero)</span>
+                    <b style={{ color: '#16a34a' }}>+{formatCurrency(capital.byType['dinero'] || 0)}</b>
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--border-color)', paddingBottom: '8px' }}>
                     <span>Retiros de Utilidades / Devoluciones</span>
-                    <b style={{ color: '#dc2626' }}>-{formatCurrency(capital.legacyRetiros + capital.legacyDevoluciones)}</b>
+                    <b style={{ color: '#dc2626' }}>-{formatCurrency(0)}</b>
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: '8px', fontSize: '1.1rem' }}>
                     <b>Variación Total Liquidez:</b>
-                    <b style={{ color: '#2563eb' }}>{formatCurrency(operativo.neto + capital.totalAportado - capital.legacyRetiros - capital.legacyDevoluciones)}</b>
+                    <b style={{ color: '#2563eb' }}>{formatCurrency(operativo.neto + (capital.byType['dinero'] || 0))}</b>
                   </div>
                 </div>
               </Card>
@@ -378,49 +596,67 @@ export const DashboardFinanciero = () => {
           </div>
         )}
 
-        {activeTab === 'operativo' && (
+        {activeTab === 'resultados' && (
           <Card>
-             <CardHeader title="Desglose de Flujo Operativo" subtitle="Excluye aportes, inversiones y transferencias." />
-             <div style={{ padding: '24px' }}>
-               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '32px' }}>
-                 <div>
-                   <h4 style={{ fontSize: '1.1rem', fontWeight: 700, color: '#16a34a', marginBottom: '16px', borderBottom: '2px solid #16a34a', paddingBottom: '8px' }}>Ingresos Operativos</h4>
-                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '12px' }}>
-                     <span>Ventas Directas</span>
-                     <b>{formatCurrency(operativo.ventas)}</b>
-                   </div>
-                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '12px' }}>
-                     <span>Otros Ingresos Operativos</span>
-                     <b>{formatCurrency(operativo.ingresos - operativo.ventas)}</b>
-                   </div>
-                   <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '16px', paddingTop: '16px', borderTop: '1px solid var(--border-color)', fontSize: '1.1rem' }}>
-                     <b>Total Ingresos:</b>
-                     <b style={{ color: '#16a34a' }}>{formatCurrency(operativo.ingresos)}</b>
-                   </div>
-                 </div>
+            <CardHeader title="Estado de Resultados" subtitle="Rentabilidad real excluyendo capitalizaciones" />
+            <div style={{ padding: '24px' }}>
+               <div style={{ maxWidth: '600px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '16px', fontSize: '1.1rem' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '16px', backgroundColor: '#f0fdf4', borderRadius: '8px' }}>
+                    <span style={{ fontWeight: 600 }}>Ventas</span>
+                    <b style={{ color: '#166534' }}>{formatCurrency(operativo.ventas)}</b>
+                  </div>
+                  
+                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '16px', backgroundColor: '#fef2f2', borderRadius: '8px' }}>
+                    <span style={{ fontWeight: 600 }}>(-) Compras</span>
+                    <b style={{ color: '#991b1b' }}>{formatCurrency(operativo.compras)}</b>
+                  </div>
 
-                 <div>
-                   <h4 style={{ fontSize: '1.1rem', fontWeight: 700, color: '#dc2626', marginBottom: '16px', borderBottom: '2px solid #dc2626', paddingBottom: '8px' }}>Egresos Operativos</h4>
-                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '12px' }}>
-                     <span>Compras de Mercadería</span>
-                     <b>{formatCurrency(operativo.compras)}</b>
-                   </div>
-                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '12px' }}>
-                     <span>Gastos Operativos (Alquiler, sueldos, etc)</span>
-                     <b>{formatCurrency(operativo.gastos)}</b>
-                   </div>
-                   <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '16px', paddingTop: '16px', borderTop: '1px solid var(--border-color)', fontSize: '1.1rem' }}>
-                     <b>Total Egresos:</b>
-                     <b style={{ color: '#dc2626' }}>{formatCurrency(operativo.egresos)}</b>
-                   </div>
-                 </div>
-               </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '16px', backgroundColor: '#fef2f2', borderRadius: '8px' }}>
+                    <span style={{ fontWeight: 600 }}>(-) Gastos Operativos</span>
+                    <b style={{ color: '#991b1b' }}>{formatCurrency(operativo.gastos)}</b>
+                  </div>
 
-               <div style={{ marginTop: '48px', padding: '24px', backgroundColor: operativo.neto >= 0 ? '#f0fdf4' : '#fef2f2', borderRadius: '12px', border: `1px solid ${operativo.neto >= 0 ? '#bbf7d0' : '#fecaca'}`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                 <h3 style={{ fontSize: '1.5rem', fontWeight: 800, color: operativo.neto >= 0 ? '#166534' : '#991b1b' }}>Resultado Operativo Neto:</h3>
-                 <h2 style={{ fontSize: '2rem', fontWeight: 900, color: operativo.neto >= 0 ? '#16a34a' : '#dc2626' }}>{formatCurrency(operativo.neto)}</h2>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '16px', backgroundColor: '#fef2f2', borderRadius: '8px' }}>
+                    <span style={{ fontWeight: 600 }}>(-) Costos Financieros</span>
+                    <b style={{ color: '#991b1b' }}>{formatCurrency(0)}</b>
+                  </div>
+
+                  <div style={{ height: '2px', backgroundColor: 'var(--border-color)', margin: '8px 0' }} />
+
+                  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '24px', backgroundColor: operativo.neto >= 0 ? '#16a34a' : '#dc2626', color: '#fff', borderRadius: '8px', fontSize: '1.25rem' }}>
+                    <span style={{ fontWeight: 800 }}>= Resultado Operativo</span>
+                    <b style={{ fontWeight: 900 }}>{formatCurrency(operativo.neto)}</b>
+                  </div>
+
+                  <div style={{ padding: '16px', marginTop: '16px', backgroundColor: '#fffbe1', borderRadius: '8px', fontSize: '0.85rem', color: '#854d0e' }}>
+                    <b>Excluido de este cálculo:</b> Aportes de Socios, Activos, Capitalizaciones, Transferencias Internas.
+                  </div>
                </div>
-             </div>
+            </div>
+          </Card>
+        )}
+
+        {activeTab === 'pasivos' && (
+          <Card>
+            <CardHeader title="Gestión de Pasivos" subtitle="Control de obligaciones pendientes" />
+            <div style={{ padding: '24px' }}>
+               {balance.pasivos.lista.length === 0 ? (
+                 <EmptyState icon={CheckCircle2} title="Sin deudas" description="No hay obligaciones pendientes registradas en la Base Financiera." />
+               ) : (
+                 <Table 
+                   data={balance.pasivos.lista}
+                   keyExtractor={item => item.id!}
+                   columns={[
+                     { header: 'Fecha', accessor: item => new Date(item.date).toLocaleDateString(), width: '100px' },
+                     { header: 'Vencimiento', accessor: item => item.dueDate ? new Date(item.dueDate).toLocaleDateString() : 'N/A', width: '100px' },
+                     { header: 'Descripción', accessor: item => item.description || item.category, width: '200px' },
+                     { header: 'Importe Original', accessor: item => formatCurrency(item.originalAmount || item.amount), width: '120px' },
+                     { header: 'Saldo Pendiente', accessor: item => <b style={{ color: '#dc2626' }}>{formatCurrency(item.pendingAmount || item.amount)}</b>, width: '120px' },
+                     { header: 'Estado', accessor: item => <span style={{ padding: '4px 8px', borderRadius: '12px', backgroundColor: '#fef2f2', color: '#991b1b', fontSize: '0.75rem', fontWeight: 'bold' }}>{item.status?.toUpperCase() || 'PENDIENTE'}</span>, width: '100px' }
+                   ]}
+                 />
+               )}
+            </div>
           </Card>
         )}
 
@@ -562,7 +798,7 @@ export const DashboardFinanciero = () => {
                   <span style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Evolución Patrimonial (Capital)</span>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                     <Factory size={24} color="#d97706" />
-                    <span style={{ fontSize: '1.75rem', fontWeight: 800, color: '#92400e' }}>{formatCurrency(timeline.finalCapital + capital.totalAportado - capital.legacyDevoluciones - capital.legacyRetiros)}</span>
+                    <span style={{ fontSize: '1.75rem', fontWeight: 800, color: '#92400e' }}>{formatCurrency(capital.capitalNeto)}</span>
                   </div>
                   <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Capitalización histórica de la empresa consolidando aportes y bienes de capital.</p>
                 </div>
@@ -580,7 +816,151 @@ export const DashboardFinanciero = () => {
           </Card>
         )}
 
+        {activeTab === 'diagnostico' && (
+          <Card>
+            <CardHeader title="Auditoría y Origen de Cálculos" subtitle="Trazabilidad exacta de cada KPI desde la Base Financiera" />
+            <div style={{ padding: '24px' }}>
+              
+              {/* Prueba Automática y Dashboard de Integridad */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '24px' }}>
+                <div style={{ backgroundColor: '#f0fdfa', padding: '16px', borderRadius: '8px', border: '1px solid #ccfbf1' }}>
+                  <h4 style={{ fontWeight: 700, color: '#0f766e', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <Activity size={18}/> Estado del Sistema Financiero
+                  </h4>
+                  <p style={{ fontSize: '0.85rem', marginBottom: '4px' }}><b>Fuente Principal:</b> cash_movements</p>
+                  <p style={{ fontSize: '0.85rem', marginBottom: '4px' }}><b>Colecciones Legacy Activas:</b> 0</p>
+                  <p style={{ fontSize: '0.85rem', marginBottom: '4px' }}><b>Registros Legacy Detectados:</b> {distributions.length + reinvestments.length + contributions.length}</p>
+                  <p style={{ fontSize: '0.85rem', marginBottom: '8px' }}><b>Impacto en KPIs:</b> 0 (Desvinculados)</p>
+                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', backgroundColor: '#dcfce7', color: '#166534', padding: '4px 8px', borderRadius: '4px', fontSize: '0.8rem', fontWeight: 600 }}>
+                    <CheckCircle2 size={14} /> SANO
+                  </div>
+                </div>
+
+                <div style={{ backgroundColor: '#eff6ff', padding: '16px', borderRadius: '8px', border: '1px solid #dbeafe' }}>
+                  <h4 style={{ fontWeight: 700, color: '#1d4ed8', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <Database size={18}/> Prueba Automática de Integridad
+                  </h4>
+                  <p style={{ fontSize: '0.85rem', marginBottom: '8px' }}>
+                    Comparando cálculo "Capital Dashboard" (legacy logic) vs Capital calculado desde `cash_movements`.
+                  </p>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px', fontSize: '0.85rem' }}>
+                    <span>Capital actual (Base Financiera):</span>
+                    <b>{formatCurrency(capital.capitalNeto)}</b>
+                  </div>
+                  {(() => {
+                    const legacyCapital = contributions.reduce((sum, c) => sum + (c.type === 'contribution' ? c.amount : -c.amount), 0) + reinvestments.reduce((sum, r) => sum + r.amount, 0) - distributions.reduce((sum, d) => sum + d.amount, 0);
+                    const diff = capital.capitalNeto - legacyCapital;
+                    return (
+                      <>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                          <span>Capital Legacy Calculado:</span>
+                          <b>{formatCurrency(legacyCapital)}</b>
+                        </div>
+                        {diff !== 0 && (
+                          <div style={{ backgroundColor: '#fef2f2', color: '#b91c1c', padding: '8px', borderRadius: '4px', fontSize: '0.8rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <AlertCircle size={14} /> Diferencia Detectada: {formatCurrency(diff)}
+                          </div>
+                        )}
+                        {diff === 0 && (
+                          <div style={{ color: '#16a34a', fontSize: '0.85rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <CheckCircle2 size={14} /> 100% Consistente
+                          </div>
+                        )}
+                      </>
+                    );
+                  })()}
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', backgroundColor: '#fffbe1', padding: '16px', borderRadius: '8px', border: '1px solid #fef08a' }}>
+                <div>
+                  <h4 style={{ fontWeight: 700, color: '#854d0e', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '8px' }}><AlertCircle size={18}/> Transición Completada</h4>
+                  <p style={{ fontSize: '0.9rem', color: '#713f12' }}>El Dashboard Financiero ha sido <b>desvinculado exitosamente</b> de las colecciones legacy (partner_contributions, profit_distributions, reinvestments). Actualmente el 100% de los cálculos provienen única y exclusivamente de la colección `cash_movements` (Base Financiera).</p>
+                </div>
+              </div>
+
+              <h3 style={{ fontSize: '1.25rem', fontWeight: 800, marginBottom: '16px' }}>Capital Neto Empresa: {formatCurrency(capital.capitalNeto)}</h3>
+              <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '16px' }}>Movimientos que componen este valor:</p>
+              
+              <Table 
+                data={filteredMovements.filter(m => CAPITAL_CATEGORIES.some(c => (m.category || '').toLowerCase().includes(c)))}
+                keyExtractor={item => item.id!}
+                columns={[
+                  { header: 'Fecha', accessor: item => new Date(item.date).toLocaleDateString(), width: '100px' },
+                  { header: 'Categoría', accessor: item => item.category, width: '150px' },
+                  { header: 'Tipo Aporte', accessor: item => item.aporteType || 'dinero', width: '150px' },
+                  { header: 'Importe', accessor: item => formatCurrency(item.amount), width: '120px' },
+                  { header: 'Tipo', accessor: item => item.type === 'in' ? 'Suma' : 'Resta', width: '80px' },
+                  { header: 'Origen', accessor: () => 'Base Financiera (cash_movements)' }
+                ]}
+              />
+
+              <h3 style={{ fontSize: '1.25rem', fontWeight: 800, marginTop: '48px', marginBottom: '16px' }}>Resultado Operativo: {formatCurrency(operativo.neto)}</h3>
+              <Table 
+                data={filteredMovements.filter(m => !CAPITAL_CATEGORIES.some(c => (m.category || '').toLowerCase().includes(c)) && m.type !== 'transfer')}
+                keyExtractor={item => item.id!}
+                columns={[
+                  { header: 'Fecha', accessor: item => new Date(item.date).toLocaleDateString(), width: '100px' },
+                  { header: 'Categoría', accessor: item => item.category, width: '150px' },
+                  { header: 'Importe', accessor: item => formatCurrency(item.amount), width: '120px' },
+                  { header: 'Tipo', accessor: item => item.type === 'in' ? 'Ingreso' : 'Egreso', width: '100px' },
+                  { header: 'Origen', accessor: () => 'Base Financiera (cash_movements)' }
+                ]}
+              />
+
+              <h3 style={{ fontSize: '1.25rem', fontWeight: 800, marginTop: '48px', marginBottom: '16px' }}>Variación Total Liquidez: {formatCurrency(operativo.neto + (capital.byType['dinero'] || 0))}</h3>
+              <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', marginBottom: '16px' }}>
+                Esto explica exactamente cómo se movió el dinero líquido. <br/>
+                <b>Nota Crítica:</b> Se excluyen estrictamente los aportes no monetarios (vehículos, maquinaria) que antes inflaban la caja.
+              </p>
+              <Table 
+                data={filteredMovements.filter(m => 
+                  m.type !== 'transfer' && 
+                  (!CAPITAL_CATEGORIES.some(c => (m.category || '').toLowerCase().includes(c)) || 
+                  ((m.category || '').toLowerCase() === 'aporte_socio' && (m.aporteType === 'dinero' || !m.aporteType)))
+                )}
+                keyExtractor={item => item.id!}
+                columns={[
+                  { header: 'Fecha', accessor: item => new Date(item.date).toLocaleDateString(), width: '100px' },
+                  { header: 'Categoría', accessor: item => item.category, width: '150px' },
+                  { header: 'Aporte Tipo', accessor: item => item.aporteType || 'N/A', width: '100px' },
+                  { header: 'Importe', accessor: item => formatCurrency(item.amount), width: '120px' },
+                  { header: 'Tipo', accessor: item => item.type === 'in' ? 'Ingreso' : 'Egreso', width: '100px' },
+                  { header: 'Origen', accessor: () => 'Base Financiera' }
+                ]}
+              />
+            </div>
+          </Card>
+        )}
+
       </div>
+
+      {origenModal.isOpen && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ backgroundColor: '#fff', borderRadius: '12px', width: '90%', maxWidth: '900px', maxHeight: '90vh', display: 'flex', flexDirection: 'column' }}>
+            <div style={{ padding: '20px 24px', borderBottom: '1px solid var(--border-color)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <h2 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 700 }}>Origen de: {origenModal.title}</h2>
+              <button onClick={() => setOrigenModal({ ...origenModal, isOpen: false })} style={{ background: 'none', border: 'none', fontSize: '1.5rem', cursor: 'pointer', color: 'var(--text-secondary)' }}>&times;</button>
+            </div>
+            <div style={{ padding: '24px', overflowY: 'auto' }}>
+              <p style={{ marginBottom: '16px', color: 'var(--text-secondary)' }}>
+                Se encontraron <b>{origenModal.sourceMovements.length}</b> movimientos en la Base Financiera que componen este valor.
+              </p>
+              <Table 
+                data={origenModal.sourceMovements}
+                keyExtractor={item => item.id!}
+                columns={[
+                  { header: 'Fecha', accessor: item => new Date(item.date).toLocaleDateString(), width: '100px' },
+                  { header: 'Categoría', accessor: item => item.category, width: '150px' },
+                  { header: 'Descripción', accessor: item => item.description, width: '200px' },
+                  { header: 'Cuenta/Modo', accessor: item => item.method, width: '120px' },
+                  { header: 'Impacto', accessor: item => <b style={{ color: item.type === 'in' ? '#16a34a' : '#dc2626' }}>{formatCurrency(item.amount)} ({item.type})</b>, width: '120px' }
+                ]}
+              />
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 };

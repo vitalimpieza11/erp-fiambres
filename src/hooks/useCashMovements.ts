@@ -90,29 +90,35 @@ export const useCashMovements = () => {
     const mainAccount = mov.accountId || mov.bankId || (mov.method === 'cash' ? 'cash_default' : 'bank_default');
     if (!acc.accountBalances[mainAccount]) acc.accountBalances[mainAccount] = 0;
 
+    const isNonMoneyAporte = mov.category === 'aporte_socio' && mov.aporteType && mov.aporteType !== 'dinero';
+
     if (mov.type === 'in') {
-      acc.netTotal += amount;
-      acc.accountBalances[mainAccount] += amount;
-      
-      if (mov.method === 'cash' || mainAccount === 'cash_default') {
-        acc.balanceCaja += amount;
-      } else {
-        acc.balanceBancos += amount;
-      }
-      if (isToday) {
-        acc.ingresosDia += amount;
+      if (!isNonMoneyAporte) {
+        acc.netTotal += amount;
+        acc.accountBalances[mainAccount] += amount;
+        
+        if (mov.method === 'cash' || mainAccount === 'cash_default') {
+          acc.balanceCaja += amount;
+        } else {
+          acc.balanceBancos += amount;
+        }
+        if (isToday) {
+          acc.ingresosDia += amount;
+        }
       }
     } else if (mov.type === 'out') {
-      acc.netTotal -= amount;
-      acc.accountBalances[mainAccount] -= amount;
+      if (!isNonMoneyAporte) {
+        acc.netTotal -= amount;
+        acc.accountBalances[mainAccount] -= amount;
 
-      if (mov.method === 'cash' || mainAccount === 'cash_default') {
-        acc.balanceCaja -= amount;
-      } else {
-        acc.balanceBancos -= amount;
-      }
-      if (isToday) {
-        acc.egresosDia += amount;
+        if (mov.method === 'cash' || mainAccount === 'cash_default') {
+          acc.balanceCaja -= amount;
+        } else {
+          acc.balanceBancos -= amount;
+        }
+        if (isToday) {
+          acc.egresosDia += amount;
+        }
       }
     } else if (mov.type === 'transfer') {
       // Transfer: deduct from mainAccount, add to toAccountId

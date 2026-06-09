@@ -28,9 +28,8 @@ export const CajaBancos = () => {
   const { movements, loading: loadingMovements, error: errorMovements, createMovement, updateMovement, deleteMovement } = useCashMovements();
   const { banks, loading: loadingBanks } = useBanks();
   const { 
-    partners, distributions: partnerDistributions, reinvestments, contributions,
-    loading: loadingSocietaria, error: errorSocietaria, 
-    createDistribution, createReinvestment, createContribution 
+    partners,
+    loading: loadingSocietaria, error: errorSocietaria
   } = useSocietaria();
 
   // Navigation Tabs: resumen, movimientos, resultado, socios, reinversiones, historico, bancos
@@ -177,9 +176,9 @@ export const CajaBancos = () => {
   // --- DATA FILTERING ---
   const activePartners = partners.filter(p => p.isActive);
   const monthlyMovements = movements.filter(m => isSameMonth(m.date));
-  const monthlyDistributions = partnerDistributions.filter(d => isSameMonth(d.date));
-  const monthlyReinvestments = reinvestments.filter(r => isSameMonth(r.date));
-  const monthlyContributions = contributions.filter(c => isSameMonth(c.date));
+  const monthlyDistributions = monthlyMovements.filter(m => m.type === 'out' && (m.category || '').toLowerCase() === 'retiro_capital');
+  const monthlyReinvestments = monthlyMovements.filter(m => m.type === 'out' && (m.category || '').toLowerCase().includes('inversion'));
+  const monthlyContributions = monthlyMovements.filter(m => m.category === 'aporte_socio');
 
   // --- METRICS CALCULATION (IN ARS EQUIVALENT FOR BASE LOGIC) ---
   
@@ -196,22 +195,22 @@ export const CajaBancos = () => {
 
   // 2. reinversiones & distribuciones
   const reinversionesMesArs = monthlyReinvestments
-    .reduce((sum, r) => sum + toArs(r.amount, r.currency), 0);
+    .reduce((sum, r) => sum + toArs(r.amount, r.currency || 'ARS'), 0);
 
   const distribucionesMesArs = monthlyDistributions
-    .reduce((sum, d) => sum + toArs(d.amount, d.currency), 0);
+    .reduce((sum, d) => sum + toArs(d.amount, d.currency || 'ARS'), 0);
 
   // 3. resultado disponible
   const resultadoDisponibleMesArs = resultadoNetoMesArs - reinversionesMesArs - distribucionesMesArs;
 
   // 4. aportes & devoluciones
   const aportesMesArs = monthlyContributions
-    .filter(c => c.type === 'contribution')
-    .reduce((sum, c) => sum + toArs(c.amount, c.currency), 0);
+    .filter(c => c.type === 'in')
+    .reduce((sum, c) => sum + toArs(c.amount, c.currency || 'ARS'), 0);
 
   const devolucionesMesArs = monthlyContributions
-    .filter(c => c.type === 'return')
-    .reduce((sum, c) => sum + toArs(c.amount, c.currency), 0);
+    .filter(c => c.type === 'out')
+    .reduce((sum, c) => sum + toArs(c.amount, c.currency || 'ARS'), 0);
 
   // 5. cash balances (all time up to end of selected month)
   const saldoCajaFisicaArs = movements
@@ -231,20 +230,17 @@ export const CajaBancos = () => {
 
   // --- PARTNER CALCULATIONS (ALL TIME / PERIOD BASED) ---
   const getPartnerStats = (partnerId: string) => {
-    const pDists = partnerDistributions.filter(d => d.partnerId === partnerId);
-    const pConts = contributions.filter(c => c.partnerId === partnerId);
+    const pMovs = movements.filter(m => m.partnerId === partnerId);
+    
+    const pDists = pMovs.filter(m => m.type === 'out' && (m.category || '').toLowerCase() === 'retiro_capital');
+    const pConts = pMovs.filter(m => m.category === 'aporte_socio');
 
-    const retiradoMes = pDists.filter(d => isSameMonth(d.date)).reduce((sum, d) => sum + toArs(d.amount, d.currency), 0);
-    const retiradoAnio = pDists.filter(d => isSameYear(d.date)).reduce((sum, d) => sum + toArs(d.amount, d.currency), 0);
-    const retiradoHist = pDists.reduce((sum, d) => sum + toArs(d.amount, d.currency), 0);
+    const retiradoMes = pDists.filter(d => isSameMonth(d.date)).reduce((sum, d) => sum + toArs(d.amount, d.currency || 'ARS'), 0);
+    const retiradoAnio = pDists.filter(d => isSameYear(d.date)).reduce((sum, d) => sum + toArs(d.amount, d.currency || 'ARS'), 0);
+    const retiradoHist = pDists.reduce((sum, d) => sum + toArs(d.amount, d.currency || 'ARS'), 0);
 
-    const legacyAportado = pConts.filter(c => c.type === 'contribution').reduce((sum, c) => sum + toArs(c.amount, c.currency), 0);
-    const newAportes = movements.filter(m => m.category === 'aporte_socio' && m.partnerId === partnerId && m.type === 'in').reduce((sum, m) => sum + toArs(m.amount, m.currency || 'ARS'), 0);
-    const aportadoHist = legacyAportado + newAportes;
-
-    const legacyDevoluciones = pConts.filter(c => c.type === 'return').reduce((sum, c) => sum + toArs(c.amount, c.currency), 0);
-    const newDevoluciones = movements.filter(m => m.category === 'aporte_socio' && m.partnerId === partnerId && m.type === 'out').reduce((sum, m) => sum + toArs(m.amount, m.currency || 'ARS'), 0);
-    const devolucionesHist = legacyDevoluciones + newDevoluciones;
+    const aportadoHist = pConts.filter(c => c.type === 'in').reduce((sum, c) => sum + toArs(c.amount, c.currency || 'ARS'), 0);
+    const devolucionesHist = pConts.filter(c => c.type === 'out').reduce((sum, c) => sum + toArs(c.amount, c.currency || 'ARS'), 0);
     
     const saldoAportadoVigente = aportadoHist - devolucionesHist;
 
@@ -266,16 +262,23 @@ export const CajaBancos = () => {
   const sortedMovements = [...movements].sort((a, b) => a.date - b.date);
   const initialBalanceArs = sortedMovements
     .filter(m => isBeforeMonth(m.date))
-    .reduce((sum, m) => sum + (m.type === 'in' ? 1 : -1) * toArs(m.amount, m.currency || 'ARS'), 0);
+    .reduce((sum, m) => {
+      const isNonMoneyAporte = m.category === 'aporte_socio' && m.aporteType && m.aporteType !== 'dinero';
+      if (isNonMoneyAporte || m.type === 'transfer') return sum;
+      return sum + (m.type === 'in' ? 1 : -1) * toArs(m.amount, m.currency || 'ARS');
+    }, 0);
 
   const movementsMonthAsc = sortedMovements.filter(m => isSameMonth(m.date));
   let runBal = initialBalanceArs;
   const movementsWithRunningBal = movementsMonthAsc.map(m => {
-    const val = toArs(m.amount, m.currency || 'ARS');
-    if (m.type === 'in') {
-      runBal += val;
-    } else {
-      runBal -= val;
+    const isNonMoneyAporte = m.category === 'aporte_socio' && m.aporteType && m.aporteType !== 'dinero';
+    if (!isNonMoneyAporte && m.type !== 'transfer') {
+      const val = toArs(m.amount, m.currency || 'ARS');
+      if (m.type === 'in') {
+        runBal += val;
+      } else {
+        runBal -= val;
+      }
     }
     return {
       ...m,
@@ -434,14 +437,16 @@ export const CajaBancos = () => {
     setIsSavingDist(true);
     try {
       const partner = partners.find(p => p.id === distSocioId);
-      await createDistribution({
-        date: new Date(distFecha).getTime(),
-        partnerId: distSocioId,
-        partnerName: partner ? partner.name : 'Desconocido',
+      await createMovement({
+        type: 'out',
         amount: monto,
         currency: distCurrency,
-        type: distTipo,
-        observations: distObs || `Distribución: ${distTipo}`
+        method: 'transfer',
+        category: 'retiro_capital',
+        description: `Distribución (${distTipo}): ${distObs || ''}`,
+        partnerId: distSocioId,
+        date: new Date(distFecha).getTime(),
+        aporteType: 'dinero'
       });
       setIsCreatingDist(false);
       setDistMontoStr('');
@@ -462,12 +467,15 @@ export const CajaBancos = () => {
     setReinvError(null);
     setIsSavingReinv(true);
     try {
-      await createReinvestment({
-        date: new Date(reinvFecha).getTime(),
-        category: reinvCategoria,
+      await createMovement({
+        type: 'out',
         amount: monto,
         currency: reinvCurrency,
-        observations: reinvObs || `Reinversión en ${reinvCategoria}`
+        method: 'transfer',
+        category: 'inversion',
+        description: `Reinversión en ${reinvCategoria}: ${reinvObs || ''}`,
+        date: new Date(reinvFecha).getTime(),
+        aporteType: 'bien_capital'
       });
       setIsCreatingReinv(false);
       setReinvMontoStr('');
@@ -489,14 +497,16 @@ export const CajaBancos = () => {
     setIsSavingCont(true);
     try {
       const partner = partners.find(p => p.id === contSocioId);
-      await createContribution({
-        date: new Date(contFecha).getTime(),
-        partnerId: contSocioId,
-        partnerName: partner ? partner.name : 'Desconocido',
+      await createMovement({
+        type: contTipo === 'contribution' ? 'in' : 'out',
         amount: monto,
         currency: contCurrency,
-        type: contTipo,
-        observations: contConcepto || (contTipo === 'contribution' ? 'Aporte de capital' : 'Devolución de aporte')
+        method: 'transfer',
+        category: 'aporte_socio',
+        description: contConcepto || (contTipo === 'contribution' ? 'Aporte de capital' : 'Devolución de aporte'),
+        partnerId: contSocioId,
+        date: new Date(contFecha).getTime(),
+        aporteType: 'dinero'
       });
       setIsCreatingContribution(false);
       setContMontoStr('');
@@ -784,42 +794,19 @@ export const CajaBancos = () => {
 
     const stats = getPartnerStats(selectedPartnerId);
     
-    // Partner's specific movements: distributions + contributions
-    const pDists = partnerDistributions.filter(d => d.partnerId === selectedPartnerId);
-    const pConts = contributions.filter(c => c.partnerId === selectedPartnerId);
+    const pDists = movements.filter(m => m.partnerId === selectedPartnerId && m.type === 'out' && (m.category || '').toLowerCase() === 'retiro_capital');
+    const pConts = movements.filter(m => m.partnerId === selectedPartnerId && m.category === 'aporte_socio');
 
-    const partnerMovements = [
-      ...pDists.map(d => ({
-        id: `dist-${d.id}`,
-        date: d.date,
-        concept: `Distribución (${d.type})`,
-        amount: d.amount,
-        currency: d.currency,
-        observations: d.observations,
-        color: '#2563eb',
-        rawType: 'distribution'
-      })),
-      ...pConts.map(c => ({
-        id: `cont-${c.id}`,
-        date: c.date,
-        concept: c.type === 'contribution' ? 'Aporte de Socio (Legacy)' : 'Devolución de Aporte (Legacy)',
-        amount: c.amount,
-        currency: c.currency,
-        observations: c.observations,
-        color: c.type === 'contribution' ? '#16a34a' : '#d97706',
-        rawType: c.type
-      })),
-      ...movements.filter(m => m.category === 'aporte_socio' && m.partnerId === selectedPartnerId).map(m => ({
+    const partnerMovements = movements.filter(m => m.partnerId === selectedPartnerId && (m.category === 'aporte_socio' || m.category === 'retiro_capital')).map(m => ({
         id: `mov-${m.id}`,
         date: m.date,
-        concept: m.type === 'in' ? 'Aporte de Socio Confirmado' : 'Devolución Confirmada',
+        concept: m.category === 'aporte_socio' ? (m.type === 'in' ? 'Aporte de Socio' : 'Devolución') : 'Retiro de Utilidades',
         amount: m.amount,
         currency: m.currency || 'ARS',
         observations: `${m.description || ''} ${m.isManualOverride ? '(Override Manual)' : ''}`,
-        color: m.type === 'in' ? '#16a34a' : '#d97706',
+        color: m.type === 'in' ? '#16a34a' : (m.category === 'retiro_capital' ? '#2563eb' : '#d97706'),
         rawType: m.type === 'in' ? 'contribution' : 'return'
-      }))
-    ].sort((a, b) => b.date - a.date);
+      })).sort((a, b) => b.date - a.date);
 
     return (
       <div>
@@ -848,14 +835,14 @@ export const CajaBancos = () => {
           <Card padding="sm" style={{ borderTop: '4px solid #16a34a' }}>
             <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontWeight: 600, textTransform: 'uppercase' }}>Aportes de Capital</p>
             <h3 style={{ fontSize: '1.25rem', fontWeight: 700, color: '#166534', marginTop: '4px' }}>
-              {displayMode === 'ars' ? formatCurrency(stats.aportadoHist) : getMultiCurrencySum(pConts.filter(c => c.type === 'contribution'))}
+              {displayMode === 'ars' ? formatCurrency(stats.aportadoHist) : getMultiCurrencySum(pConts.filter(c => c.type === 'in'))}
             </h3>
           </Card>
 
           <Card padding="sm" style={{ borderTop: '4px solid #d97706' }}>
             <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontWeight: 600, textTransform: 'uppercase' }}>Devoluciones Recibidas</p>
             <h3 style={{ fontSize: '1.25rem', fontWeight: 700, color: '#9a3412', marginTop: '4px' }}>
-              {displayMode === 'ars' ? formatCurrency(stats.devolucionesHist) : getMultiCurrencySum(pConts.filter(c => c.type === 'return'))}
+              {displayMode === 'ars' ? formatCurrency(stats.devolucionesHist) : getMultiCurrencySum(pConts.filter(c => c.type === 'out'))}
             </h3>
           </Card>
 
@@ -1094,7 +1081,7 @@ export const CajaBancos = () => {
               <Card padding="sm" style={{ borderLeft: '4px solid #06b6d4' }}>
                 <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontWeight: 600, textTransform: 'uppercase' }}>Aportes de Socios</p>
                 <h3 style={{ fontSize: '1.5rem', fontWeight: 800, color: '#0891b2', marginTop: '8px' }}>
-                  {displayMode === 'ars' ? formatCurrency(aportesMesArs) : getMultiCurrencySum(monthlyContributions.filter(c => c.type === 'contribution'))}
+                  {displayMode === 'ars' ? formatCurrency(aportesMesArs) : getMultiCurrencySum(monthlyContributions.filter(c => c.type === 'in'))}
                 </h3>
                 <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>Aportes recibidos este mes</span>
               </Card>
@@ -1553,9 +1540,9 @@ export const CajaBancos = () => {
                 <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontWeight: 600, textTransform: 'uppercase' }}>Reinvertido este año</p>
                 <h3 style={{ fontSize: '1.5rem', fontWeight: 800, color: '#b45309', marginTop: '6px' }}>
                   {formatCurrency(
-                    reinvestments
+                    movements.filter(m => m.type === 'out' && (m.category || '').toLowerCase().includes('inversion'))
                       .filter(r => isSameYear(r.date))
-                      .reduce((sum, r) => sum + toArs(r.amount, r.currency), 0)
+                      .reduce((sum, r) => sum + toArs(r.amount, r.currency || 'ARS'), 0)
                   )}
                 </h3>
               </Card>
@@ -1563,7 +1550,8 @@ export const CajaBancos = () => {
                 <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontWeight: 600, textTransform: 'uppercase' }}>Reinvertido Histórico</p>
                 <h3 style={{ fontSize: '1.5rem', fontWeight: 800, color: '#78350f', marginTop: '6px' }}>
                   {formatCurrency(
-                    reinvestments.reduce((sum, r) => sum + toArs(r.amount, r.currency), 0)
+                    movements.filter(m => m.type === 'out' && (m.category || '').toLowerCase().includes('inversion'))
+                             .reduce((sum, r) => sum + toArs(r.amount, r.currency || 'ARS'), 0)
                   )}
                 </h3>
               </Card>
@@ -1577,10 +1565,12 @@ export const CajaBancos = () => {
                 <CardHeader title="Composición por Categoría" subtitle="Suma de reinversiones históricas por rubro" />
                 <div style={{ marginTop: '20px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
                   {(() => {
-                    const totalReinv = reinvestments.reduce((sum, r) => sum + toArs(r.amount, r.currency), 0);
+                    const allReinvs = movements.filter(m => m.type === 'out' && (m.category || '').toLowerCase().includes('inversion'));
+                    const totalReinv = allReinvs.reduce((sum, r) => sum + toArs(r.amount, r.currency || 'ARS'), 0);
                     const groups: { [key: string]: number } = {};
-                    reinvestments.forEach(r => {
-                      groups[r.category] = (groups[r.category] || 0) + toArs(r.amount, r.currency);
+                    allReinvs.forEach(r => {
+                      const catName = r.description || 'Inversión';
+                      groups[catName] = (groups[catName] || 0) + toArs(r.amount, r.currency || 'ARS');
                     });
 
                     if (totalReinv === 0) return <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>No hay registros.</p>;
@@ -1628,13 +1618,13 @@ export const CajaBancos = () => {
                         },
                         {
                           header: 'Monto Original',
-                          accessor: item => `${getSymbol(item.currency)} ${formatNumber(item.amount)} ${item.currency}`,
+                          accessor: item => `${getSymbol(item.currency || 'ARS')} ${formatNumber(item.amount)} ${item.currency || 'ARS'}`,
                           align: 'right',
                           width: '150px'
                         },
                         {
                           header: 'Observación',
-                          accessor: item => item.observations
+                          accessor: item => item.description
                         }
                       ]}
                     />
