@@ -11,6 +11,7 @@ import {
 import { formatCurrency, parseNumber } from '../utils/format';
 import { useCustomers } from '../hooks/useCustomers';
 import { useReceipts } from '../hooks/useReceipts';
+import { useSales } from '../hooks/useSales';
 import { db } from '../firebase/firebase';
 import { collection, query, where, getDocs, orderBy, onSnapshot } from 'firebase/firestore';
 import { useAuth } from '../contexts/AuthContext';
@@ -391,6 +392,7 @@ export const CCDetail = ({ customer, onBack }: { customer: any; onBack: () => vo
 
 export const CuentaCorriente = () => {
   const { customers, loading, error } = useCustomers();
+  const { sales } = useSales();
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   if (error) return <ErrorState message={error} />;
@@ -401,8 +403,14 @@ export const CuentaCorriente = () => {
     return <CCDetail customer={selectedCustomer} onBack={() => setSelectedId(null)} />;
   }
 
-  const totalDeuda = customers.reduce((acc, c) => acc + Math.max(0, c.currentBalance || 0), 0);
-  const morosos = customers.filter(c => (c.currentBalance || 0) > (c.creditLimit || 0) && c.creditLimit > 0);
+  const getCustomerDebt = (customerId: string) => {
+    return sales
+      .filter(s => s.customerId === customerId && s.paymentMethod === 'cc' && (s.status === 'PENDIENTE' || s.status === 'PARCIAL'))
+      .reduce((acc, sale) => acc + (sale.saldoPendiente !== undefined ? sale.saldoPendiente : sale.total), 0);
+  };
+
+  const totalDeuda = customers.reduce((acc, c) => acc + Math.max(0, getCustomerDebt(c.id!)), 0);
+  const morosos = customers.filter(c => getCustomerDebt(c.id!) > (c.creditLimit || 0) && c.creditLimit > 0);
   const activos = customers.filter(c => c.isActive);
 
   return (
@@ -441,11 +449,14 @@ export const CuentaCorriente = () => {
               },
               {
                 header: 'Deuda Total',
-                accessor: (item) => (
-                  <span style={{ fontWeight: 700, color: (item.currentBalance || 0) > 0 ? '#dc2626' : '#166534' }}>
-                    {formatCurrency(item.currentBalance || 0)}
-                  </span>
-                ),
+                accessor: (item) => {
+                  const debt = getCustomerDebt(item.id!);
+                  return (
+                    <span style={{ fontWeight: 700, color: debt > 0 ? '#dc2626' : '#166534' }}>
+                      {formatCurrency(debt)}
+                    </span>
+                  );
+                },
                 align: 'right'
               },
               {

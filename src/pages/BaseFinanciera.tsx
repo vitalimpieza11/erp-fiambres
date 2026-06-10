@@ -69,11 +69,17 @@ export const BaseFinanciera = () => {
 
   const handleSave = async () => {
     try {
+      const isAporte = formData.category === 'aporte_socio';
       const dataToSave = {
         ...formData,
         amount: parseFloat(formData.amount),
         date: new Date(formData.date).getTime(),
         isManualOverride: true,
+        tipoMovimiento: isAporte ? 'APORTE_SOCIO' : (formData.tipoMovimiento || null),
+        origin: isAporte ? 'socio' : (formData.origin || (formData.method === 'cash' ? 'cash' : 'bank')),
+        destino: isAporte ? (formData.destino || 'caja') : null,
+        partnerId: isAporte ? (formData.partnerId || '') : null,
+        aporteType: isAporte ? (formData.destino === 'activo' ? (formData.aporteType || 'bien_capital') : 'dinero') : null
       };
 
       if (isCreating) {
@@ -126,12 +132,12 @@ export const BaseFinanciera = () => {
       const amt = (isOut ? -1 : 1) * m.amount;
       
       const cat = (m.category || '').toLowerCase();
-      const isAporte = cat.includes('aporte_socio') || cat.includes('inversion_inicial');
+      const isAporte = cat.includes('aporte_socio') || cat.includes('inversion_inicial') || m.tipoMovimiento === 'APORTE_SOCIO';
       const isRetiro = cat.includes('retiro');
-      const isActivo = ['maquinaria', 'vehiculos', 'tecnologia', 'equipamiento', 'herramientas', 'inmuebles', 'bien_capital'].some(c => cat.includes(c));
+      const isActivo = ['maquinaria', 'vehiculos', 'tecnologia', 'equipamiento', 'herramientas', 'inmuebles', 'bien_capital'].some(c => cat.includes(c)) || (m.tipoMovimiento === 'APORTE_SOCIO' && m.destino === 'activo');
       
       // Liquidez (solo dinero)
-      if (!isActivo && (!isAporte || (m.aporteType === 'dinero' || !m.aporteType))) {
+      if (!isActivo && (!isAporte || (m.aporteType === 'dinero' || !m.aporteType) && m.destino !== 'activo')) {
         if (m.type !== 'transfer') {
           liquidez += amt;
         }
@@ -285,9 +291,56 @@ export const BaseFinanciera = () => {
                       </select>
                     </td>
                     <td style={{ padding: '8px' }}>
-                      <select className="form-select" value={formData.category} onChange={e => setFormData({...formData, category: e.target.value})}>
+                      <select className="form-select" value={formData.category} onChange={e => {
+                        const cat = e.target.value;
+                        setFormData({
+                          ...formData,
+                          category: cat,
+                          tipoMovimiento: cat === 'aporte_socio' ? 'APORTE_SOCIO' : '',
+                          origin: cat === 'aporte_socio' ? 'socio' : 'cash',
+                          destino: cat === 'aporte_socio' ? 'caja' : ''
+                        });
+                      }}>
                         {categories.map(c => <option key={c} value={c}>{c}</option>)}
                       </select>
+                      {formData.category === 'aporte_socio' && (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', marginTop: '6px', fontSize: '0.75rem' }}>
+                          <select 
+                            className="form-select" 
+                            style={{ padding: '2px 4px', fontSize: '0.75rem' }} 
+                            value={formData.partnerId || ''} 
+                            onChange={e => setFormData({...formData, partnerId: e.target.value})}
+                          >
+                            <option value="">Socio...</option>
+                            {partners.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                          </select>
+                          <select 
+                            className="form-select" 
+                            style={{ padding: '2px 4px', fontSize: '0.75rem' }} 
+                            value={formData.destino || 'caja'} 
+                            onChange={e => setFormData({...formData, destino: e.target.value})}
+                          >
+                            <option value="caja">Dest: Caja</option>
+                            <option value="banco">Dest: Banco</option>
+                            <option value="activo">Dest: Activo</option>
+                          </select>
+                          {formData.destino === 'activo' && (
+                            <select 
+                              className="form-select" 
+                              style={{ padding: '2px 4px', fontSize: '0.75rem' }} 
+                              value={formData.aporteType || 'bien_capital'} 
+                              onChange={e => setFormData({...formData, aporteType: e.target.value})}
+                            >
+                              <option value="bien_capital">Máquinas</option>
+                              <option value="vehiculo">Vehículo</option>
+                              <option value="mercaderia">Mercadería</option>
+                              <option value="equipamiento">Equipamiento</option>
+                              <option value="tecnologia">Tecnología</option>
+                              <option value="otro">Otro</option>
+                            </select>
+                          )}
+                        </div>
+                      )}
                     </td>
                     <td style={{ padding: '8px' }}>
                       <input type="text" className="form-input" value={formData.description || ''} onChange={e => setFormData({...formData, description: e.target.value})} placeholder="Descripción..." />
@@ -328,9 +381,56 @@ export const BaseFinanciera = () => {
                         </select>
                       </td>
                       <td style={{ padding: '8px' }}>
-                        <select className="form-select" value={formData.category} onChange={e => setFormData({...formData, category: e.target.value})}>
+                        <select className="form-select" value={formData.category} onChange={e => {
+                          const cat = e.target.value;
+                          setFormData({
+                            ...formData,
+                            category: cat,
+                            tipoMovimiento: cat === 'aporte_socio' ? 'APORTE_SOCIO' : (formData.tipoMovimiento || ''),
+                            origin: cat === 'aporte_socio' ? 'socio' : (formData.origin === 'socio' ? 'cash' : formData.origin),
+                            destino: cat === 'aporte_socio' ? (formData.destino || 'caja') : ''
+                          });
+                        }}>
                           {categories.map(c => <option key={c} value={c}>{c}</option>)}
                         </select>
+                        {formData.category === 'aporte_socio' && (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', marginTop: '6px', fontSize: '0.75rem' }}>
+                            <select 
+                              className="form-select" 
+                              style={{ padding: '2px 4px', fontSize: '0.75rem' }} 
+                              value={formData.partnerId || ''} 
+                              onChange={e => setFormData({...formData, partnerId: e.target.value})}
+                            >
+                              <option value="">Socio...</option>
+                              {partners.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                            </select>
+                            <select 
+                              className="form-select" 
+                              style={{ padding: '2px 4px', fontSize: '0.75rem' }} 
+                              value={formData.destino || 'caja'} 
+                              onChange={e => setFormData({...formData, destino: e.target.value})}
+                            >
+                              <option value="caja">Dest: Caja</option>
+                              <option value="banco">Dest: Banco</option>
+                              <option value="activo">Dest: Activo</option>
+                            </select>
+                            {formData.destino === 'activo' && (
+                              <select 
+                                className="form-select" 
+                                style={{ padding: '2px 4px', fontSize: '0.75rem' }} 
+                                value={formData.aporteType || 'bien_capital'} 
+                                onChange={e => setFormData({...formData, aporteType: e.target.value})}
+                              >
+                                <option value="bien_capital">Máquinas</option>
+                                <option value="vehiculo">Vehículo</option>
+                                <option value="mercaderia">Mercadería</option>
+                                <option value="equipamiento">Equipamiento</option>
+                                <option value="tecnologia">Tecnología</option>
+                                <option value="otro">Otro</option>
+                              </select>
+                            )}
+                          </div>
+                        )}
                       </td>
                       <td style={{ padding: '8px' }}>
                         <input type="text" className="form-input" value={formData.description || ''} onChange={e => setFormData({...formData, description: e.target.value})} />

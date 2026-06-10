@@ -282,7 +282,13 @@ export const Precios = () => {
 
     setIsSaving(true);
     try {
-      const overrides: Record<string, { margin: number; mode?: 'auto' | 'manual'; manualPrice?: number; excluded?: boolean; itemType?: 'mercaderia' | 'presentacion' | 'receta' }> = {};
+      // BUG 1 FIX: Start from the existing overrides in Firebase so we don't
+      // lose settings for items that belong to currently-excluded types.
+      const overrides: Record<string, { margin: number; mode?: 'auto' | 'manual'; manualPrice?: number; excluded?: boolean; itemType?: 'mercaderia' | 'presentacion' | 'receta' }> = {
+        ...(selectedList.productOverrides || {})
+      };
+
+      // Apply current priceItems state on top (these are the items currently visible)
       priceItems.forEach(item => {
         if (item.marginStr !== generalMarginStr || item.excluded || item.mode !== listModeInput || item.mode === 'manual') {
           overrides[item.id] = {
@@ -292,14 +298,15 @@ export const Precios = () => {
             manualPrice: parseNumber(item.manualPriceStr),
             itemType: item.itemType
           };
+        } else {
+          // Item is back to defaults – remove its override to keep Firestore clean
+          delete overrides[item.id];
         }
       });
 
       const updatedList = {
         name: listNameInput,
         target: listTargetInput,
-        // Eliminamos el type estricto, o lo dejamos indefinido ya que ahora se basa en los items.
-        // type: ...,
         mode: listModeInput,
         margin: parseNumber(generalMarginStr),
         isActive: listActiveInput,
@@ -346,75 +353,84 @@ export const Precios = () => {
   };
 
   // Helper: Get computed presentation prices for a list
-  const getListProducts = (margin: number, overrides?: any, listMode?: 'auto' | 'manual') => {
+  // BUG 2 FIX: accepts activeTypes to filter by category AND respects the
+  // per-item `excluded` flag so deselected products never appear in PDF/Excel.
+  const getListProducts = (margin: number, overrides?: any, listMode?: 'auto' | 'manual', activeTypes?: string[]) => {
     const mode = listMode || 'auto';
+    // Default to both types only when no information is available (list view summary)
+    const types = activeTypes && activeTypes.length > 0 ? activeTypes : ['presentacion', 'mercaderia'];
     let results: any[] = [];
-    
-    // Evaluate if types are implicitly needed based on overrides, but by default we check all active entities
-    const presItems = presentaciones.filter(p => p.isActive).map(p => {
-      const cTot = calculatePresentationCost(p, mercaderias, insumos, recipes);
-      const overrideMargin = overrides?.[p.id!]?.margin ?? margin;
-      const isExcluded = overrides?.[p.id!]?.excluded ?? false;
-      const itemMode = overrides?.[p.id!]?.mode ?? mode;
-      const autoPrice = overrideMargin >= 100 ? cTot * 2 : (cTot / (1 - overrideMargin / 100));
-      const manualPrice = overrides?.[p.id!]?.manualPrice ?? autoPrice;
-      const itemType = overrides?.[p.id!]?.itemType || 'presentacion';
-      
-      const finalPrice = itemMode === 'manual' ? manualPrice : autoPrice;
-      const realMargin = finalPrice > 0 ? ((finalPrice - cTot) / finalPrice) * 100 : 0;
 
-      return {
-        name: p.name || 'Sin nombre',
-        brand: p.customerName || 'Al Vacío',
-        gramajeVenta: p.pesoObjetivoGramos,
-        cost: cTot,
-        margin: realMargin,
-        price: finalPrice,
-        mode: itemMode,
-        itemType: itemType,
-        unit: 'Unidad',
-        unidadesPorCaja: p.unidadesPorCaja || 1,
-        precioCaja: finalPrice * (p.unidadesPorCaja || 1),
-        commercialStatus: p.commercialStatus || 'activo',
-        isActive: p.isActive && !isExcluded
-      };
-    }).filter(p => p.isActive && (overrides ? overrides[p.name] !== undefined || true : true)); // Filter by excluded is inside
+    if (types.includes('presentacion')) {
+      const presItems = presentaciones.filter(p => p.isActive).map(p => {
+        const cTot = calculatePresentationCost(p, mercaderias, insumos, recipes);
+        const overrideMargin = overrides?.[p.id!]?.margin ?? margin;
+        const isExcluded = overrides?.[p.id!]?.excluded ?? false;
+        const itemMode = overrides?.[p.id!]?.mode ?? mode;
+        const autoPrice = overrideMargin >= 100 ? cTot * 2 : (cTot / (1 - overrideMargin / 100));
+        const manualPrice = overrides?.[p.id!]?.manualPrice ?? autoPrice;
+        const itemType = overrides?.[p.id!]?.itemType || 'presentacion';
 
-    const mercItems = mercaderias.filter(m => m.isActive).map(m => {
-      const cTot = m.costoKg || 0;
-      const overrideMargin = overrides?.[m.id!]?.margin ?? margin;
-      const isExcluded = overrides?.[m.id!]?.excluded ?? false;
-      const itemMode = overrides?.[m.id!]?.mode ?? mode;
-      const autoPrice = overrideMargin >= 100 ? cTot * 2 : (cTot / (1 - overrideMargin / 100));
-      const manualPrice = overrides?.[m.id!]?.manualPrice ?? autoPrice;
-      const itemType = overrides?.[m.id!]?.itemType || 'mercaderia';
-      
-      const finalPrice = itemMode === 'manual' ? manualPrice : autoPrice;
-      const realMargin = finalPrice > 0 ? ((finalPrice - cTot) / finalPrice) * 100 : 0;
+        const finalPrice = itemMode === 'manual' ? manualPrice : autoPrice;
+        const realMargin = finalPrice > 0 ? ((finalPrice - cTot) / finalPrice) * 100 : 0;
 
-      return {
-        name: m.name,
-        brand: 'Mercadería',
-        gramajeVenta: 1000,
-        cost: cTot,
-        margin: realMargin,
-        price: finalPrice,
-        mode: itemMode,
-        itemType: itemType,
-        unit: 'Kg',
-        unidadesPorCaja: 1,
-        precioCaja: finalPrice,
-        commercialStatus: 'activo',
-        isActive: m.isActive && !isExcluded
-      };
-    }).filter(m => m.isActive);
+        return {
+          name: p.name || 'Sin nombre',
+          brand: p.customerName || 'Al Vacío',
+          gramajeVenta: p.pesoObjetivoGramos,
+          cost: cTot,
+          margin: realMargin,
+          price: finalPrice,
+          mode: itemMode,
+          itemType: itemType,
+          unit: 'Unidad',
+          unidadesPorCaja: p.unidadesPorCaja || 1,
+          precioCaja: finalPrice * (p.unidadesPorCaja || 1),
+          commercialStatus: p.commercialStatus || 'activo',
+          // isActive is false if the item itself is inactive OR individually excluded
+          isActive: p.isActive && !isExcluded
+        };
+      }).filter(p => p.isActive);
+      results = [...results, ...presItems];
+    }
 
-    results = [...presItems, ...mercItems];
+    if (types.includes('mercaderia')) {
+      const mercItems = mercaderias.filter(m => m.isActive).map(m => {
+        const cTot = m.costoKg || 0;
+        const overrideMargin = overrides?.[m.id!]?.margin ?? margin;
+        const isExcluded = overrides?.[m.id!]?.excluded ?? false;
+        const itemMode = overrides?.[m.id!]?.mode ?? mode;
+        const autoPrice = overrideMargin >= 100 ? cTot * 2 : (cTot / (1 - overrideMargin / 100));
+        const manualPrice = overrides?.[m.id!]?.manualPrice ?? autoPrice;
+        const itemType = overrides?.[m.id!]?.itemType || 'mercaderia';
+
+        const finalPrice = itemMode === 'manual' ? manualPrice : autoPrice;
+        const realMargin = finalPrice > 0 ? ((finalPrice - cTot) / finalPrice) * 100 : 0;
+
+        return {
+          name: m.name,
+          brand: 'Mercadería',
+          gramajeVenta: 1000,
+          cost: cTot,
+          margin: realMargin,
+          price: finalPrice,
+          mode: itemMode,
+          itemType: itemType,
+          unit: 'Kg',
+          unidadesPorCaja: 1,
+          precioCaja: finalPrice,
+          commercialStatus: 'activo',
+          isActive: m.isActive && !isExcluded
+        };
+      }).filter(m => m.isActive);
+      results = [...results, ...mercItems];
+    }
+
     return results;
   };
 
   // Export: PDF
-  const exportPDF = async (listName: string, margin: number, overrides?: any, listMode?: 'auto' | 'manual') => {
+  const exportPDF = async (listName: string, margin: number, overrides?: any, listMode?: 'auto' | 'manual', activeTypes?: string[]) => {
     const img = new Image();
     img.src = '/logo_circular.png';
     await new Promise((resolve) => {
@@ -428,7 +444,7 @@ export const Precios = () => {
       format: 'a4'
     });
 
-    const activeProducts = getListProducts(margin, overrides, listMode);
+    const activeProducts = getListProducts(margin, overrides, listMode, activeTypes);
     
     doc.setFillColor(230, 57, 70);
     doc.rect(0, 0, 210, 38, 'F');
@@ -517,8 +533,8 @@ export const Precios = () => {
   };
 
   // Export: Excel (CSV with UTF-8 BOM)
-  const exportExcel = (listName: string, margin: number, overrides?: any, listMode?: 'auto' | 'manual') => {
-    const activeProducts = getListProducts(margin, overrides, listMode);
+  const exportExcel = (listName: string, margin: number, overrides?: any, listMode?: 'auto' | 'manual', activeTypes?: string[]) => {
+    const activeProducts = getListProducts(margin, overrides, listMode, activeTypes);
     
     const headers = ['Producto', 'Marca', 'Gramaje', 'Tipo', 'Unidad', 'Costo Base ($)', 'Modo', 'Margen Real (%)', 'Precio Unitario ($)', 'Unidades x Caja', 'Precio Caja ($)', 'Estado Comercial'];
     const rows = activeProducts.map(p => [
@@ -569,10 +585,10 @@ export const Precios = () => {
             <button onClick={() => setShowSimulatorModal(true)} className="btn btn-secondary" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
               Simular Costos
             </button>
-            <button onClick={() => exportPDF(listNameInput, parseNumber(generalMarginStr), getCurrentOverrides(), listModeInput)} className="btn btn-secondary" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+            <button onClick={() => exportPDF(listNameInput, parseNumber(generalMarginStr), getCurrentOverrides(), listModeInput, includedTypes)} className="btn btn-secondary" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
               <FileText size={18} /> Exportar PDF
             </button>
-            <button onClick={() => exportExcel(listNameInput, parseNumber(generalMarginStr), getCurrentOverrides(), listModeInput)} className="btn btn-secondary" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+            <button onClick={() => exportExcel(listNameInput, parseNumber(generalMarginStr), getCurrentOverrides(), listModeInput, includedTypes)} className="btn btn-secondary" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
               <TableIcon size={18} /> Exportar Excel
             </button>
             <button onClick={handleReviewChanges} disabled={isSaving} className="btn btn-primary">
@@ -990,7 +1006,7 @@ export const Precios = () => {
               <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: 'auto' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
                   <button 
-                    onClick={() => exportPDF(list.name, list.margin, list.productOverrides, list.mode)}
+                    onClick={() => exportPDF(list.name, list.margin, list.productOverrides, list.mode, list.includedTypes)}
                     className="btn btn-secondary" 
                     style={{ padding: '8px', fontSize: '0.8rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
                     title="Descargar Catálogo PDF comercial"
@@ -998,7 +1014,7 @@ export const Precios = () => {
                     <FileText size={16} /> PDF
                   </button>
                   <button 
-                    onClick={() => exportExcel(list.name, list.margin, list.productOverrides, list.mode)}
+                    onClick={() => exportExcel(list.name, list.margin, list.productOverrides, list.mode, list.includedTypes)}
                     className="btn btn-secondary" 
                     style={{ padding: '8px', fontSize: '0.8rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
                     title="Descargar Planilla Excel"
@@ -1106,8 +1122,8 @@ export const Precios = () => {
                   </label>
                   <input 
                     type="number" 
-                    value={editingPresentation.precioVentaKg} 
-                    onChange={e => setEditingPresentation({ ...editingPresentation, precioVentaKg: parseFloat(e.target.value) || 0 })}
+                    value={editingPresentation.precioComercialKg} 
+                    onChange={e => setEditingPresentation({ ...editingPresentation, precioComercialKg: parseFloat(e.target.value) || 0 })}
                     style={{ width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid var(--border-color)', backgroundColor: 'var(--bg-primary)', color: 'var(--text-primary)' }}
                   />
                 </div>

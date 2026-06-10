@@ -21,8 +21,8 @@ export { Reportes } from './Reportes';
 export { Dashboard } from './Dashboard';
 export { DashboardFinanciero } from './DashboardFinanciero';
 export { BaseFinanciera } from './BaseFinanciera';
-export { MigracionFinanciera } from './MigracionFinanciera';
 export { Login } from './Login';
+export { Mermas } from './Mermas';
 
 // --- Stock moved to Stock.tsx ---
 

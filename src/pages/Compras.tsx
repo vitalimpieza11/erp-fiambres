@@ -10,6 +10,7 @@ import { usePurchases } from '../hooks/usePurchases';
 import { useMercaderias } from '../hooks/useMercaderias';
 import { useInsumos } from '../hooks/useInsumos';
 import { useSuppliers } from '../hooks/useSuppliers';
+import { useSocietaria } from '../hooks/useSocietaria';
 import { useDateFilter } from '../contexts/DateFilterContext';
 
 
@@ -32,10 +33,10 @@ export const Compras = () => {
   ];
   const { suppliers, loading: loadingSuppliers, error: errorSuppliers } = useSuppliers();
   const { filterDate } = useDateFilter();
+  const { partners } = useSocietaria();
 
   const globalError = errorPurchases || errorMerc || errorIns || errorSuppliers;
   const filteredPurchases = purchases.filter((p: any) => filterDate(p.date));
-
 
   const [isCreating, setIsCreating] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -45,8 +46,7 @@ export const Compras = () => {
   const [supplierId, setSupplierId] = useState('');
   const [invoiceNumber, setInvoiceNumber] = useState('');
   const [fecha, setFecha] = useState(new Date().toISOString().split('T')[0]);
-  const [condicionPago, setCondicionPago] = useState('cc');
-  const [fechaVencimiento, setFechaVencimiento] = useState('');
+  const [payments, setPayments] = useState<{ id: number, method: string, amountStr: string, partnerId: string }[]>([]);
   const [observaciones, setObservaciones] = useState('');
   
   const [items, setItems] = useState<PurchaseFormItem[]>([
@@ -93,6 +93,13 @@ export const Compras = () => {
     };
   }, { kilos: 0, costo: 0 });
 
+  const totalPagado = payments.reduce((acc, p) => acc + parseNumber(p.amountStr), 0);
+  const saldoPendiente = totals.costo - totalPagado;
+
+  const addPayment = () => setPayments([...payments, { id: Date.now(), method: 'caja', amountStr: '', partnerId: '' }]);
+  const removePayment = (id: number) => setPayments(payments.filter(p => p.id !== id));
+  const updatePayment = (id: number, field: string, value: string) => setPayments(payments.map(p => p.id === id ? { ...p, [field]: value } : p));
+
   const handleRegisterPurchase = async () => {
     if (!supplierId) {
       setErrorMessage("Debe seleccionar un proveedor.");
@@ -120,10 +127,15 @@ export const Compras = () => {
           itemType: item.itemType
         })),
         total: totals.costo,
-        status: 'completed' as const, // Automatically completes and impacts stock
+        payments: payments.map(p => ({
+          method: p.method,
+          amount: parseNumber(p.amountStr),
+          partnerId: p.partnerId
+        })),
         invoiceNumber,
-        date: new Date(fecha).getTime()
-      };
+        date: new Date(fecha).getTime(),
+        status: saldoPendiente <= 0 ? 'PAGADA' : (totalPagado > 0 ? 'PARCIAL' : 'PENDIENTE')
+      } as const;
 
       if (editingId) {
         await updatePurchase(editingId, purchaseData);
@@ -134,6 +146,7 @@ export const Compras = () => {
       setIsCreating(false);
       setEditingId(null);
       setItems([{ id: Date.now(), productId: '', productName: '', quantityStr: '', costStr: '', itemType: '' }]);
+      setPayments([]);
       setSupplierId('');
       setInvoiceNumber('');
     } catch (e: any) {
@@ -149,6 +162,12 @@ export const Compras = () => {
     setSupplierId(item.supplierId);
     setInvoiceNumber(item.invoiceNumber || '');
     setFecha(new Date(item.date).toISOString().split('T')[0]);
+    setPayments(item.payments ? item.payments.map((p: any, idx: number) => ({
+      id: Date.now() + idx,
+      method: p.method || 'caja',
+      amountStr: p.amount ? p.amount.toString() : '',
+      partnerId: p.partnerId || ''
+    })) : []);
     
     const loadedItems = item.items.map((i: any, idx: number) => ({
       id: Date.now() + idx,
@@ -289,24 +308,55 @@ export const Compras = () => {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
             {/* SECCIÓN 4 — ESTADO FINANCIERO */}
             <Card>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '20px' }}>
-                <Truck size={20} color="var(--primary-color)" />
-                <h3 style={{ fontSize: '1.125rem', fontWeight: 600 }}>4. Estado Financiero</h3>
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '16px' }}>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-                  <Select label="Condición de Pago" value={condicionPago} onChange={e => setCondicionPago(e.target.value)} options={[
-                    { value: 'cc', label: 'Cuenta Corriente' },
-                    { value: 'contado', label: 'Contado Efectivo' },
-                    { value: 'transferencia', label: 'Transferencia' }
-                  ]} />
-                  <Input label="Fecha Vencimiento" type="date" value={fechaVencimiento} onChange={e => setFechaVencimiento(e.target.value)} />
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <Truck size={20} color="var(--primary-color)" />
+                  <h3 style={{ fontSize: '1.125rem', fontWeight: 600 }}>4. Estado de Pago</h3>
                 </div>
-                <div style={{ backgroundColor: '#fef2f2', border: '1px solid #fecaca', padding: '16px', borderRadius: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span style={{ color: '#991b1b', fontWeight: 600, fontSize: '0.875rem' }}>Deuda Pendiente a Generar</span>
-                  <span style={{ color: '#991b1b', fontWeight: 700, fontSize: '1.25rem' }}>{totals.costo > 0 ? formatCurrency(totals.costo) : '--'}</span>
-                </div>
+                <button onClick={addPayment} className="btn btn-secondary" style={{ padding: '6px 12px', fontSize: '0.875rem' }}>
+                  <Plus size={16} /> Agregar Pago
+                </button>
               </div>
+
+              {payments.length === 0 ? (
+                 <div style={{ backgroundColor: '#fef2f2', border: '1px solid #fecaca', padding: '16px', borderRadius: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ color: '#991b1b', fontWeight: 600, fontSize: '0.875rem' }}>Compra PENDIENTE (Generará deuda por el total)</span>
+                    <span style={{ color: '#991b1b', fontWeight: 700, fontSize: '1.25rem' }}>{totals.costo > 0 ? formatCurrency(totals.costo) : '--'}</span>
+                  </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                  {payments.map(payment => (
+                    <div key={payment.id} style={{ display: 'flex', gap: '16px', alignItems: 'flex-end', backgroundColor: 'var(--bg-primary)', padding: '16px', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
+                      <Select label="Medio de Pago" value={payment.method} onChange={e => updatePayment(payment.id, 'method', e.target.value)} options={[
+                        { value: 'caja', label: 'Caja' },
+                        { value: 'banco', label: 'Banco' },
+                        { value: 'mercadopago', label: 'Mercado Pago' },
+                        { value: 'aporte_socio', label: 'Aporte de Socio' },
+                        { value: 'otras', label: 'Otras Cuentas' }
+                      ]} />
+                      {payment.method === 'aporte_socio' && (
+                        <Select label="Socio" value={payment.partnerId} onChange={e => updatePayment(payment.id, 'partnerId', e.target.value)} options={[
+                          { value: '', label: 'Seleccionar...' },
+                          ...partners.map(p => ({ value: p.id!, label: p.name }))
+                        ]} />
+                      )}
+                      <Input label="Monto" type="number" value={payment.amountStr} onChange={e => updatePayment(payment.id, 'amountStr', e.target.value)} />
+                      <button onClick={() => removePayment(payment.id)} className="btn-icon" style={{ marginBottom: '8px', color: '#dc2626' }}>
+                        <Trash2 size={18} />
+                      </button>
+                    </div>
+                  ))}
+
+                  <div style={{ backgroundColor: saldoPendiente <= 0 ? '#dcfce7' : '#fef2f2', border: `1px solid ${saldoPendiente <= 0 ? '#bbf7d0' : '#fecaca'}`, padding: '16px', borderRadius: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ color: saldoPendiente <= 0 ? '#166534' : '#991b1b', fontWeight: 600, fontSize: '0.875rem' }}>
+                      {saldoPendiente <= 0 ? 'Compra PAGADA (Deuda $ 0)' : `Compra ${totalPagado > 0 ? 'PARCIALMENTE PAGADA' : 'PENDIENTE'} (Generará deuda)`}
+                    </span>
+                    <span style={{ color: saldoPendiente <= 0 ? '#166534' : '#991b1b', fontWeight: 700, fontSize: '1.25rem' }}>
+                      {saldoPendiente > 0 ? formatCurrency(saldoPendiente) : '$ 0.00'}
+                    </span>
+                  </div>
+                </div>
+              )}
             </Card>
 
             {/* SECCIÓN 3 — RESUMEN */}
@@ -345,6 +395,7 @@ export const Compras = () => {
             setIsCreating(true);
             setEditingId(null);
             setItems([{ id: Date.now(), productId: '', productName: '', quantityStr: '', costStr: '', itemType: '' }]);
+            setPayments([]);
             setSupplierId('');
             setInvoiceNumber('');
             setFecha(new Date().toISOString().split('T')[0]);
@@ -400,10 +451,10 @@ export const Compras = () => {
                     borderRadius: '9999px', 
                     fontSize: '0.75rem', 
                     fontWeight: 600,
-                    backgroundColor: item.status === 'completed' ? '#dcfce7' : '#fef9c3',
-                    color: item.status === 'completed' ? '#166534' : '#854d0e'
+                    backgroundColor: item.status === 'PAGADA' ? '#dcfce7' : (item.status === 'PARCIAL' ? '#fef9c3' : '#fee2e2'),
+                    color: item.status === 'PAGADA' ? '#166534' : (item.status === 'PARCIAL' ? '#854d0e' : '#991b1b')
                   }}>
-                    Completado
+                    {item.status}
                   </span>
                 ),
                 align: 'center'

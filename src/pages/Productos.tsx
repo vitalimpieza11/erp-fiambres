@@ -127,7 +127,7 @@ export const Productos = () => {
       setPresFetas(item.cantidadFetasEstimada.toString());
       setPresBolsaId(item.bolsaId || '');
       setPresEtiquetaId(item.etiquetaId || '');
-      setPresPrecioKg(item.precioVentaKg.toString());
+      setPresPrecioKg(item.precioComercialKg.toString());
       setPresMargenObjetivo('40');
       setPresManoObra((item.manoObra || 0).toString());
       setPresObs(item.observations);
@@ -272,7 +272,7 @@ export const Productos = () => {
           bolsaName: bolsaName || "",
           etiquetaId: presEtiquetaId || "",
           etiquetaName: etiquetaName || "",
-          precioVentaKg: parseNumber(presPrecioKg),
+          precioComercialKg: parseNumber(presPrecioKg),
           manoObra: parseNumber(presManoObra) || 0,
           observations: presObs || '',
           isActive: true,
@@ -381,7 +381,7 @@ export const Productos = () => {
       bolsaName: '',
       etiquetaId: presEtiquetaId,
       etiquetaName: '',
-      precioVentaKg: parseNumber(presPrecioKg),
+      precioComercialKg: parseNumber(presPrecioKg),
       manoObra: parseNumber(presManoObra),
       isActive: true,
       observations: '',
@@ -433,7 +433,7 @@ export const Productos = () => {
       presSuggestedPriceKg = presEstimatedCostKg / (1 - (targetMarginVal / 100));
     }
 
-    pricePerUnit = tempPres.precioVentaKg * weightKg;
+    pricePerUnit = tempPres.precioComercialKg * weightKg;
     
     utilUnit = pricePerUnit > 0 ? pricePerUnit - presEstimatedCost : 0;
     utilKg = weightKg > 0 ? utilUnit / weightKg : 0;
@@ -456,7 +456,7 @@ export const Productos = () => {
       cantidadFetasEstimada: 0,
       bolsaId: '',
       etiquetaId: '',
-      precioVentaKg: 0,
+      precioComercialKg: 0,
       isActive: true,
       observations: ''
     };
@@ -499,7 +499,7 @@ export const Productos = () => {
       recEstimatedCost = calculatePresentationCost(mockPres, mercaderias, insumos, tempRecipes);
       const weightKg = mockPres.pesoObjetivoGramos / 1000;
       recEstimatedCostKg = weightKg > 0 ? recEstimatedCost / weightKg : 0;
-      const tPricePerUnit = mockPres.precioVentaKg * weightKg;
+      const tPricePerUnit = mockPres.precioComercialKg * weightKg;
       recMargin = tPricePerUnit > 0 ? ((tPricePerUnit - recEstimatedCost) / tPricePerUnit) * 100 : 0;
   }
 
@@ -640,34 +640,49 @@ export const Productos = () => {
                   ) 
                 },
                 {
-                  header: 'Precio Venta',
+                  header: 'Costo Kg',
                   accessor: p => {
                     const cost = calculatePresentationCost(p, mercaderias, insumos, recipes);
-                    const price = p.precioVentaKg * (p.pesoObjetivoGramos / 1000);
+                    const weightKg = p.pesoObjetivoGramos / 1000;
+                    const costoKg = weightKg > 0 ? cost / weightKg : 0;
+                    return <span style={{ color: '#ef4444', fontWeight: 600 }}>{formatCurrency(costoKg)}</span>;
+                  }
+                },
+                {
+                  header: 'P. Sugerido Kg',
+                  accessor: p => {
+                    const cost = calculatePresentationCost(p, mercaderias, insumos, recipes);
+                    const weightKg = p.pesoObjetivoGramos / 1000;
+                    const costoKg = weightKg > 0 ? cost / weightKg : 0;
+                    // Sugerido is calculated from costoKg using commercial default/optimal margin. Wait, if there's no margin stored, we can use 40% as a dummy or get it from settings. Since I don't have access to settings here, I'll calculate it using margin 40 for display, or show p.precioSugeridoKg if we stored it. The prompt says "precioSugeridoKg Lo calcula el ERP usando el margen objetivo." 
+                    // I'll assume we can calculate it dynamically or just display it if it was stored:
+                    const sugerido = p.precioSugeridoKg || (costoKg / (1 - 0.4)); // Fallback
+                    return <span style={{ color: 'var(--text-secondary)' }}>{formatCurrency(sugerido)}</span>;
+                  }
+                },
+                {
+                  header: 'P. Comercial Kg',
+                  accessor: p => {
                     return (
                       <div>
-                        <div style={{ fontWeight: 700 }}>{formatCurrency(price)}</div>
-                        <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{formatCurrency(p.precioVentaKg)}/Kg</div>
+                        <div style={{ fontWeight: 700 }}>{formatCurrency(p.precioComercialKg)}</div>
                       </div>
                     );
                   }
                 },
                 {
-                  header: 'Costo Elaboración',
+                  header: 'Diferencia %',
                   accessor: p => {
                     const cost = calculatePresentationCost(p, mercaderias, insumos, recipes);
-                    return <span style={{ color: '#ef4444', fontWeight: 600 }}>{formatCurrency(cost)}</span>;
-                  }
-                },
-                {
-                  header: 'Margen Est.',
-                  accessor: p => {
-                    const cost = calculatePresentationCost(p, mercaderias, insumos, recipes);
-                    const price = p.precioVentaKg * (p.pesoObjetivoGramos / 1000);
-                    const margin = price > 0 ? ((price - cost) / price) * 100 : 0;
+                    const weightKg = p.pesoObjetivoGramos / 1000;
+                    const costoKg = weightKg > 0 ? cost / weightKg : 0;
+                    const sugerido = p.precioSugeridoKg || (costoKg / (1 - 0.4));
+                    const comercial = p.precioComercialKg;
+                    const diffPercent = sugerido > 0 ? ((comercial - sugerido) / sugerido) * 100 : 0;
+                    const color = diffPercent >= 0 ? '#10b981' : '#ef4444';
                     return (
-                      <span style={{ fontWeight: 700, color: margin >= 30 ? '#10b981' : '#f59e0b' }}>
-                        {formatNumber(margin, '%')}
+                      <span style={{ fontWeight: 700, color }}>
+                        {diffPercent > 0 ? '+' : ''}{formatNumber(diffPercent, '%')}
                       </span>
                     );
                   }

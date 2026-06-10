@@ -22,7 +22,7 @@ import {
   Login,
   DashboardFinanciero,
   BaseFinanciera,
-  MigracionFinanciera
+  Mermas
 } from './pages';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { DateFilterProvider } from './contexts/DateFilterContext';
@@ -126,10 +126,9 @@ function App() {
                 element={<BaseFinanciera />}
               />
 
-              <Route
-                path="migracion-financiera"
-                element={<MigracionFinanciera />}
-              />
+
+
+
 
               <Route
                 path="cuenta-corriente"
@@ -149,6 +148,11 @@ function App() {
               <Route
                 path="rentabilidad"
                 element={<Rentabilidad />}
+              />
+
+              <Route
+                path="mermas"
+                element={<Mermas />}
               />
 
               <Route

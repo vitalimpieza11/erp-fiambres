@@ -8,19 +8,14 @@ import {
 } from 'lucide-react';
 import { formatCurrency, formatNumber } from '../utils/format';
 import { usePresentaciones } from '../hooks/usePresentaciones';
-import { useMercaderias } from '../hooks/useMercaderias';
-import { useInsumos } from '../hooks/useInsumos';
-import { useRecipes } from '../hooks/useRecipes';
-import { calculatePresentationCost } from '../core/calculations';
+import { useSales } from '../hooks/useSales';
 
 export const Rentabilidad = () => {
   const { presentaciones, loading: loadingPres, error: errorPres } = usePresentaciones();
-  const { mercaderias, loading: loadingMerc, error: errorMerc } = useMercaderias();
-  const { insumos, loading: loadingIns, error: errorIns } = useInsumos();
-  const { recipes, loading: loadingRec, error: errorRec } = useRecipes();
+  const { sales, loading: loadingSales, error: errorSales } = useSales();
 
-  const loading = loadingPres || loadingMerc || loadingIns || loadingRec;
-  const error = errorPres || errorMerc || errorIns || errorRec;
+  const loading = loadingPres || loadingSales;
+  const error = errorPres || errorSales;
 
   if (loading) {
     return <SkeletonLoader rows={4} height="60px" />;
@@ -31,21 +26,25 @@ export const Rentabilidad = () => {
   }
 
   const computedItems = presentaciones.map(pres => {
-    const cost = calculatePresentationCost(pres, mercaderias, insumos, recipes);
-    const weightKg = (pres.pesoObjetivoGramos || 200) / 1000;
-    
-    // Selling price of 1 package
-    const price = pres.precioVentaKg * weightKg;
-    
-    // Profit per package
-    const utilPack = price > 0 ? price - cost : 0;
-    
-    // Margin percent
-    const margin = price > 0 ? (utilPack / price) * 100 : 0;
-    
-    // Profit per Kg
-    const utilKg = weightKg > 0 ? utilPack / weightKg : 0;
+    let salesCount = 0;
+    let kgVendidos = 0;
+    let rev = 0;
+    let cst = 0;
 
+    sales.filter(s => s.status !== 'ANULADA').forEach(s => {
+      s.items.forEach((item: any) => {
+        if (item.productId === pres.id) {
+          salesCount += item.quantity || 0;
+          kgVendidos += item.pesoRealTotal || 0;
+          rev += item.price * item.quantity;
+          cst += (item.cost || 0) * item.quantity;
+        }
+      });
+    });
+    
+    const profit = rev - cst;
+    const margin = rev > 0 ? (profit / rev) * 100 : 0;
+    
     let status = 'Rentable';
     if (margin < 15) status = 'Crítico';
     else if (margin < 30) status = 'Margen Bajo';
@@ -54,15 +53,15 @@ export const Rentabilidad = () => {
       id: pres.id!,
       name: pres.name,
       customerName: pres.customerName || 'Todos',
-      cost,
-      price,
+      costoAcumulado: cst,
+      facturacion: rev,
       margin,
-      utilPack,
-      utilKg,
-      status,
-      weightKg
+      profit,
+      kgVendidos,
+      salesCount,
+      status
     };
-  });
+  }).filter(item => item.salesCount > 0);
 
   const lowMarginCount = computedItems.filter(item => item.margin > 0 && item.margin < 15).length;
   const avgMargin = computedItems.length > 0 
@@ -140,10 +139,10 @@ export const Rentabilidad = () => {
                   </div>
                 ) 
               },
-              { header: 'Costo Unitario', accessor: (item) => formatCurrency(item.cost), align: 'right' },
-              { header: 'Precio Unitario Venta', accessor: (item) => formatCurrency(item.price), align: 'right' },
-              { header: 'Utilidad x Sobre', accessor: (item) => <span style={{ fontWeight: 600, color: item.utilPack > 0 ? '#16a34a' : '#dc2626' }}>{formatCurrency(item.utilPack)}</span>, align: 'right' },
-              { header: 'Utilidad x Kg', accessor: (item) => formatCurrency(item.utilKg), align: 'right' },
+              { header: 'Kg Vendidos Reales', accessor: (item) => `${formatNumber(item.kgVendidos)} kg`, align: 'right' },
+              { header: 'Facturación Real', accessor: (item) => formatCurrency(item.facturacion), align: 'right' },
+              { header: 'Costo Real Acumulado', accessor: (item) => <span style={{ color: '#dc2626' }}>{formatCurrency(item.costoAcumulado)}</span>, align: 'right' },
+              { header: 'Ganancia Real', accessor: (item) => <span style={{ fontWeight: 600, color: item.profit >= 0 ? '#16a34a' : '#dc2626' }}>{formatCurrency(item.profit)}</span>, align: 'right' },
               { 
                 header: 'Margen %', 
                 accessor: (item) => (

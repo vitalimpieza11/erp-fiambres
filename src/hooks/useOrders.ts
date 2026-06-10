@@ -151,7 +151,8 @@ export const useOrders = () => {
       insumos,
       recipes
     );
-    const marginPercent = order.total > 0 ? ((order.total - productionCost) / order.total) * 100 : 0;
+    const totalValue = order.total || 0;
+    const marginPercent = totalValue > 0 ? ((totalValue - productionCost) / totalValue) * 100 : 0;
 
     const orderPayload = {
       ...order,
@@ -235,7 +236,7 @@ export const useOrders = () => {
       discount?: number;
       shippingCost?: number;
       actualConsumptions?: Record<string, number>;
-      actualProduced?: Record<string, number>;
+      actualProduced?: Record<string, number[]>;
     }
   ) => {
     const orderRef = doc(db, 'orders', orderId);
@@ -299,46 +300,53 @@ export const useOrders = () => {
           });
         });
 
-        const rawProduced = options?.actualProduced?.[item.productId];
-        const producedQty = (rawProduced !== undefined && rawProduced > 0) ? rawProduced : item.quantity;
-
-        if (producedQty > 0) {
-          const presMovRef = doc(collection(db, 'stock_movements'));
-          const isRealProduced = options?.actualProduced && options.actualProduced[item.productId] !== undefined;
-          batch.set(presMovRef, {
-            productId: item.productId,
-            productName: item.productName,
-            quantity: Math.abs(producedQty),
-            type: 'in',
-            referenceType: 'production',
-            referenceId: orderId,
-            date: Date.now(),
-            observations: `Producción Pedido: ${orderId} → ${pres.name}${isRealProduced ? ' (Cant. Real)' : ''}`,
-            createdAt: Date.now()
-          });
+        const rawProducedWeights = options?.actualProduced?.[item.productId];
+        let weights = rawProducedWeights || [];
+        if (weights.length === 0) {
+          // Fallback to theoretical packages
+          weights = Array(item.quantity).fill(pres.pesoObjetivoGramos / 1000);
         }
+
+        const producedPackageIds: string[] = [];
+
+        weights.forEach((weightKg) => {
+          if (weightKg > 0) {
+            const pkgRef = doc(collection(db, 'packages'));
+            const unitCost = calculatePresentationCost(pres, mercaderias, insumos, recipes);
+            const costoKg = pres.pesoObjetivoGramos > 0 ? unitCost / (pres.pesoObjetivoGramos / 1000) : 0;
+            
+            batch.set(pkgRef, {
+              productId: item.productId,
+              productName: item.productName,
+              productionDate: Date.now(),
+              weight: weightKg,
+              cost: weightKg * costoKg,
+              status: 'Disponible',
+              orderId: orderId,
+              customerId: targetOrder.customerId,
+              createdAt: Date.now(),
+              updatedAt: Date.now()
+            });
+            producedPackageIds.push(pkgRef.id);
+          }
+        });
+
+        // Update the order item with the generated package IDs
+        item.producedPackages = producedPackageIds;
       });
 
-      batch.update(orderRef, { status: 'PRODUCIDO', updatedAt: Date.now() });
+      batch.update(orderRef, { 
+        status: 'PRODUCIDO', 
+        items: targetOrder.items,
+        updatedAt: Date.now() 
+      });
       await batch.commit();
 
     } else if (newStatus === 'ENTREGADO') {
       const batch = writeBatch(db);
       
-      targetOrder.items.forEach((item) => {
-        const stockMovRef = doc(collection(db, 'stock_movements'));
-        batch.set(stockMovRef, {
-          productId: item.productId,
-          productName: item.productName,
-          quantity: -Math.abs(item.quantity),
-          type: 'out',
-          referenceType: 'sale',
-          referenceId: orderId,
-          date: Date.now(),
-          observations: `Entrega de Pedido: ${orderId}`,
-          createdAt: Date.now()
-        });
-      });
+      // Stock movements for the theoretical package delivery is no longer needed since packages hold their own status
+      // We will mark them as delivered/sold during FACTURADO or VENTAS.
 
       batch.update(orderRef, { status: 'ENTREGADO', updatedAt: Date.now() });
       await batch.commit();
@@ -371,24 +379,79 @@ export const useOrders = () => {
         };
       });
 
+      // Fetch packages generated for this order
+      const packagesSnap = await getDocs(query(collection(db, 'packages'), where('orderId', '==', targetOrder.id)));
+      const orderPackages = packagesSnap.docs.map(d => ({ id: d.id, ...d.data() } as any));
+
+      const batch = writeBatch(db);
+      const saleRef = doc(collection(db, 'sales'));
+      const saleId = saleRef.id;
+
+      let realSubtotal = 0;
+      let totalCost = 0;
+
+      const saleItems = targetOrder.items.map(item => {
+        const pres = presentaciones.find(p => p.id === item.productId);
+        const unitCost = pres ? calculatePresentationCost(pres, mercaderias, insumos, recipes) : 0;
+        const costoKg = pres && pres.pesoObjetivoGramos > 0 ? unitCost / (pres.pesoObjetivoGramos / 1000) : 0;
+        const precioComercialKg = pres?.precioComercialKg || 0;
+
+        // Sum weights from packages
+        const itemPackages = orderPackages.filter(pkg => pkg.productId === item.productId);
+        const totalWeight = itemPackages.reduce((sum, pkg) => sum + Number(pkg.weight), 0);
+        
+        // Calculate item amount based on REAL WEIGHT
+        const itemAmount = totalWeight * precioComercialKg;
+        const itemCost = totalWeight * costoKg;
+
+        realSubtotal += itemAmount;
+        totalCost += itemCost;
+
+        // Mark packages as sold
+        itemPackages.forEach(pkg => {
+          batch.update(doc(db, 'packages', pkg.id), {
+            status: 'Vendido',
+            saleId: saleId,
+            saleDate: Date.now(),
+            updatedAt: Date.now()
+          });
+        });
+
+        return {
+          productId: item.productId,
+          productName: item.productName,
+          quantity: item.quantity, // Legacy (packages requested/produced)
+          pesoRealTotal: totalWeight, // New metric for sale
+          price: itemAmount, // Store total item amount instead of unit price? Wait, price in SaleItem is unit price. Since we sell packages of varied weight, we can store total amount in price, and quantity 1, OR store unit price as precioComercialKg and quantity as totalWeight. 
+          // Best is to store price = precioComercialKg, quantity = totalWeight.
+          // Wait, UI assumes quantity is packages, price is per package. 
+          // If we store quantity = packages, we'd need a custom price per package. 
+          // Let's store average price or just total in 'cost'/'price'.
+          // Let's keep quantity as packages count, and price as Average Price per package.
+          cost: itemPackages.length > 0 ? itemCost / itemPackages.length : unitCost
+        };
+      });
+
+      // Recalculate price per package for the array
+      saleItems.forEach(si => {
+        const itemPackages = orderPackages.filter(pkg => pkg.productId === si.productId);
+        const totalWeight = itemPackages.reduce((sum, pkg) => sum + Number(pkg.weight), 0);
+        const pres = presentaciones.find(p => p.id === si.productId);
+        const precioComercialKg = pres?.precioComercialKg || 0;
+        si.price = itemPackages.length > 0 ? (totalWeight * precioComercialKg) / itemPackages.length : 0;
+      });
+
+      const discountAmount = realSubtotal * ((targetOrder.discount || 0) / 100);
+      const realTotal = realSubtotal - discountAmount;
+
       const salePayload = {
         customerId: targetOrder.customerId,
         customerName: targetOrder.customerName,
-        items: targetOrder.items.map(item => {
-          const pres = presentaciones.find(p => p.id === item.productId);
-          const unitCost = pres ? calculatePresentationCost(pres, mercaderias, insumos, recipes) : 0;
-          return {
-            productId: item.productId,
-            productName: item.productName,
-            quantity: item.quantity,
-            price: item.price,
-            cost: unitCost
-          };
-        }),
-        subtotal: targetOrder.subtotal,
-        discount: targetOrder.discount,
-        total: targetOrder.total,
-        saldoPendiente: targetOrder.total,
+        items: saleItems,
+        subtotal: realSubtotal,
+        discount: targetOrder.discount || 0,
+        total: realTotal,
+        saldoPendiente: realTotal,
         status: 'PENDIENTE',
         paymentMethod: options?.paymentMethod || 'cc',
         remitoNumber: `REM-${Date.now().toString().slice(-6)}`,
@@ -400,12 +463,16 @@ export const useOrders = () => {
         updatedAt: Date.now()
       };
 
-      const batch = writeBatch(db);
-      const saleRef = doc(collection(db, 'sales'));
-      const saleId = saleRef.id;
-
       batch.set(saleRef, { ...salePayload, id: saleId });
-      batch.update(orderRef, { status: 'FACTURADO', saleId, updatedAt: Date.now() });
+      batch.update(orderRef, { 
+        status: 'FACTURADO', 
+        saleId, 
+        total: realTotal, // Update order's definitive total!
+        subtotal: realSubtotal,
+        productionCost: totalCost,
+        marginPercent: realTotal > 0 ? ((realTotal - totalCost) / realTotal) * 100 : 0,
+        updatedAt: Date.now() 
+      });
 
       await batch.commit();
 

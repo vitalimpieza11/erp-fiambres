@@ -2,9 +2,27 @@
 export interface SaleItem {
   productId: string;
   productName: string;
-  quantity: number;
-  price: number;
-  cost: number;
+  quantity: number; // For legacy retrocompatibility
+  price: number; // For legacy retrocompatibility
+  cost: number; // For legacy retrocompatibility
+  packages?: string[]; // IDs of physical packages (ProductPackage)
+  pesoRealTotal?: number;
+}
+
+export interface ProductPackage {
+  id?: string;
+  productId: string; // ID of Presentacion
+  productName: string;
+  productionDate: number;
+  saleDate?: number;
+  weight: number; // peso real en kg
+  cost: number; // costo real del paquete (pesoReal x costoKg)
+  status: 'Disponible' | 'Reservado' | 'Vendido';
+  orderId?: string; // Pedido origen
+  customerId?: string; // Cliente final
+  saleId?: string; // Venta final
+  createdAt: number;
+  updatedAt: number;
 }
 
 export interface Sale {
@@ -13,8 +31,11 @@ export interface Sale {
   customerName: string;
   items: SaleItem[];
   subtotal: number;
-  discount: number;
-  total: number;
+  discount: number; // Manual discount
+  total: number; // For legacy retrocompatibility
+  grossTotal?: number; // Phase 5B
+  commercialDiscount?: number; // Phase 5B (Listas de precios / Special prices)
+  netTotal?: number; // Phase 5B (grossTotal - commercialDiscount - discount)
   saldoPendiente: number;
   status: 'PENDIENTE' | 'PARCIAL' | 'PAGADA' | 'ANULADA';
   paymentMethod?: string;
@@ -48,13 +69,22 @@ export interface PurchaseItem {
   itemType?: string;
 }
 
+export interface PurchasePayment {
+  method: string;
+  amount: number;
+  partnerId?: string;
+}
+
 export interface Purchase {
   id?: string;
   supplierId: string;
   supplierName: string;
   items: PurchaseItem[];
   total: number;
-  status: 'pending' | 'completed' | 'cancelled';
+  status: 'pending' | 'completed' | 'cancelled' | 'PAGADA' | 'PENDIENTE' | 'PARCIAL';
+  payments?: PurchasePayment[];
+  amountPaid?: number;
+  pendingBalance?: number;
   invoiceNumber?: string;
   date: number;
   createdAt: number;
@@ -81,7 +111,7 @@ export interface CashMovement {
   amount: number;
   currency?: string;
   method: string; // Free now: 'cash', 'transfer', 'cheque', or custom
-  origin?: 'cash' | 'bank'; // Legacy
+  origin?: 'cash' | 'bank' | 'socio'; // Legacy
   description: string;
   category: string; // e.g. 'sale', 'purchase', 'expense', 'withdrawal', 'aporte_socio', 'inversion_inicial', 'bien_capital'
   referenceId?: string;
@@ -94,6 +124,8 @@ export interface CashMovement {
   toAccountId?: string; // For transfers
   partnerId?: string; // For Aportes de Socio
   aporteType?: 'dinero' | 'bien_capital' | 'vehiculo' | 'mercaderia' | 'equipamiento' | 'tecnologia' | 'otro';
+  tipoMovimiento?: 'APORTE_SOCIO' | string;
+  destino?: 'caja' | 'banco' | 'activo' | string;
   
   // Relations
   customerId?: string;
@@ -109,6 +141,9 @@ export interface CashMovement {
   
   // Manual Override & Audit
   isManualOverride?: boolean;
+  sourceModule?: 'MANUAL' | 'VENTAS' | 'COMPRAS' | 'SOCIOS' | 'SISTEMA' | string;
+  isEditable?: boolean;
+  isDeletable?: boolean;
   auditLog?: {
     date: number;
     user: string;
@@ -118,14 +153,6 @@ export interface CashMovement {
   }[];
 }
 
-export interface ProfitDistribution {
-  id?: string;
-  date: number;
-  amount: number;
-  type: 'reinvestment' | 'distribution'; // 'reinvestment' for Reinversión, 'distribution' for Distribución Societaria
-  observations: string;
-  createdAt: number;
-}
 
 
 export interface ErpEventLog {
@@ -135,6 +162,22 @@ export interface ErpEventLog {
   status: 'success' | 'failed';
   affectedDocuments: string[];
   error?: string;
+}
+
+export interface PartnerTransaction {
+  id?: string;
+  partnerId: string;
+  date: number;
+  amount: number;
+  type: "APORTE" | "RETIRO" | "DEVOLUCION";
+  contributionType?: "DINERO" | "MERCADERIA" | "MAQUINARIA" | "INSUMOS" | "SERVICIOS";
+  method: "CAJA" | "BANCO" | "TRANSFERENCIA" | "COMPENSACION";
+  referenceId?: string;
+  description: string;
+  productId?: string;
+  productName?: string;
+  quantity?: number;
+  createdAt: number;
 }
 
 export interface Customer {
@@ -163,6 +206,7 @@ export interface Supplier {
   phone: string;
   address: string;
   category: string;
+  currentBalance?: number;
   isActive: boolean;
   createdAt: number;
   updatedAt: number;
@@ -244,8 +288,9 @@ export interface Recipe {
 export interface OrderItem {
   productId: string;
   productName: string;
-  quantity: number; // number of packages or units ordered
-  price: number; // unit price (custom or from list)
+  quantity: number; // number of packages or units ordered (INTENCIÓN DE COMPRA)
+  price?: number; // legacy
+  producedPackages?: string[]; // IDs of ProductPackage generated for this order item
 }
 
 export interface Order {
@@ -253,9 +298,12 @@ export interface Order {
   customerId: string;
   customerName: string;
   items: OrderItem[];
-  subtotal: number;
-  discount: number;
-  total: number;
+  subtotal?: number;
+  discount?: number; // Manual discount
+  total?: number; // For legacy retrocompatibility
+  grossTotal?: number; // Phase 5B
+  commercialDiscount?: number; // Phase 5B
+  netTotal?: number; // Phase 5B
   status: 'PENDIENTE' | 'EN_PRODUCCION' | 'PRODUCIDO' | 'ENTREGADO' | 'FACTURADO' | 'CERRADO';
   observations?: string;
   date: number;
@@ -267,7 +315,7 @@ export interface Order {
   marginPercent?: number;
   saleId?: string;
   actualConsumptions?: Record<string, { value: number; unit: string }>;
-  actualProduced?: Record<string, number>;
+  actualProduced?: Record<string, number[]>; // array of weights in kg
 }
 
 export interface Mercaderia {
@@ -275,6 +323,8 @@ export interface Mercaderia {
   name: string;
   category: string;
   costoKg: number;
+  precioSugeridoKg?: number;
+  precioComercialKg?: number;
   stockKg: number;
   provider: string; // proveedor habitual
   observations: string;
@@ -312,7 +362,8 @@ export interface Presentacion {
   bolsaName?: string;
   etiquetaId?: string; // etiqueta utilizada
   etiquetaName?: string;
-  precioVentaKg: number; // precioVentaKg
+  precioSugeridoKg?: number;
+  precioComercialKg: number; // precioComercialKg
   manoObra?: number; // Costo mano de obra (si corresponde)
   observations: string;
   isActive: boolean;

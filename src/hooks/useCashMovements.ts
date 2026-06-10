@@ -35,13 +35,21 @@ export const useCashMovements = () => {
             description: data.description || '',
             category: data.category || '',
             referenceId: data.referenceId || '',
+            supplierId: data.supplierId || '',
+            partnerId: data.partnerId || '',
             date: data.date || Date.now(),
             createdAt: data.createdAt || Date.now(),
             bankId: data.bankId || '',
             accountId: data.accountId || data.bankId || (data.method === 'cash' ? 'cash_default' : 'bank_default'),
             toAccountId: data.toAccountId || '',
             isManualOverride: data.isManualOverride || false,
+            sourceModule: data.sourceModule || (data.category === 'venta' ? 'VENTAS' : data.category === 'compra' ? 'COMPRAS' : data.category === 'aporte_socio' || data.tipoMovimiento === 'APORTE_SOCIO' ? 'SOCIOS' : data.referenceId ? 'SISTEMA' : 'MANUAL'),
+            isEditable: data.isEditable !== undefined ? data.isEditable : (!data.referenceId),
+            isDeletable: data.isDeletable !== undefined ? data.isDeletable : (!data.referenceId),
             auditLog: data.auditLog || [],
+            tipoMovimiento: data.tipoMovimiento || '',
+            destino: data.destino || '',
+            aporteType: data.aporteType || '',
           });
         });
         setMovements(list);
@@ -90,7 +98,7 @@ export const useCashMovements = () => {
     const mainAccount = mov.accountId || mov.bankId || (mov.method === 'cash' ? 'cash_default' : 'bank_default');
     if (!acc.accountBalances[mainAccount]) acc.accountBalances[mainAccount] = 0;
 
-    const isNonMoneyAporte = mov.category === 'aporte_socio' && mov.aporteType && mov.aporteType !== 'dinero';
+    const isNonMoneyAporte = (mov.category === 'aporte_socio' || mov.tipoMovimiento === 'APORTE_SOCIO') && (mov.aporteType && mov.aporteType !== 'dinero' || mov.destino === 'activo');
 
     if (mov.type === 'in') {
       if (!isNonMoneyAporte) {

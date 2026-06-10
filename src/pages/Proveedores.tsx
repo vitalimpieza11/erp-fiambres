@@ -11,13 +11,28 @@ import {
 } from 'lucide-react';
 import { formatCurrency, parseNumber } from '../utils/format';
 import { useSuppliers } from '../hooks/useSuppliers';
+import { usePurchases } from '../hooks/usePurchases';
+import { useCashMovements } from '../hooks/useCashMovements';
+import { usePartnerTransactions } from '../hooks/usePartnerTransactions';
+import { useSocietaria } from '../hooks/useSocietaria';
 
 
 export const Proveedores = () => {
-  const { suppliers, loading, error, saveSupplier, deleteSupplier } = useSuppliers();
+  const { suppliers, loading, error, saveSupplier, deleteSupplier, registerPayment } = useSuppliers();
+  const { purchases } = usePurchases();
+  const { movements } = useCashMovements();
+  const { transactions } = usePartnerTransactions();
+  const { partners } = useSocietaria();
   const [viewState, setViewState] = useState<'list' | 'create' | 'account'>('list');
   const [selectedSupplier, setSelectedSupplier] = useState<any | null>(null);
   const [isPaying, setIsPaying] = useState(false);
+  
+  // Payment Form States
+  const [payAmount, setPayAmount] = useState('');
+  const [payMethod, setPayMethod] = useState('efectivo');
+  const [payPartner, setPayPartner] = useState('');
+  const [payDate, setPayDate] = useState(new Date().toISOString().split('T')[0]);
+  const [payReference, setPayReference] = useState('');
 
   // Form states
   const [name, setName] = useState('');
@@ -77,10 +92,51 @@ export const Proveedores = () => {
     setSelectedSupplier(supplier);
     setViewState('account');
     setIsPaying(false);
+    setPayAmount('');
+    setPayMethod('efectivo');
+    setPayDate(new Date().toISOString().split('T')[0]);
+    setPayReference('');
+  };
+
+  const handleConfirmPayment = async () => {
+    const amount = parseNumber(payAmount);
+    if (!amount || amount <= 0) {
+      alert("Ingrese un monto válido.");
+      return;
+    }
+    try {
+      if (payMethod === 'aporte_socio' && !payPartner) {
+        alert("Seleccione un socio para el aporte.");
+        return;
+      }
+      await registerPayment(selectedSupplier.id, amount, payMethod, new Date(payDate).getTime(), payReference, payMethod === 'aporte_socio' ? payPartner : undefined);
+      setIsPaying(false);
+      setPayAmount('');
+      setPayReference('');
+    } catch (e: any) {
+      alert(e.message || "Error al registrar pago");
+    }
+  };
+
+  const getSupplierDebt = (supplierId: string) => {
+    const sPurchases = purchases.filter(p => p.supplierId === supplierId);
+    const sPayments = movements.filter(m => 
+      (m.type === 'out' || m.category === 'aporte_socio') &&
+      (m.supplierId === supplierId || sPurchases.some(p => p.id === m.referenceId))
+    );
+    const sAportes = transactions.filter(t => 
+       t.type === 'APORTE' && 
+       (t.referenceId === supplierId || sPurchases.some(p => p.id === t.referenceId))
+    );
+
+    const totalPurchases = sPurchases.reduce((acc, p) => acc + (p.total || 0), 0);
+    const totalPayments = sPayments.reduce((acc, m) => acc + (m.amount || 0), 0) + sAportes.reduce((acc, a) => acc + (a.amount || 0), 0);
+    
+    return totalPurchases - totalPayments;
   };
 
   const mappedProveedores = suppliers.map((s: any) => {
-    const balance = (s as any).currentBalance || 0;
+    const balance = getSupplierDebt(s.id!);
     return {
       _original: s,
       id: s.id!,
@@ -195,7 +251,76 @@ export const Proveedores = () => {
 
   // VISTA CUENTA CORRIENTE
   if (viewState === 'account' && selectedSupplier) {
-    const saldoReal = selectedSupplier.rawBalance || 0;
+    const saldoReal = getSupplierDebt(selectedSupplier.id!);
+
+    const sPurchases = purchases.filter(p => p.supplierId === selectedSupplier.id);
+    const sPayments = movements.filter(m => 
+      (m.type === 'out' || m.category === 'aporte_socio') &&
+      (m.supplierId === selectedSupplier.id || sPurchases.some(p => p.id === m.referenceId))
+    );
+
+    const sAportes = transactions.filter(t => 
+       t.type === 'APORTE' && 
+       (t.referenceId === selectedSupplier.id || sPurchases.some(p => p.id === t.referenceId))
+    );
+
+    const supplierHistory = (() => {
+      if (!selectedSupplier) return [];
+
+      const history: any[] = [];
+      
+      sPurchases.forEach(p => {
+        history.push({
+          id: `compra-${p.id}`,
+          date: p.date,
+          concept: `Compra ${p.invoiceNumber ? `(Ref: ${p.invoiceNumber})` : ''}`,
+          debe: p.total || 0,
+          haber: 0,
+          type: 'compra'
+        });
+      });
+
+      sPayments.forEach(p => {
+        history.push({
+          id: `pago-${p.id}`,
+          date: p.date || p.createdAt,
+          concept: `Pago a cuenta ${p.method === 'cash' || p.method === 'efectivo' ? '(Caja)' : p.method === 'transfer' || p.method === 'transferencia' ? '(Banco/Transf.)' : ''}`,
+          debe: 0,
+          haber: p.amount || 0,
+          type: 'pago'
+        });
+      });
+
+      sAportes.forEach(a => {
+        history.push({
+          id: `aporte-${a.id}`,
+          date: a.date,
+          concept: `Pago a cuenta (Aporte de Socio ${partners.find(p => p.id === a.partnerId)?.name || ''})`,
+          debe: 0,
+          haber: a.amount || 0,
+          type: 'pago'
+        });
+      });
+
+      // Sort by date, if same date, put compra first
+      history.sort((a, b) => {
+        if (a.date !== b.date) return a.date - b.date;
+        if (a.type === 'compra' && b.type === 'pago') return -1;
+        if (a.type === 'pago' && b.type === 'compra') return 1;
+        return 0;
+      });
+
+      let balance = 0;
+      return history.map(item => {
+        balance = balance + Number(item.debe || 0) - Number(item.haber || 0);
+        return { ...item, saldo: balance };
+      }); // Orden cronológico (más antiguo arriba)
+    })();
+
+    const pagosEsteMesMovs = sPayments ? sPayments.filter(m => new Date(m.date || m.createdAt).getMonth() === new Date().getMonth()).reduce((sum, m) => sum + m.amount, 0) : 0;
+    const pagosEsteMesAportes = sAportes ? sAportes.filter(a => new Date(a.date).getMonth() === new Date().getMonth()).reduce((sum, a) => sum + a.amount, 0) : 0;
+    const pagosEsteMes = pagosEsteMesMovs + pagosEsteMesAportes;
+    const comprasEsteMes = sPurchases ? sPurchases.filter(p => new Date(p.date).getMonth() === new Date().getMonth()).reduce((sum, p) => sum + p.total, 0) : 0;
 
     return (
       <div style={{ paddingBottom: '40px' }}>
@@ -227,17 +352,24 @@ export const Proveedores = () => {
               <h3 style={{ fontSize: '1rem', fontWeight: 600 }}>Nuevo Pago a Proveedor</h3>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 2fr auto', gap: '16px', alignItems: 'flex-end' }}>
-              <Input label="Monto a Pagar ($)" type="number" placeholder="0.00" />
-              <Select label="Medio de Pago" options={[
+              <Input label="Monto a Pagar ($)" type="number" placeholder="0.00" value={payAmount} onChange={e => setPayAmount(e.target.value)} />
+              <Select label="Medio de Pago" value={payMethod} onChange={e => setPayMethod(e.target.value)} options={[
                 { value: 'efectivo', label: 'Efectivo' },
                 { value: 'transferencia', label: 'Transferencia' },
-                { value: 'cheque', label: 'Cheque' }
+                { value: 'cheque', label: 'Cheque' },
+                { value: 'aporte_socio', label: 'Aporte de Socio' }
               ]} />
-              <Input label="Fecha" type="date" />
-              <Input label="Referencia / Comprobante" placeholder="Nº de recibo" />
+              {payMethod === 'aporte_socio' && (
+                <Select label="Socio" value={payPartner} onChange={e => setPayPartner(e.target.value)} options={[
+                  { value: '', label: 'Seleccionar...' },
+                  ...partners.map(p => ({ value: p.id!, label: p.name }))
+                ]} />
+              )}
+              <Input label="Fecha" type="date" value={payDate} onChange={e => setPayDate(e.target.value)} />
+              <Input label="Referencia / Comprobante" placeholder="Nº de recibo" value={payReference} onChange={e => setPayReference(e.target.value)} />
               <div style={{ display: 'flex', gap: '8px' }}>
                 <button onClick={() => setIsPaying(false)} className="btn btn-secondary">Cancelar</button>
-                <button onClick={() => setIsPaying(false)} className="btn btn-primary">Confirmar</button>
+                <button onClick={handleConfirmPayment} className="btn btn-primary">Confirmar</button>
               </div>
             </div>
           </Card>
@@ -258,7 +390,7 @@ export const Proveedores = () => {
               <div style={{ padding: '10px', backgroundColor: '#dcfce7', color: '#16a34a', borderRadius: '10px' }}><CheckCircle2 size={20} /></div>
               <div>
                 <p style={{ color: 'var(--text-secondary)', fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase' }}>Pagos Este Mes</p>
-                <h3 style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--text-primary)' }}>$ 0</h3>
+                <h3 style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--text-primary)' }}>{formatCurrency(pagosEsteMes)}</h3>
               </div>
             </div>
           </Card>
@@ -267,7 +399,7 @@ export const Proveedores = () => {
               <div style={{ padding: '10px', backgroundColor: '#dbeafe', color: '#2563eb', borderRadius: '10px' }}><FileText size={20} /></div>
               <div>
                 <p style={{ color: 'var(--text-secondary)', fontSize: '0.75rem', fontWeight: 600, textTransform: 'uppercase' }}>Compras Este Mes</p>
-                <h3 style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--text-primary)' }}>$ 0</h3>
+                <h3 style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--text-primary)' }}>{formatCurrency(comprasEsteMes)}</h3>
               </div>
             </div>
           </Card>
@@ -283,12 +415,46 @@ export const Proveedores = () => {
         </div>
 
         <Card padding="none">
-          <div style={{ padding: '40px' }}>
-            <EmptyState 
-              icon={FileText} 
-              title="No hay movimientos registrados" 
-              description="Aún no hay comprobantes ni pagos en la cuenta corriente de este proveedor." 
-            />
+          <div style={{ padding: '24px' }}>
+            <h3 style={{ fontSize: '1.1rem', fontWeight: 700, marginBottom: '16px' }}>Historial de Movimientos</h3>
+            {supplierHistory.length === 0 ? (
+              <EmptyState 
+                icon={FileText} 
+                title="No hay movimientos registrados" 
+                description="Aún no hay comprobantes ni pagos en la cuenta corriente de este proveedor." 
+              />
+            ) : (
+              <Table 
+                data={supplierHistory}
+                keyExtractor={(item) => item.id}
+                columns={[
+                  { header: 'Fecha', accessor: (item) => new Date(item.date).toLocaleDateString() },
+                  { 
+                    header: 'Concepto', 
+                    accessor: (item) => (
+                      <span style={{ fontWeight: item.type === 'compra' ? 600 : 400, color: item.type === 'pago' ? '#16a34a' : 'inherit' }}>
+                        {item.concept}
+                      </span>
+                    )
+                  },
+                  { 
+                    header: 'Debe', 
+                    accessor: (item) => item.debe > 0 ? <span style={{ color: '#dc2626' }}>{formatCurrency(item.debe)}</span> : '-',
+                    align: 'right'
+                  },
+                  { 
+                    header: 'Haber', 
+                    accessor: (item) => item.haber > 0 ? <span style={{ color: '#16a34a' }}>{formatCurrency(item.haber)}</span> : '-',
+                    align: 'right'
+                  },
+                  { 
+                    header: 'Saldo Acumulado', 
+                    accessor: (item) => <span style={{ fontWeight: 700 }}>{formatCurrency(item.saldo)}</span>,
+                    align: 'right'
+                  }
+                ]}
+              />
+            )}
           </div>
         </Card>
       </div>

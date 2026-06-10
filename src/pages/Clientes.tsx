@@ -15,11 +15,13 @@ import { useCustomers } from '../hooks/useCustomers';
 import { usePriceLists } from '../hooks/usePriceLists';
 import { usePresentaciones } from '../hooks/usePresentaciones';
 import { useMercaderias } from '../hooks/useMercaderias';
+import { useSales } from '../hooks/useSales';
 import { CCDetail } from './CuentaCorriente';
 
 
 export const Clientes = () => {
   const { customers, loading, error, saveCustomer, deleteCustomer } = useCustomers();
+  const { sales } = useSales();
   const { priceLists } = usePriceLists();
   const { presentaciones } = usePresentaciones();
   const { mercaderias } = useMercaderias();
@@ -374,8 +376,16 @@ export const Clientes = () => {
 
   // VISTA PRINCIPAL (LISTA)
   const activeCount = customers.filter(c => c.isActive).length;
-  const totalDebt = customers.reduce((acc, c) => acc + (c.currentBalance || 0), 0);
-  const delinquentCount = customers.filter(c => (c.currentBalance || 0) > (c.creditLimit || 100000)).length;
+  
+  // Calculate debt dynamically from sales to ensure single source of truth
+  const getCustomerDebt = (customerId: string) => {
+    return sales
+      .filter(s => s.customerId === customerId && s.paymentMethod === 'cc' && (s.status === 'PENDIENTE' || s.status === 'PARCIAL'))
+      .reduce((acc, sale) => acc + (sale.saldoPendiente !== undefined ? sale.saldoPendiente : sale.total), 0);
+  };
+
+  const totalDebt = customers.reduce((acc, c) => acc + getCustomerDebt(c.id!), 0);
+  const delinquentCount = customers.filter(c => getCustomerDebt(c.id!) > (c.creditLimit || 100000)).length;
 
   const stats = [
     { title: 'Clientes Activos', value: activeCount.toString(), icon: Users, color: 'var(--primary-color)', bg: 'var(--primary-light)' },
@@ -385,19 +395,22 @@ export const Clientes = () => {
     { title: 'Top Cliente (Mes)', value: customers.length > 0 ? customers[0].name : 'Ninguno', icon: Award, color: '#059669', bg: '#d1fae5' },
   ];
 
-  const mappedCustomers = customers.map(c => ({
-    _original: c,
-    id: c.id!,
-    commerce: c.name,
-    type: 'Comercio',
-    contact: c.cuit ? `CUIT: ${c.cuit}` : 'Sin CUIT',
-    phone: c.phone || 'Sin teléfono',
-    zone: c.address || 'General',
-    debt: formatCurrency(c.currentBalance || 0),
-    lastBuy: 'Ver ficha',
-    status: (c.currentBalance || 0) > (c.creditLimit || 100000) ? 'Moroso' : c.isActive ? 'Activo' : 'Inactivo',
-    rawBalance: c.currentBalance || 0
-  }));
+  const mappedCustomers = customers.map(c => {
+    const debt = getCustomerDebt(c.id!);
+    return {
+      _original: c,
+      id: c.id!,
+      commerce: c.name,
+      type: 'Comercio',
+      contact: c.cuit ? `CUIT: ${c.cuit}` : 'Sin CUIT',
+      phone: c.phone || 'Sin teléfono',
+      zone: c.address || 'General',
+      debt: formatCurrency(debt),
+      lastBuy: 'Ver ficha',
+      status: debt > (c.creditLimit || 100000) ? 'Moroso' : c.isActive ? 'Activo' : 'Inactivo',
+      rawBalance: debt
+    };
+  });
 
   return (
     <>

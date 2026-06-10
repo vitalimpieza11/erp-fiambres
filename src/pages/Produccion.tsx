@@ -15,9 +15,39 @@ import { Play, CheckCircle, ClipboardList, Calendar, ShoppingBag, Layers, Scisso
 import { getIngredientGrams } from '../core/calculations';
 import { IngredientInput } from '../components/IngredientInput';
 import type { Presentacion, Mercaderia, Recipe, Order, OrderItem } from '../types/database';
-import { formatNumber } from '../utils/format';
+import { formatNumber, parseNumber } from '../utils/format';
 
 type ConsumptionUnit = 'g' | 'kg' | 'fetas' | 'unidades';
+
+const WeightInput = ({ value, onChange }: { value: number, onChange: (val: number) => void }) => {
+  const [strVal, setStrVal] = useState(value === 0 ? '' : value.toString());
+
+  useEffect(() => {
+    // Only update local state if the incoming value differs numerically from what we have
+    if (parseNumber(strVal) !== value) {
+      setStrVal(value === 0 ? '' : value.toString());
+    }
+  }, [value]);
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    let val = e.target.value.replace(/[^0-9.,]/g, '');
+    val = val.replace(',', '.'); // normalize to dot
+    setStrVal(val);
+    const parsed = parseNumber(val);
+    onChange(parsed);
+  };
+
+  return (
+    <input
+      type="text"
+      inputMode="decimal"
+      value={strVal}
+      onChange={handleChange}
+      style={{ width: '60px', padding: '2px 4px', borderRadius: '2px', border: '1px solid #94a3b8', textAlign: 'right', fontSize: '0.8rem', fontWeight: 600 }}
+      placeholder="0.000"
+    />
+  );
+};
 
 function buildIngredientRows(item: OrderItem, pres: Presentacion, recipe: Recipe | undefined, mercaderias: Mercaderia[]): any[] {
   if (pres.productoBaseId) {
@@ -52,12 +82,12 @@ export const Produccion = () => {
   const [activeTab, setActiveTab] = useState<'maestro' | 'corte' | 'empaque' | 'pedidos'>('maestro');
 
   const [actualConsumptions, setActualConsumptions] = useState<Record<string, { value: number; unit: string }>>({});
-  const [actualProduced, setActualProduced] = useState<Record<string, number>>({});
+  const [actualProduced, setActualProduced] = useState<Record<string, number[]>>({});
 
   useEffect(() => {
     if (!orders.length) return;
     const loadedConsumptions: Record<string, { value: number; unit: string }> = {};
-    const loadedProduced: Record<string, number> = {};
+    const loadedProduced: Record<string, number[]> = {};
     orders.forEach(order => {
       if (order.actualConsumptions) Object.assign(loadedConsumptions, order.actualConsumptions);
       if (order.actualProduced) Object.assign(loadedProduced, order.actualProduced);
@@ -80,9 +110,9 @@ export const Produccion = () => {
     try { await updateDoc(doc(db, 'orders', orderId), { actualConsumptions: newConsumptions }); } catch (e) { console.error('Error saving draft:', e); }
   };
 
-  const handleChangeProduced = async (orderId: string, productId: string, value: number) => {
+  const handleChangeProducedWeights = async (orderId: string, productId: string, weights: number[]) => {
     const stateKey = `${orderId}_${productId}`;
-    const newProduced = { ...actualProduced, [stateKey]: value };
+    const newProduced = { ...actualProduced, [stateKey]: weights };
     setActualProduced(newProduced);
     try { await updateDoc(doc(db, 'orders', orderId), { actualProduced: newProduced }); } catch (e) { console.error('Error saving draft:', e); }
   };
@@ -93,7 +123,7 @@ export const Produccion = () => {
 
   const handleDeliverOrder = async (order: Order) => {
     const customConsumptions: Record<string, number> = {};
-    const customProduced: Record<string, number> = {};
+    const customProduced: Record<string, number[]> = {};
     order.items.forEach((item) => {
       const pres = presentaciones.find(p => p.id === item.productId);
       if (!pres) return;
@@ -327,13 +357,38 @@ export const Produccion = () => {
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><ShoppingBag size={14} color="var(--primary-color)" /> <span style={{ fontWeight: 600 }}>{item.productName}</span></div>
                             {order.status === 'EN_PRODUCCION' ? (
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                <span style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)' }}>Producido:</span>
-                                <input type="number" min={0} value={actualProduced[`${order.id}_${item.productId}`] ?? item.quantity} onChange={(e) => handleChangeProduced(order.id!, item.productId, Number(e.target.value))} style={{ width: '60px', padding: '4px 8px', borderRadius: '4px', border: '1px solid var(--border-color)', textAlign: 'right', fontSize: '0.85rem', fontWeight: 600 }} />
-                                <span style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)' }}>u. (Pedido: {item.quantity})</span>
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                <div style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)' }}>Pesos Reales por Paquete (Kg):</div>
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                                  {Array.from({ length: item.quantity }).map((_, pIdx) => {
+                                    const weights = actualProduced[`${order.id}_${item.productId}`] || Array(item.quantity).fill(0);
+                                    return (
+                                      <div key={pIdx} style={{ display: 'flex', alignItems: 'center', gap: '4px', background: '#f8fafc', padding: '4px', borderRadius: '4px', border: '1px solid #cbd5e1' }}>
+                                        <span style={{ fontSize: '0.7rem', color: '#64748b' }}>P{pIdx+1}</span>
+                                        <WeightInput 
+                                          value={weights[pIdx] || 0}
+                                          onChange={(num) => {
+                                            const newWeights = [...weights];
+                                            newWeights[pIdx] = num;
+                                            handleChangeProducedWeights(order.id!, item.productId, newWeights);
+                                          }}
+                                        />
+                                      </div>
+                                    );
+                                  })}
+                                </div>
                               </div>
                             ) : (
-                              <span style={{ fontSize: '0.85rem', fontWeight: 700, backgroundColor: 'var(--primary-light)', color: 'var(--primary-color)', padding: '2px 8px', borderRadius: '4px' }}>{item.quantity} unidades</span>
+                              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '4px' }}>
+                                <span style={{ fontSize: '0.85rem', fontWeight: 700, backgroundColor: 'var(--primary-light)', color: 'var(--primary-color)', padding: '2px 8px', borderRadius: '4px' }}>
+                                  {item.quantity} paquetes
+                                </span>
+                                {order.status === 'PRODUCIDO' && (
+                                  <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                                    Peso total: {(actualProduced[`${order.id}_${item.productId}`] || []).reduce((a, b) => a + b, 0).toFixed(3)} Kg
+                                  </span>
+                                )}
+                              </div>
                             )}
                           </div>
                           <div style={{ padding: '8px 12px', backgroundColor: 'rgba(255,255,255,0.02)', borderRadius: '6px', fontSize: '0.85rem' }}>

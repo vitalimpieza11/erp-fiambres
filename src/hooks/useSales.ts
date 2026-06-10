@@ -74,24 +74,19 @@ export const useSales = () => {
     };
     batch.set(saleRef, newSale);
 
-    // ── REGLA DE STOCK: Ventas solo afectan PRESENTACIONES (producto terminado) ──
-    // Las mercaderías (materia prima) y los insumos son consumidos ÚNICAMENTE durante
-    // la producción (cuando un pedido pasa a 'delivered' en useOrders).
-    // Aquí solo se descuenta stock de presentaciones.
-    for (const item of saleData.items) {
-      const stockMovRef = doc(collection(db, 'stock_movements'));
-      const movement = {
-        productId: item.productId,    // debe ser siempre ID de una Presentacion
-        productName: item.productName,
-        quantity: -Math.abs(Number(item.quantity)),
-        type: 'out',
-        referenceType: 'sale',
-        referenceId: saleId,
-        date: Date.now(),
-        observations: `Venta Comprobante: ${saleData.remitoNumber || 'Sin remito'}`,
-        createdAt: Date.now()
-      };
-      batch.set(stockMovRef, movement);
+    // ── REGLA DE STOCK: Ventas afectan PAQUETES (producto físico) ──
+    for (const item of saleData.items as any[]) {
+      if (item.packages && Array.isArray(item.packages)) {
+        for (const pkgId of item.packages) {
+          const pkgRef = doc(db, 'packages', pkgId);
+          batch.update(pkgRef, {
+            status: 'Vendido',
+            saleId: saleId,
+            saleDate: Date.now(),
+            updatedAt: Date.now()
+          });
+        }
+      }
     }
 
     // Cash movement if completed or paid
@@ -138,9 +133,16 @@ export const useSales = () => {
     const ref = doc(db, 'sales', id);
     batch.update(ref, { ...data, updatedAt: Date.now() });
 
-    // 1. Delete old stock and cash movements
-    const stockSnap = await getDocs(query(collection(db, 'stock_movements'), where('referenceId', '==', id)));
-    stockSnap.forEach(d => batch.delete(d.ref));
+    // 1. Revert packages and delete old cash movements
+    const packagesSnap = await getDocs(query(collection(db, 'packages'), where('saleId', '==', id)));
+    packagesSnap.forEach(d => {
+      batch.update(d.ref, {
+        status: 'Disponible',
+        saleId: null,
+        saleDate: null,
+        updatedAt: Date.now()
+      });
+    });
 
     const cashSnap = await getDocs(query(collection(db, 'cash_movements'), where('referenceId', '==', id)));
     cashSnap.forEach(d => batch.delete(d.ref));
@@ -155,19 +157,17 @@ export const useSales = () => {
     const customerIdToProcess = data.customerId !== undefined ? data.customerId : oldSale.customerId;
 
     for (const item of itemsToProcess) {
-      const stockMovRef = doc(collection(db, 'stock_movements'));
-      const movement = {
-        productId: item.productId,
-        productName: item.productName,
-        quantity: -Math.abs(Number(item.quantity)),
-        type: 'out',
-        referenceType: 'sale',
-        referenceId: id,
-        date: Date.now(),
-        observations: `Venta Comprobante: ${remitoToProcess || 'Sin remito'} (Editada)`,
-        createdAt: Date.now()
-      };
-      batch.set(stockMovRef, movement);
+      if (item.packages && Array.isArray(item.packages)) {
+        for (const pkgId of item.packages) {
+          const pkgRef = doc(db, 'packages', pkgId);
+          batch.update(pkgRef, {
+            status: 'Vendido',
+            saleId: id,
+            saleDate: Date.now(),
+            updatedAt: Date.now()
+          });
+        }
+      }
     }
 
     // 3. Process NEW cash movements
@@ -226,8 +226,15 @@ export const useSales = () => {
     const ref = doc(db, 'sales', id);
     batch.delete(ref);
 
-    const stockSnap = await getDocs(query(collection(db, 'stock_movements'), where('referenceId', '==', id)));
-    stockSnap.forEach(d => batch.delete(d.ref));
+    const packagesSnap = await getDocs(query(collection(db, 'packages'), where('saleId', '==', id)));
+    packagesSnap.forEach(d => {
+      batch.update(d.ref, {
+        status: 'Disponible',
+        saleId: null,
+        saleDate: null,
+        updatedAt: Date.now()
+      });
+    });
 
     const cashSnap = await getDocs(query(collection(db, 'cash_movements'), where('referenceId', '==', id)));
     cashSnap.forEach(d => batch.delete(d.ref));

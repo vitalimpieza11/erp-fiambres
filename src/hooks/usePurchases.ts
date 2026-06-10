@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { collection, onSnapshot, query, orderBy, doc, writeBatch, deleteDoc, updateDoc, where, getDocs, limit } from 'firebase/firestore';
+import { collection, onSnapshot, query, orderBy, doc, writeBatch, deleteDoc, updateDoc, where, getDocs, limit, increment } from 'firebase/firestore';
 import { db } from '../firebase/firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { DatabaseMapper } from '../mappers/databaseMapper';
@@ -48,9 +48,23 @@ export const usePurchases = () => {
     const purchaseRef = doc(collection(db, 'purchases'));
     const purchaseId = purchaseRef.id;
 
+    const payments = purchaseData.payments || [];
+    const totalPaid = payments.reduce((acc, p) => acc + p.amount, 0);
+    const total = purchaseData.total || 0;
+    const pendingBalance = total - totalPaid;
+    let status = 'PENDIENTE';
+    if (pendingBalance <= 0) {
+      status = 'PAGADA';
+    } else if (totalPaid > 0) {
+      status = 'PARCIAL';
+    }
+
     const newPurchase = {
       ...purchaseData,
       id: purchaseId,
+      status,
+      amountPaid: totalPaid,
+      pendingBalance,
       createdAt: Date.now(),
       updatedAt: Date.now(),
       userId: currentUserId
@@ -83,20 +97,53 @@ export const usePurchases = () => {
       }
     }
 
-    // Cash movement if status is completed
-    if (purchaseData.status === 'completed') {
-      const cashMovRef = doc(collection(db, 'cash_movements'));
-      const cashMovement = {
-        type: 'out',
-        amount: Number(purchaseData.total),
-        method: 'transfer',
-        description: `Pago Compra Proveedor ${purchaseData.supplierName} (Ref: ${purchaseData.invoiceNumber || purchaseId})`,
-        category: 'purchase',
-        referenceId: purchaseId,
-        date: Date.now(),
-        createdAt: Date.now()
-      };
-      batch.set(cashMovRef, cashMovement);
+    // Cash movements for each payment
+    for (const payment of payments) {
+      if (payment.amount > 0) {
+        if (payment.method === 'aporte_socio') {
+          // Aporte DIRECTO para compra. No impacta en caja real de la empresa.
+          // Solo creamos un PartnerTransaction de tipo APORTE, método COMPENSACION
+          const partnerTxRef = doc(collection(db, 'partner_transactions'));
+          batch.set(partnerTxRef, {
+            partnerId: payment.partnerId || '',
+            date: purchaseData.date || Date.now(),
+            amount: Number(payment.amount),
+            type: 'APORTE',
+            method: 'COMPENSACION',
+            referenceId: purchaseId,
+            description: `Pago directo de Compra a Proveedor ${purchaseData.supplierName}`,
+            createdAt: Date.now()
+          });
+          // NO se genera cash_movement de ingreso ni de egreso porque no tocó la caja de la empresa.
+        } else {
+          // Normal Payment (OUT)
+          const isCash = payment.method === 'caja' || payment.method === 'cash';
+          const methodString = isCash ? 'cash' : 'transfer';
+          const accountId = isCash ? 'cash_default' : 'bank_default';
+
+          const cashMovRef = doc(collection(db, 'cash_movements'));
+          batch.set(cashMovRef, {
+            type: 'out',
+            amount: Number(payment.amount),
+            method: methodString,
+            accountId: accountId,
+            description: `Pago Compra Proveedor ${purchaseData.supplierName} (Ref: ${purchaseData.invoiceNumber || purchaseId})`,
+            category: 'purchase',
+            referenceId: purchaseId,
+            supplierId: purchaseData.supplierId,
+            date: purchaseData.date || Date.now(),
+            createdAt: Date.now()
+          });
+        }
+      }
+    }
+
+    // Update Supplier Balance ONLY for the pending part
+    if (pendingBalance > 0) {
+      const supplierRef = doc(db, 'suppliers', purchaseData.supplierId);
+      batch.update(supplierRef, {
+        currentBalance: increment(pendingBalance)
+      });
     }
 
     await batch.commit();
@@ -118,6 +165,17 @@ export const usePurchases = () => {
     // Revert old cash movements
     const cashSnap = await getDocs(query(collection(db, 'cash_movements'), where('referenceId', '==', id)));
     cashSnap.forEach(d => batch.delete(d.ref));
+
+    const partnerTxSnap = await getDocs(query(collection(db, 'partner_transactions'), where('referenceId', '==', id)));
+    partnerTxSnap.forEach(d => batch.delete(d.ref));
+
+    // Revert old supplier balance (we only generated debt for pendingBalance)
+    if (oldPurchase.pendingBalance && oldPurchase.pendingBalance > 0) {
+      const supplierRef = doc(db, 'suppliers', oldPurchase.supplierId);
+      batch.update(supplierRef, {
+        currentBalance: increment(-oldPurchase.pendingBalance)
+      });
+    }
 
     // Generate NEW stock movements and update costs if items changed
     const itemsToProcess = data.items || oldPurchase.items;
@@ -152,20 +210,67 @@ export const usePurchases = () => {
       }
     }
 
-    // Generate NEW cash movement if completed
-    if (statusToProcess === 'completed') {
-      const cashMovRef = doc(collection(db, 'cash_movements'));
-      const cashMovement = {
-        type: 'out',
-        amount: Number(totalToProcess),
-        method: 'transfer', // Default or grab from data if exists
-        description: `Pago Compra Proveedor ${supplierToProcess} (Ref: ${invoiceToProcess || id}) (Editada)`,
-        category: 'purchase',
-        referenceId: id,
-        date: Date.now(),
-        createdAt: Date.now()
-      };
-      batch.set(cashMovRef, cashMovement);
+    // Generate NEW cash movements
+    const payments = data.payments !== undefined ? data.payments : (oldPurchase.payments || []);
+    const totalPaid = payments.reduce((acc, p) => acc + p.amount, 0);
+    const pendingBalance = totalToProcess - totalPaid;
+    let newStatus = 'PENDIENTE';
+    if (pendingBalance <= 0) {
+      newStatus = 'PAGADA';
+    } else if (totalPaid > 0) {
+      newStatus = 'PARCIAL';
+    }
+    
+    // Update purchase document with computed fields
+    batch.update(ref, {
+      status: newStatus,
+      amountPaid: totalPaid,
+      pendingBalance: pendingBalance
+    });
+
+    for (const payment of payments) {
+      if (payment.amount > 0) {
+        if (payment.method === 'aporte_socio') {
+          const partnerTxRef = doc(collection(db, 'partner_transactions'));
+          batch.set(partnerTxRef, {
+            partnerId: payment.partnerId || '',
+            date: data.date || oldPurchase.date,
+            amount: Number(payment.amount),
+            type: 'APORTE',
+            method: 'COMPENSACION',
+            referenceId: id,
+            description: `Pago directo de Compra a Proveedor ${supplierToProcess} (Editada)`,
+            createdAt: Date.now()
+          });
+        } else {
+          const isCash = payment.method === 'caja' || payment.method === 'cash';
+          const methodString = isCash ? 'cash' : 'transfer';
+          const accountId = isCash ? 'cash_default' : 'bank_default';
+
+          const cashMovRef = doc(collection(db, 'cash_movements'));
+          batch.set(cashMovRef, {
+            type: 'out',
+            amount: Number(payment.amount),
+            method: methodString,
+            accountId: accountId,
+            description: `Pago Compra Proveedor ${supplierToProcess} (Ref: ${invoiceToProcess || id}) (Editada)`,
+            category: 'purchase',
+            referenceId: id,
+            supplierId: data.supplierId || oldPurchase.supplierId,
+            date: data.date || oldPurchase.date,
+            createdAt: Date.now()
+          });
+        }
+      }
+    }
+
+    // Update NEW supplier balance
+    const targetSupplierId = data.supplierId || oldPurchase.supplierId;
+    if (pendingBalance > 0) {
+      const supplierRef = doc(db, 'suppliers', targetSupplierId);
+      batch.update(supplierRef, {
+        currentBalance: increment(pendingBalance)
+      });
     }
 
     await batch.commit();
@@ -185,6 +290,17 @@ export const usePurchases = () => {
 
     const cashSnap = await getDocs(query(collection(db, 'cash_movements'), where('referenceId', '==', id)));
     cashSnap.forEach(d => batch.delete(d.ref));
+
+    const partnerTxSnap = await getDocs(query(collection(db, 'partner_transactions'), where('referenceId', '==', id)));
+    partnerTxSnap.forEach(d => batch.delete(d.ref));
+
+    // Revert supplier balance
+    if (target.pendingBalance && target.pendingBalance > 0) {
+      const supplierRef = doc(db, 'suppliers', target.supplierId);
+      batch.update(supplierRef, {
+        currentBalance: increment(-target.pendingBalance)
+      });
+    }
 
     // Revert costs to last known purchase (best effort)
     for (const item of target.items) {

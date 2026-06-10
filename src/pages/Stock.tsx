@@ -8,19 +8,22 @@ import { useMercaderias } from '../hooks/useMercaderias';
 import { useInsumos } from '../hooks/useInsumos';
 import { usePresentaciones } from '../hooks/usePresentaciones';
 import { useStockMovements } from '../hooks/useStockMovements';
+import { usePackages } from '../hooks/usePackages';
 import { useDateFilter } from '../contexts/DateFilterContext';
+import { formatCurrency, formatNumber } from '../utils/format';
 
 export const Stock = () => {
   const { mercaderias, loading: loadingMerc, error: errorMerc } = useMercaderias();
   const { insumos, loading: loadingIns, error: errorIns } = useInsumos();
   const { presentaciones, loading: loadingPres, error: errorPres } = usePresentaciones();
-  const { movements, loading: loadingMovements, error: errorMovements, productStocks } = useStockMovements();
+  const { movements, loading: loadingMovements, error: errorMovements } = useStockMovements();
+  const { packages, loading: loadingPackages, error: errorPackages } = usePackages();
   const [viewHistory, setViewHistory] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [activeTab, setActiveTab] = useState<'mercaderias' | 'insumos' | 'presentaciones'>('mercaderias');
   const { filterDate } = useDateFilter();
 
-  const globalError = errorMerc || errorIns || errorMovements || errorPres;
+  const globalError = errorMerc || errorIns || errorMovements || errorPres || errorPackages;
   const filteredMovements = movements.filter((m: any) => filterDate(m.date));
 
   if (globalError) {
@@ -44,7 +47,7 @@ export const Stock = () => {
       if (qty <= 0) status = 'Crítico';
       else if (qty < min) status = 'Bajo';
       const type = (m as any).type || (m as any).tipo || (m as any).productType || 'Mercadería';
-      return { id: m.id!, code: m.id!.slice(-6).toUpperCase(), name: m.name, type, available: `${qty.toFixed(2)} Kg`, min: `${min.toFixed(2)} Kg`, status, rawQty: qty, rawMin: min };
+      return { id: m.id!, code: m.id!.slice(-6).toUpperCase(), name: m.name, type, available: `${qty.toFixed(2)} Kg`, min: `${min.toFixed(2)} Kg`, status, rawQty: qty, rawMin: min, availableWeight: undefined, totalCost: undefined };
     });
 
   // ── Insumos (supplies) ───────────────────────────────────────
@@ -64,28 +67,36 @@ export const Stock = () => {
       if (qty <= 0) status = 'Crítico';
       else if (qty < min) status = 'Bajo';
       const type = (i as any).type || (i as any).tipo || (i as any).productType || 'Insumo';
-      return { id: i.id!, code: i.id!.slice(-6).toUpperCase(), name: i.name, type, available: `${qty.toFixed(0)} u`, min: `${min.toFixed(0)} u`, status, rawQty: qty, rawMin: min };
+      return { id: i.id!, code: i.id!.slice(-6).toUpperCase(), name: i.name, type, available: `${qty.toFixed(0)} u`, min: `${min.toFixed(0)} u`, status, rawQty: qty, rawMin: min, availableWeight: undefined, totalCost: undefined };
     });
 
-  // ── Presentaciones (finished goods) ─────────────────────────
-  // Stock de presentaciones = movimientos positivos (producción entregada) + negativos (ventas)
+  // ── Presentaciones (finished goods - PHYSICAL PACKAGES) ─────────────────────────
   const presItems = presentaciones
     .filter(p => p.isActive)
     .map(p => {
-      const inMovs = movements.filter(mov => mov.productId === p.id && mov.type.toLowerCase() === 'in');
-      const outMovs = movements.filter(mov => mov.productId === p.id && mov.type.toLowerCase() === 'out');
-      const totalIN = inMovs.reduce((sum, mov) => sum + Math.abs(mov.quantity), 0);
-      const totalOUT = outMovs.reduce((sum, mov) => sum + Math.abs(mov.quantity), 0);
-      const qty = ((p as any).initialStock ?? 0) + totalIN - totalOUT;
-
-      console.log(`[Presentación] ${p.name}: IN=${totalIN}, OUT=${totalOUT}, Stock=${qty}`);
+      const productPackages = packages.filter(pkg => pkg.productId === p.id && pkg.status === 'Disponible');
+      const qty = productPackages.length;
+      const totalWeight = productPackages.reduce((sum, pkg) => sum + pkg.weight, 0);
+      const totalCost = productPackages.reduce((sum, pkg) => sum + pkg.cost, 0);
 
       const min = 5;
       let status: 'Óptimo' | 'Bajo' | 'Crítico' = 'Óptimo';
       if (qty <= 0) status = 'Crítico';
       else if (qty < min) status = 'Bajo';
-      const type = (p as any).type || (p as any).tipo || (p as any).productType || 'Presentación';
-      return { id: p.id!, code: p.id!.slice(-6).toUpperCase(), name: p.name, type, available: `${Math.round(qty)} u`, min: `${min} u`, status, rawQty: qty, rawMin: min };
+      const type = 'Presentación Física';
+      return { 
+        id: p.id!, 
+        code: p.id!.slice(-6).toUpperCase(), 
+        name: p.name, 
+        type, 
+        available: `${qty} pq`, 
+        availableWeight: `${totalWeight.toFixed(3)} Kg`,
+        totalCost: formatCurrency(totalCost),
+        min: `${min} pq`, 
+        status, 
+        rawQty: qty, 
+        rawMin: min 
+      };
     });
 
   // Active set by tab
@@ -257,7 +268,7 @@ export const Stock = () => {
           </div>
         </div>
 
-        {loadingMerc || loadingIns || loadingMovements || loadingPres ? (
+        {loadingMerc || loadingIns || loadingMovements || loadingPres || loadingPackages ? (
           <SkeletonLoader rows={5} height="52px" />
         ) : filteredItems.length === 0 ? (
           <div style={{ padding: '40px' }}>
@@ -296,8 +307,20 @@ export const Stock = () => {
               },
               { 
                 header: 'Disponible', 
-                accessor: (item) => <span style={{ fontWeight: 700, fontSize: '1rem', color: item.rawQty <= 0 ? '#ef4444' : 'inherit' }}>{item.available}</span>,
+                accessor: (item) => (
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '2px' }}>
+                    <span style={{ fontWeight: 700, fontSize: '1rem', color: item.rawQty <= 0 ? '#ef4444' : 'inherit' }}>{item.available}</span>
+                    {item.availableWeight && (
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{item.availableWeight}</span>
+                    )}
+                  </div>
+                ),
                 align: 'right'
+              },
+              { 
+                header: 'Costo Valorizado', 
+                accessor: (item) => item.totalCost ? <span style={{ fontWeight: 600, color: 'var(--text-secondary)' }}>{item.totalCost}</span> : <span style={{ color: '#cbd5e1' }}>-</span>, 
+                align: 'right' 
               },
               { header: 'Stock Mínimo', accessor: 'min', align: 'right' },
               { 

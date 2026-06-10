@@ -94,46 +94,9 @@ export const Pedidos = () => {
     const pres = presentaciones.find(p => p.id === presId);
     if (!pres) return;
 
-    const customer = customers.find(c => c.id === customerId);
-    let finalPrice = 0;
-    let priceOrigin = 'Precio Base';
-    const costo = calculatePresentationCost(pres, mercaderias, insumos, recipes);
-
-    // 1° Precio especial del cliente
-    const specialPrice = customer?.specialPrices?.[presId];
-    if (specialPrice) {
-      if (specialPrice.mode === 'price') {
-        finalPrice = specialPrice.value;
-      } else {
-        finalPrice = costo / (1 - specialPrice.value / 100);
-      }
-      priceOrigin = 'Precio especial cliente';
-    } 
-    // 2° Lista de precios asignada al cliente
-    else if (customer?.priceListId) {
-      const pList = priceLists.find(l => l.id === customer.priceListId);
-      if (pList) {
-        const override = pList.productOverrides?.[presId];
-        if (override) {
-          if (override.mode === 'manual') {
-            finalPrice = override.manualPrice || 0;
-          } else {
-            const margin = override.margin || pList.margin;
-            finalPrice = margin >= 100 ? costo * 2 : (costo / (1 - margin / 100));
-          }
-        } else {
-          finalPrice = pList.margin >= 100 ? costo * 2 : (costo / (1 - pList.margin / 100));
-        }
-        priceOrigin = `Lista: ${pList.name}`;
-      }
-    }
-
-    // 3° Precio base del producto (fallback)
-    if (finalPrice <= 0) {
-      finalPrice = pres.precioVentaKg > 0
-        ? pres.precioVentaKg * (pres.pesoObjetivoGramos / 1000)
-        : costo * 1.4;
-    }
+    // Estimate package price using official kg price * theoretical weight
+    let finalPrice = (pres.precioComercialKg || 0) * ((pres.pesoObjetivoGramos || 0) / 1000);
+    let priceOrigin = 'Precio Oficial Estimado';
 
     const updated = [...orderItems];
     updated[index].productId = presId;
@@ -162,14 +125,9 @@ export const Pedidos = () => {
         return {
           productId: item.productId,
           productName: pres?.name || '',
-          quantity: item.quantity,
-          price: item.price,
-          priceOrigin: item.priceOrigin || 'Precio Base'
+          quantity: item.quantity
         };
       }),
-      subtotal,
-      discount: discVal,
-      total,
       status,
       observations: observaciones,
       date: Date.now()
@@ -370,24 +328,7 @@ export const Pedidos = () => {
                         setOrderItems(updated);
                       }}
                     />
-                    <div>
-                      <Input 
-                        label="Precio Unitario ($)"
-                        type="number"
-                        value={item.price.toString()}
-                        onChange={e => {
-                          const updated = [...orderItems];
-                          updated[index].price = parseNumber(e.target.value);
-                          updated[index].priceOrigin = 'Editado manualmente';
-                          setOrderItems(updated);
-                        }}
-                      />
-                      {item.priceOrigin && (
-                        <div style={{ fontSize: '0.65rem', color: 'var(--primary-color)', marginTop: '4px', fontWeight: 600 }}>
-                          {item.priceOrigin}
-                        </div>
-                      )}
-                    </div>
+                    {/* No definitive price calculation here. It represents intention. */}
                     <button 
                       type="button"
                       onClick={() => setOrderItems(orderItems.filter((_, i) => i !== index))}
@@ -406,35 +347,16 @@ export const Pedidos = () => {
             <Card className="card-highlight" style={{ borderTop: '4px solid var(--primary-color)' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '20px' }}>
                 <TrendingUp size={20} color="var(--primary-color)" />
-                <h3 style={{ fontSize: '1.125rem', fontWeight: 600 }}>Resumen del Margen</h3>
+                <h3 style={{ fontSize: '1.125rem', fontWeight: 600 }}>Intención de Compra</h3>
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span>Subtotal</span>
-                  <span style={{ fontWeight: 600 }}>{formatCurrency(subtotal)}</span>
-                </div>
-                <Input label="Descuento (%)" type="number" value={discountStr} onChange={e => setDiscountStr(e.target.value)} />
-                <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '12px', display: 'flex', justifyContent: 'space-between' }}>
-                  <span style={{ fontWeight: 600 }}>Total Pedido</span>
-                  <span style={{ fontWeight: 700, color: 'var(--primary-color)' }}>{formatCurrency(totalOrderValue)}</span>
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span style={{ color: 'var(--text-secondary)' }}>Costo de Producción</span>
+                <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>
+                  El pedido registra la cantidad de paquetes solicitados. 
+                  El monto total y rentabilidad se definirán al facturar los paquetes físicos con peso real.
+                </p>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '12px' }}>
+                  <span style={{ color: 'var(--text-secondary)' }}>Costo Est. de Producción</span>
                   <span style={{ fontWeight: 600, color: '#ef4444' }}>{formatCurrency(totalProdCost)}</span>
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.05)', padding: '8px 12px', borderRadius: '8px', marginTop: '8px' }}>
-                  <div>
-                    <span style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Margen Neto Est.</span>
-                    <span style={{ fontSize: '1rem', fontWeight: 700, color: estimatedMarginVal >= 0 ? '#10b981' : '#ef4444' }}>
-                      {formatCurrency(estimatedMarginVal)}
-                    </span>
-                  </div>
-                  <div>
-                    <span style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>% Margen</span>
-                    <span style={{ fontSize: '1rem', fontWeight: 700, color: estimatedMarginPercent >= 30 ? '#10b981' : '#ef4444' }}>
-                      {formatNumber(estimatedMarginPercent, '%')}
-                    </span>
-                  </div>
                 </div>
               </div>
             </Card>
@@ -522,19 +444,7 @@ export const Pedidos = () => {
                   </div>
                 )
               },
-              { header: 'Costo Prod.', accessor: (item) => formatCurrency(item.productionCost || 0) },
-              {
-                header: 'Margen Est.',
-                accessor: (item) => {
-                  const percent = item.marginPercent || 0;
-                  return (
-                    <span style={{ fontWeight: 600, color: percent >= 30 ? '#10b981' : '#ef4444' }}>
-                      {formatNumber(percent, '%')}
-                    </span>
-                  );
-                }
-              },
-              { header: 'Total Venta', accessor: (item) => <span style={{ fontWeight: 700 }}>{formatCurrency(item.total)}</span> },
+              { header: 'Costo Est. Prod.', accessor: (item) => formatCurrency(item.productionCost || 0) },
               {
                 header: 'Estado',
                 accessor: (item) => {
@@ -638,20 +548,13 @@ export const Pedidos = () => {
                 </div>
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px', borderTop: '1px solid var(--border-color)', paddingTop: '16px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '12px', borderTop: '1px solid var(--border-color)', paddingTop: '16px' }}>
                 <div>
-                  <span style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Costo Elaboración</span>
+                  <span style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Costo Estimado de Producción</span>
                   <span style={{ fontSize: '1.1rem', fontWeight: 700 }}>{formatCurrency(selectedOrderForView.productionCost || 0)}</span>
-                </div>
-                <div>
-                  <span style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Monto Facturado</span>
-                  <span style={{ fontSize: '1.1rem', fontWeight: 700 }}>{formatCurrency(selectedOrderForView.total || 0)}</span>
-                </div>
-                <div>
-                  <span style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Margen Neto Est.</span>
-                  <span style={{ fontSize: '1.1rem', fontWeight: 700, color: '#10b981' }}>
-                    {formatNumber(selectedOrderForView.marginPercent || 0, '%')}
-                  </span>
+                  <p style={{ color: 'var(--text-secondary)', fontSize: '0.8rem', marginTop: '8px' }}>
+                    * Los montos facturados y utilidades se calculan sobre el peso real de los paquetes producidos en la instancia de Venta.
+                  </p>
                 </div>
               </div>
             </div>

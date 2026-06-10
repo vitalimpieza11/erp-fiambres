@@ -196,3 +196,61 @@ export function getPresentationConsumption(
   return consumption;
 }
 
+/**
+ * Calculates the gross total and commercial discount based on the official price and price lists.
+ */
+export function calculateCommercialBonification(
+  items: { productId: string, quantity: number, weightKg: number, basePriceKg: number, cost: number, pesoObjetivoGramos: number }[],
+  customerId: string,
+  priceListId: string,
+  customers: any[],
+  priceLists: any[]
+): { grossTotal: number, commercialDiscount: number, netTotal: number } {
+  let grossTotal = 0;
+  let netTotal = 0;
+
+  const customer = customers.find(c => c.id === customerId);
+  const pList = priceLists.find(l => l.id === priceListId);
+
+  items.forEach(item => {
+    // Gross is strictly the real weight * official price per kg
+    const itemGross = item.weightKg * item.basePriceKg;
+    grossTotal += itemGross;
+
+    // Determine the commercial target price per package
+    let packageNetPrice = item.basePriceKg * (item.pesoObjetivoGramos / 1000);
+
+    const specialPrice = customer?.specialPrices?.[item.productId];
+    if (specialPrice) {
+      if (specialPrice.mode === 'price') {
+        packageNetPrice = specialPrice.value;
+      } else {
+        packageNetPrice = item.cost / (1 - specialPrice.value / 100);
+      }
+    } else if (pList) {
+      const override = pList.productOverrides?.[item.productId];
+      if (override) {
+        if (override.mode === 'manual') {
+          packageNetPrice = override.manualPrice || 0;
+        } else {
+          const margin = override.margin || pList.margin;
+          packageNetPrice = margin >= 100 ? item.cost * 2 : (item.cost / (1 - margin / 100));
+        }
+      } else {
+        packageNetPrice = pList.margin >= 100 ? item.cost * 2 : (item.cost / (1 - pList.margin / 100));
+      }
+    }
+
+    const itemNet = packageNetPrice * item.quantity;
+    netTotal += itemNet;
+  });
+
+  const commercialDiscount = grossTotal - netTotal;
+  
+  return {
+    grossTotal,
+    commercialDiscount,
+    netTotal
+  };
+}
+

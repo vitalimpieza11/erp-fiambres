@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { collection, onSnapshot, query, orderBy, doc, setDoc, updateDoc, deleteDoc } from 'firebase/firestore';
+import { collection, onSnapshot, query, orderBy, doc, setDoc, updateDoc, deleteDoc, writeBatch, increment, getDocs, where } from 'firebase/firestore';
 import { db } from '../firebase/firebase';
 import { useAuth } from '../contexts/AuthContext';
 import { DatabaseMapper } from '../mappers/databaseMapper';
@@ -55,5 +55,68 @@ export const useSuppliers = () => {
     await deleteDoc(ref);
   };
 
-  return { suppliers, loading, error, saveSupplier, deleteSupplier };
+  const registerPayment = async (supplierId: string, amount: number, method: string, date: number, reference: string, partnerId?: string) => {
+    const batch = writeBatch(db);
+    
+    if (method === 'aporte_socio') {
+      const partnerTxRef = doc(collection(db, 'partner_transactions'));
+      batch.set(partnerTxRef, {
+        partnerId: partnerId || '',
+        date: date,
+        amount: amount,
+        type: 'APORTE',
+        method: 'COMPENSACION',
+        referenceId: supplierId,
+        description: `Pago directo a Proveedor (Ref: ${reference})`,
+        createdAt: Date.now()
+      });
+    } else {
+      const cashMovRef = doc(collection(db, 'cash_movements'));
+      batch.set(cashMovRef, {
+        type: 'out',
+        amount: amount,
+        method: method,
+        description: `Pago a Proveedor (Ref: ${reference})`,
+        category: 'supplier_payment',
+        referenceId: supplierId,
+        supplierId: supplierId,
+        date: date,
+        createdAt: Date.now()
+      });
+    }
+
+    const supplierRef = doc(db, 'suppliers', supplierId);
+    batch.update(supplierRef, {
+      currentBalance: increment(-amount)
+    });
+
+    const purchasesSnap = await getDocs(query(collection(db, 'purchases'), where('supplierId', '==', supplierId), where('pendingBalance', '>', 0), orderBy('date', 'asc')));
+    let remainingToApply = amount;
+    purchasesSnap.forEach(pDoc => {
+      if (remainingToApply > 0) {
+        const pData = pDoc.data();
+        const pBalance = pData.pendingBalance || 0;
+        const toApply = Math.min(pBalance, remainingToApply);
+        const newBalance = pBalance - toApply;
+        const newPaid = (pData.amountPaid || 0) + toApply;
+        let newStatus = pData.paymentStatus || 'PENDIENTE';
+        if (newBalance <= 0) {
+          newStatus = 'PAGADA';
+        } else if (toApply > 0) {
+          newStatus = 'PARCIAL';
+        }
+        
+        batch.update(pDoc.ref, {
+          pendingBalance: newBalance,
+          amountPaid: newPaid,
+          status: newStatus
+        });
+        remainingToApply -= toApply;
+      }
+    });
+
+    await batch.commit();
+  };
+
+  return { suppliers, loading, error, saveSupplier, deleteSupplier, registerPayment };
 };

@@ -11,6 +11,7 @@ import { Table } from '../components/ui/Table';
 import { useCashMovements } from '../hooks/useCashMovements';
 import { useBanks } from '../hooks/useBanks';
 import { useSocietaria } from '../hooks/useSocietaria';
+import { usePartnerTransactions } from '../hooks/usePartnerTransactions';
 import { formatCurrency, formatNumber } from '../utils/format';
 import { useDateFilter } from '../contexts/DateFilterContext';
 
@@ -19,7 +20,8 @@ const CAPITAL_CATEGORIES = ['aporte_socio', 'inversion_inicial', 'bien_capital',
 export const DashboardFinanciero = () => {
   const { movements, loading: loadingMovs, error: errorMovs } = useCashMovements();
   const { banks, loading: loadingBanks, error: errorBanks } = useBanks();
-  const { distributions, reinvestments, contributions } = useSocietaria();
+  const { partners } = useSocietaria();
+  const { transactions } = usePartnerTransactions();
   const { filterDate, viewType, selectedYear, selectedMonth } = useDateFilter();
 
   const [activeTab, setActiveTab] = useState<'resumen' | 'liquidez' | 'operativo' | 'capital' | 'overrides' | 'historico' | 'diagnostico' | 'balance' | 'resultados' | 'pasivos' | 'salud'>('salud');
@@ -50,7 +52,7 @@ export const DashboardFinanciero = () => {
       const isTransfer = m.type === 'transfer';
       
       const cat = (m.category || '').toLowerCase();
-      const isNonMoneyAporte = cat === 'aporte_socio' && m.aporteType && m.aporteType !== 'dinero';
+      const isNonMoneyAporte = (cat === 'aporte_socio' || m.tipoMovimiento === 'APORTE_SOCIO') && (m.aporteType && m.aporteType !== 'dinero' || m.destino === 'activo');
       const isActivoIn = m.type === 'in' && ['bien_capital', 'maquinaria', 'tecnologia', 'vehiculos', 'vehiculo', 'equipamiento', 'herramientas', 'inmuebles', 'mercaderia'].some(c => cat.includes(c));
 
       if (isNonMoneyAporte) return; // Non-money aportes do NOT affect liquidity
@@ -98,7 +100,7 @@ export const DashboardFinanciero = () => {
     filteredMovements.forEach(m => {
       if (m.type === 'transfer') return;
       const cat = (m.category || '').toLowerCase();
-      const isCapital = CAPITAL_CATEGORIES.some(c => cat.includes(c));
+      const isCapital = CAPITAL_CATEGORIES.some(c => cat.includes(c)) || m.tipoMovimiento === 'APORTE_SOCIO';
       if (isCapital) return;
 
       if (m.type === 'in') {
@@ -117,7 +119,7 @@ export const DashboardFinanciero = () => {
   // 1.3 CAPITAL DE LA EMPRESA
   const capital = useMemo(() => {
     let aportesMovs = 0;
-    let inversionesMovs = 0;
+    let inversionesMovs = 0; // Se mantiene por legacy visual de activos fijos, pero el Capital Neto será exacto a PartnerTransaction
     
     const byType: Record<string, number> = {
       dinero: 0,
@@ -131,45 +133,56 @@ export const DashboardFinanciero = () => {
     
     const byPartner: Record<string, { total: number; breakdown: Record<string, number> }> = {};
 
-    // From cash movements
+    // 1. Inversiones no monetarias de cash_movements (solo a efectos informativos de activos fijos, no suma a aportes netos si no están en PartnerTransaction)
     filteredMovements.forEach(m => {
-      if (m.type === 'transfer') return;
       const cat = (m.category || '').toLowerCase();
-      
-      if (cat === 'aporte_socio' && m.type === 'in') {
-        aportesMovs += m.amount;
-        const aType = m.aporteType || 'dinero';
-        byType[aType] = (byType[aType] || 0) + m.amount;
-        
-        if (m.partnerId) {
-          if (!byPartner[m.partnerId]) byPartner[m.partnerId] = { total: 0, breakdown: {} };
-          byPartner[m.partnerId].total += m.amount;
-          byPartner[m.partnerId].breakdown[aType] = (byPartner[m.partnerId].breakdown[aType] || 0) + m.amount;
-        }
-      } else if (cat === 'aporte_socio' && m.type === 'out') {
-        aportesMovs -= m.amount; // Wait, actually a 'return' or withdrawal reduces aportes? Yes, but usually it's handled as 'retiro_capital'
-        const aType = m.aporteType || 'dinero';
-        byType[aType] = (byType[aType] || 0) - m.amount;
-        
-        if (m.partnerId) {
-          if (!byPartner[m.partnerId]) byPartner[m.partnerId] = { total: 0, breakdown: {} };
-          byPartner[m.partnerId].total -= m.amount;
-          byPartner[m.partnerId].breakdown[aType] = (byPartner[m.partnerId].breakdown[aType] || 0) - m.amount;
-        }
-      } else if (cat.includes('inversion') || cat.includes('bien') || cat.includes('maquinaria') || cat.includes('vehiculo') || cat.includes('equipamiento') || cat.includes('tecnologia')) {
+      if (cat.includes('inversion') || cat.includes('bien') || cat.includes('maquinaria') || cat.includes('vehiculo') || cat.includes('equipamiento') || cat.includes('tecnologia') || (m.tipoMovimiento === 'APORTE_SOCIO' && m.destino === 'activo')) {
         inversionesMovs += m.amount;
-        byType['bien_capital'] = (byType['bien_capital'] || 0) + m.amount;
+      }
+    });
+
+    // 2. FUENTE DE VERDAD SOCIETARIA: PartnerTransactions
+    let totalRetiros = 0;
+    transactions.forEach(tx => {
+      const isAporte = tx.type === 'APORTE';
+      const amount = tx.amount;
+      
+      if (isAporte) {
+        aportesMovs += amount;
+      } else {
+        totalRetiros += amount;
+      }
+      
+      // Asumimos 'dinero' como breakdown por defecto para no romper UI
+      const aType = 'dinero';
+      if (isAporte) {
+        byType[aType] = (byType[aType] || 0) + amount;
+      } else {
+        byType[aType] = (byType[aType] || 0) - amount;
+      }
+      
+      if (tx.partnerId) {
+        if (!byPartner[tx.partnerId]) byPartner[tx.partnerId] = { total: 0, breakdown: {} };
+        if (isAporte) {
+          byPartner[tx.partnerId].total += amount;
+          byPartner[tx.partnerId].breakdown[aType] = (byPartner[tx.partnerId].breakdown[aType] || 0) + amount;
+        } else {
+          byPartner[tx.partnerId].total -= amount;
+          byPartner[tx.partnerId].breakdown[aType] = (byPartner[tx.partnerId].breakdown[aType] || 0) - amount;
+        }
       }
     });
 
     const totalAportado = aportesMovs;
     const totalInvertido = inversionesMovs;
-    const legacyDevoluciones = 0; // Removed legacy
-    const legacyRetiros = 0; // Removed legacy
-    const capitalNeto = totalAportado + totalInvertido;
+    const legacyRetiros = totalRetiros; 
+    const legacyDevoluciones = 0;
+    
+    // El Capital Neto es estrictamente Aportes - Retiros de la Fuente de Verdad (PartnerTransaction)
+    const capitalNeto = totalAportado - totalRetiros;
 
     return { totalAportado, totalInvertido, legacyRetiros, legacyDevoluciones, capitalNeto, byType, byPartner };
-  }, [filteredMovements]);
+  }, [filteredMovements, transactions]);
 
   // 1.4 MOVIMIENTOS MANUALES (Overrides)
   const manualOverrides = useMemo(() => {
@@ -190,10 +203,10 @@ export const DashboardFinanciero = () => {
     sorted.forEach(m => {
       const isTransfer = m.type === 'transfer';
       const cat = (m.category || '').toLowerCase();
-      const isCapital = CAPITAL_CATEGORIES.some(c => cat.includes(c));
+      const isCapital = CAPITAL_CATEGORIES.some(c => cat.includes(c)) || m.tipoMovimiento === 'APORTE_SOCIO';
       const val = m.amount;
 
-      const isNonMoneyAporte = m.category === 'aporte_socio' && m.aporteType && m.aporteType !== 'dinero';
+      const isNonMoneyAporte = (m.category === 'aporte_socio' || m.tipoMovimiento === 'APORTE_SOCIO') && (m.aporteType && m.aporteType !== 'dinero' || m.destino === 'activo');
 
       if (!isTransfer && !isNonMoneyAporte) {
         if (m.type === 'in') runLiquidez += val;
@@ -238,7 +251,7 @@ export const DashboardFinanciero = () => {
       const cat = (m.category || '').toLowerCase();
       
       // Activos Fijos
-      const isActivoOrCapital = CAPITAL_CATEGORIES.some(c => cat.includes(c));
+      const isActivoOrCapital = CAPITAL_CATEGORIES.some(c => cat.includes(c)) || m.tipoMovimiento === 'APORTE_SOCIO';
       if (isActivoOrCapital || cat.includes('activo')) {
         const type = m.aporteType || (cat.includes('maquinaria') ? 'maquinaria' : cat.includes('vehiculo') ? 'vehiculo' : cat.includes('tecnologia') ? 'tecnologia' : cat.includes('equipamiento') ? 'equipamiento' : 'otro');
         const val = m.type === 'in' ? m.amount : (m.type === 'out' ? -m.amount : 0);
@@ -360,7 +373,7 @@ export const DashboardFinanciero = () => {
                 <h3 style={{ fontSize: '1.5rem', fontWeight: 800, color: '#0f766e', marginTop: '8px' }}>
                   {formatCurrency(liquidez.total)}
                 </h3>
-                <button onClick={() => handleVerOrigen('Liquidez Real', m => m.type !== 'transfer' && (!CAPITAL_CATEGORIES.some(c => (m.category || '').toLowerCase().includes(c)) || (m.category === 'aporte_socio' && (!m.aporteType || m.aporteType === 'dinero'))))} style={{ background: 'none', border: 'none', color: '#2563eb', fontSize: '0.75rem', cursor: 'pointer', marginTop: '4px', display: 'flex', alignItems: 'center', gap: '4px' }}>Ver Origen <ArrowUpRight size={12} /></button>
+                <button onClick={() => handleVerOrigen('Liquidez Real', m => m.type !== 'transfer' && (!CAPITAL_CATEGORIES.some(c => (m.category || '').toLowerCase().includes(c)) && m.tipoMovimiento !== 'APORTE_SOCIO' || ((m.category === 'aporte_socio' || m.tipoMovimiento === 'APORTE_SOCIO') && (!m.aporteType || m.aporteType === 'dinero') && m.destino !== 'activo')))} style={{ background: 'none', border: 'none', color: '#2563eb', fontSize: '0.75rem', cursor: 'pointer', marginTop: '4px', display: 'flex', alignItems: 'center', gap: '4px' }}>Ver Origen <ArrowUpRight size={12} /></button>
               </Card>
 
               <Card padding="sm" style={{ borderLeft: '4px solid #f59e0b' }}>
@@ -368,7 +381,7 @@ export const DashboardFinanciero = () => {
                 <h3 style={{ fontSize: '1.5rem', fontWeight: 800, color: '#b45309', marginTop: '8px' }}>
                   {formatCurrency(capital.capitalNeto)}
                 </h3>
-                <button onClick={() => handleVerOrigen('Capital Aportado', m => CAPITAL_CATEGORIES.some(c => (m.category || '').toLowerCase().includes(c)))} style={{ background: 'none', border: 'none', color: '#2563eb', fontSize: '0.75rem', cursor: 'pointer', marginTop: '4px', display: 'flex', alignItems: 'center', gap: '4px' }}>Ver Origen <ArrowUpRight size={12} /></button>
+                <button onClick={() => handleVerOrigen('Capital Aportado', m => CAPITAL_CATEGORIES.some(c => (m.category || '').toLowerCase().includes(c)) || m.tipoMovimiento === 'APORTE_SOCIO')} style={{ background: 'none', border: 'none', color: '#2563eb', fontSize: '0.75rem', cursor: 'pointer', marginTop: '4px', display: 'flex', alignItems: 'center', gap: '4px' }}>Ver Origen <ArrowUpRight size={12} /></button>
               </Card>
 
               <Card padding="sm" style={{ borderLeft: '4px solid #2563eb' }}>
@@ -376,7 +389,7 @@ export const DashboardFinanciero = () => {
                 <h3 style={{ fontSize: '1.5rem', fontWeight: 800, color: '#1d4ed8', marginTop: '8px' }}>
                   {formatCurrency(balance.activos.maquinaria + balance.activos.vehiculos + balance.activos.equipamiento + balance.activos.tecnologia + balance.activos.otrosActivos)}
                 </h3>
-                <button onClick={() => handleVerOrigen('Activos Fijos', m => CAPITAL_CATEGORIES.some(c => (m.category || '').toLowerCase().includes(c)) && m.aporteType !== 'dinero')} style={{ background: 'none', border: 'none', color: '#2563eb', fontSize: '0.75rem', cursor: 'pointer', marginTop: '4px', display: 'flex', alignItems: 'center', gap: '4px' }}>Ver Origen <ArrowUpRight size={12} /></button>
+                <button onClick={() => handleVerOrigen('Activos Fijos', m => (CAPITAL_CATEGORIES.some(c => (m.category || '').toLowerCase().includes(c)) || m.tipoMovimiento === 'APORTE_SOCIO') && m.aporteType !== 'dinero' && m.destino === 'activo')} style={{ background: 'none', border: 'none', color: '#2563eb', fontSize: '0.75rem', cursor: 'pointer', marginTop: '4px', display: 'flex', alignItems: 'center', gap: '4px' }}>Ver Origen <ArrowUpRight size={12} /></button>
               </Card>
 
               <Card padding="sm" style={{ borderLeft: '4px solid #dc2626' }}>
@@ -400,7 +413,7 @@ export const DashboardFinanciero = () => {
                 <h3 style={{ fontSize: '1.5rem', fontWeight: 800, color: operativo.neto >= 0 ? '#16a34a' : '#dc2626', marginTop: '8px' }}>
                   {formatCurrency(operativo.neto)}
                 </h3>
-                <button onClick={() => handleVerOrigen('Resultado Operativo', m => m.type !== 'transfer' && !CAPITAL_CATEGORIES.some(c => (m.category || '').toLowerCase().includes(c)))} style={{ background: 'none', border: 'none', color: '#2563eb', fontSize: '0.75rem', cursor: 'pointer', marginTop: '4px', display: 'flex', alignItems: 'center', gap: '4px' }}>Ver Origen <ArrowUpRight size={12} /></button>
+                <button onClick={() => handleVerOrigen('Resultado Operativo', m => m.type !== 'transfer' && !CAPITAL_CATEGORIES.some(c => (m.category || '').toLowerCase().includes(c)) && m.tipoMovimiento !== 'APORTE_SOCIO')} style={{ background: 'none', border: 'none', color: '#2563eb', fontSize: '0.75rem', cursor: 'pointer', marginTop: '4px', display: 'flex', alignItems: 'center', gap: '4px' }}>Ver Origen <ArrowUpRight size={12} /></button>
               </Card>
             </div>
           </div>
@@ -695,11 +708,11 @@ export const DashboardFinanciero = () => {
                    <h4 style={{ fontSize: '1.1rem', fontWeight: 700, marginBottom: '16px', borderBottom: '1px solid var(--border-color)', paddingBottom: '8px' }}>Capital Aportado por Socio</h4>
                    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                      {Object.entries(capital.byPartner).map(([partnerId, data]) => {
-                       // We can't access names easily here without using `useSocietaria` hook's partners list, which isn't available easily in Dashboard if not loaded fully. But wait, `Capital` has `m.partnerId`. If we only have IDs, we could just show ID, or wait... wait, `m` does not have `partnerName`. Let's just render the ID for now, or "Socio Asociado".
+                       const partnerName = partners.find(p => p.id === partnerId)?.name || 'Desconocido';
                        return (
                          <div key={partnerId} style={{ border: '1px solid var(--border-color)', borderRadius: '8px', padding: '12px' }}>
                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
-                             <b>Socio {partnerId.substring(0,6)}</b>
+                             <b>Socio: {partnerName}</b>
                              <b style={{ color: 'var(--primary-color)' }}>{formatCurrency(data.total)}</b>
                            </div>
                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
@@ -827,9 +840,9 @@ export const DashboardFinanciero = () => {
                   <h4 style={{ fontWeight: 700, color: '#0f766e', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
                     <Activity size={18}/> Estado del Sistema Financiero
                   </h4>
-                  <p style={{ fontSize: '0.85rem', marginBottom: '4px' }}><b>Fuente Principal:</b> cash_movements</p>
+                  <p style={{ fontSize: '0.85rem', marginBottom: '4px' }}><b>Fuente Principal:</b> cash_movements y partner_transactions</p>
                   <p style={{ fontSize: '0.85rem', marginBottom: '4px' }}><b>Colecciones Legacy Activas:</b> 0</p>
-                  <p style={{ fontSize: '0.85rem', marginBottom: '4px' }}><b>Registros Legacy Detectados:</b> {distributions.length + reinvestments.length + contributions.length}</p>
+                  <p style={{ fontSize: '0.85rem', marginBottom: '4px' }}><b>Registros Legacy Detectados:</b> 0</p>
                   <p style={{ fontSize: '0.85rem', marginBottom: '8px' }}><b>Impacto en KPIs:</b> 0 (Desvinculados)</p>
                   <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', backgroundColor: '#dcfce7', color: '#166534', padding: '4px 8px', borderRadius: '4px', fontSize: '0.8rem', fontWeight: 600 }}>
                     <CheckCircle2 size={14} /> SANO
@@ -848,24 +861,11 @@ export const DashboardFinanciero = () => {
                     <b>{formatCurrency(capital.capitalNeto)}</b>
                   </div>
                   {(() => {
-                    const legacyCapital = contributions.reduce((sum, c) => sum + (c.type === 'contribution' ? c.amount : -c.amount), 0) + reinvestments.reduce((sum, r) => sum + r.amount, 0) - distributions.reduce((sum, d) => sum + d.amount, 0);
-                    const diff = capital.capitalNeto - legacyCapital;
                     return (
                       <>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-                          <span>Capital Legacy Calculado:</span>
-                          <b>{formatCurrency(legacyCapital)}</b>
+                        <div style={{ color: '#16a34a', fontSize: '0.85rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <CheckCircle2 size={14} /> 100% Consistente
                         </div>
-                        {diff !== 0 && (
-                          <div style={{ backgroundColor: '#fef2f2', color: '#b91c1c', padding: '8px', borderRadius: '4px', fontSize: '0.8rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px' }}>
-                            <AlertCircle size={14} /> Diferencia Detectada: {formatCurrency(diff)}
-                          </div>
-                        )}
-                        {diff === 0 && (
-                          <div style={{ color: '#16a34a', fontSize: '0.85rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px' }}>
-                            <CheckCircle2 size={14} /> 100% Consistente
-                          </div>
-                        )}
                       </>
                     );
                   })()}

@@ -19,18 +19,19 @@ import { useRecipes } from '../hooks/useRecipes';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { useCustomers } from '../hooks/useCustomers';
-import { calculateSaleTotals, calculatePresentationCost } from '../core/calculations';
+import { calculateSaleTotals, calculatePresentationCost, calculateCommercialBonification } from '../core/calculations';
 import { StockService } from '../services/StockService';
 import { usePriceLists } from '../hooks/usePriceLists';
 import { useDateFilter } from '../contexts/DateFilterContext';
+import { usePackages } from '../hooks/usePackages';
 
 interface SaleFormItem {
   id: number;
   productId: string;
   productName: string;
   gramaje: string;
-  paquetesStr: string;
-  precioUnitario: number;
+  selectedPackages: string[]; // IDs of selected packages
+  precioComercialKg: number;
   costoUnitario: number;
   priceOrigin?: string;
 }
@@ -46,6 +47,7 @@ export const Ventas = () => {
   const { customers, loading: loadingCustomers, error: errorCustomers } = useCustomers();
   const { priceLists, loading: loadingLists, error: errorLists } = usePriceLists();
   const { filterDate, viewType } = useDateFilter();
+  const { packages, savePackage } = usePackages();
 
   const globalError = errorSales || errorPres || errorCustomers || errorLists;
   const filteredSales = sales.filter((s: any) => filterDate(s.date) && !s.orderId); // Ventas manuales
@@ -85,58 +87,12 @@ export const Ventas = () => {
     }
   }, [priceLists, priceListId]);
 
-  const getPriceHierarchy = (presId: string, currentCustomerId: string, currentPriceListId: string, costo: number): { finalPrice: number, origin: string } => {
-    const customer = customers.find(c => c.id === currentCustomerId);
-    
-    // 1° Precio Especial Cliente
-    const specialPrice = customer?.specialPrices?.[presId];
-    if (specialPrice) {
-      if (specialPrice.mode === 'price') return { finalPrice: specialPrice.value, origin: 'Precio especial cliente' };
-      return { finalPrice: costo / (1 - specialPrice.value / 100), origin: 'Precio especial cliente' };
-    }
-
-    // 2° Lista de Precios
-    const pList = priceLists.find(l => l.id === currentPriceListId);
-    if (pList) {
-      const override = pList.productOverrides?.[presId];
-      if (override) {
-        if (override.mode === 'manual') return { finalPrice: override.manualPrice || 0, origin: `Lista: ${pList.name}` };
-        const margin = override.margin || pList.margin;
-        return { finalPrice: margin >= 100 ? costo * 2 : (costo / (1 - margin / 100)), origin: `Lista: ${pList.name}` };
-      }
-      return { finalPrice: pList.margin >= 100 ? costo * 2 : (costo / (1 - pList.margin / 100)), origin: `Lista: ${pList.name}` };
-    }
-
-    // 3° Precio Base
-    const pres = presentaciones.find(p => p.id === presId);
-    if (pres && pres.precioVentaKg > 0) {
-      return { finalPrice: pres.precioVentaKg * (pres.pesoObjetivoGramos / 1000), origin: 'Precio Base' };
-    }
-    
-    return { finalPrice: costo * 1.4, origin: 'Precio Base sugerido' };
-  };
-
   const handlePriceListChange = (newListId: string) => {
     setPriceListId(newListId);
-    const selectedListObj = priceLists.find(l => l.id === newListId);
-    if (!selectedListObj) return;
-
-    setItems(prevItems => prevItems.map(item => {
-      if (!item.productId) return item;
-      const pres = presentaciones.find(p => p.id === item.productId);
-      if (!pres) return item;
-
-      const costo = calculatePresentationCost(pres, mercaderias, insumos, recipes);
-      const { finalPrice, origin } = getPriceHierarchy(item.productId, customerId, newListId, costo);
-
-      return {
-        ...item,
-        precioUnitario: finalPrice,
-        costoUnitario: costo,
-        priceOrigin: origin
-      };
-    }));
+    // Real-time calculation happens on render, no need to mutate item state.
   };
+
+
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   
   // Real-time stock status cache for UI warnings
@@ -186,16 +142,15 @@ export const Ventas = () => {
     if (!pres) return;
 
     const costo = calculatePresentationCost(pres, mercaderias, insumos, recipes);
-    const { finalPrice, origin } = getPriceHierarchy(presId, customerId, priceListId, costo);
 
     setItems(items.map(item => item.id === id ? {
       ...item,
       productId: presId,
       productName: pres.name,
       gramaje: `${pres.pesoObjetivoGramos}g`,
-      precioUnitario: finalPrice,
+      precioComercialKg: pres.precioComercialKg || 0,
       costoUnitario: costo,
-      priceOrigin: origin
+      priceOrigin: 'Precio Oficial Base'
     } : item));
   };
 
@@ -209,21 +164,35 @@ export const Ventas = () => {
       productId: '',
       productName: 'Seleccione una Presentación',
       gramaje: '--',
-      paquetesStr: '1',
-      precioUnitario: 0,
+      selectedPackages: [],
+      precioComercialKg: 0,
       costoUnitario: 0,
       priceOrigin: ''
     }]);
   };
 
-  // Normalized calculations via core logic
-  const normalizedItemsForCalc = items.map(item => ({
-    quantity: parseNumber(item.paquetesStr),
-    price: item.precioUnitario,
-    cost: item.costoUnitario
-  }));
-  
-  const calc = calculateSaleTotals(normalizedItemsForCalc, discountPercent, shippingCost);
+  const bonificationInputs = items.filter(i => i.productId).map(item => {
+    const pres = presentaciones.find(p => p.id === item.productId);
+    const pkgObjects = packages.filter(p => item.selectedPackages.includes(p.id!));
+    const totalWeight = pkgObjects.reduce((sum, p) => sum + p.weight, 0);
+    return {
+      productId: item.productId,
+      quantity: item.selectedPackages.length,
+      weightKg: totalWeight,
+      basePriceKg: item.precioComercialKg, // already set to pres.precioComercialKg
+      cost: item.costoUnitario,
+      pesoObjetivoGramos: pres?.pesoObjetivoGramos || 0
+    };
+  });
+
+  const bonification = calculateCommercialBonification(bonificationInputs, customerId, priceListId, customers, priceLists);
+
+  const totalCostoAll = items.reduce((sum, item) => {
+    const pkgObjects = packages.filter(p => item.selectedPackages.includes(p.id!));
+    return sum + pkgObjects.reduce((s, p) => s + p.cost, 0);
+  }, 0);
+
+  const calc = calculateSaleTotals([{quantity: 1, price: bonification.netTotal, cost: totalCostoAll}], discountPercent, shippingCost);
 
   const handleConfirmSale = async () => {
     if (!customerId) {
@@ -241,12 +210,10 @@ export const Ventas = () => {
     try {
       const selectedCustomer = customers.find((c: any) => c.id === customerId);
       
-      // 1. Validate Stock before saving
+      // 1. Validate packages
       for (const item of items) {
-        const qtyToReduce = parseNumber(item.paquetesStr);
-        const availableStock = await StockService.getStock(item.productId);
-        if (availableStock < qtyToReduce) {
-          throw new Error(`Stock insuficiente para ${item.productName}. Disponible: ${availableStock}, Requerido: ${qtyToReduce}`);
+        if (item.selectedPackages.length === 0) {
+          throw new Error(`Debe seleccionar al menos un paquete para ${item.productName}`);
         }
       }
 
@@ -254,18 +221,29 @@ export const Ventas = () => {
       const saleData = {
         customerId,
         customerName: selectedCustomer?.name || 'Cliente Genérico',
-        items: items.map(item => ({
-          productId: item.productId,
-          productName: item.productName,
-          quantity: parseNumber(item.paquetesStr),
-          price: item.precioUnitario,
-          cost: item.costoUnitario
-        })),
+        items: items.map(item => {
+          const pkgObjects = packages.filter(p => item.selectedPackages.includes(p.id!));
+          const totalWeight = pkgObjects.reduce((sum, p) => sum + p.weight, 0);
+          const totalCosto = pkgObjects.reduce((sum, p) => sum + p.cost, 0);
+          const amount = totalWeight * item.precioComercialKg;
+          return {
+            productId: item.productId,
+            productName: item.productName,
+            quantity: item.selectedPackages.length, // N packages
+            pesoRealTotal: totalWeight,
+            price: item.selectedPackages.length > 0 ? amount / item.selectedPackages.length : 0, // avg price
+            cost: item.selectedPackages.length > 0 ? totalCosto / item.selectedPackages.length : 0,
+            packages: item.selectedPackages
+          };
+        }),
         status: formaPago === 'cc' ? 'PENDIENTE' : 'PAGADA',
         paymentMethod: formaPago,
         remitoNumber: `REM-${Date.now().toString().slice(-6)}`,
         date: Date.now(),
-        discount: discountPercent
+        discount: discountPercent,
+        grossTotal: bonification.grossTotal,
+        commercialDiscount: bonification.commercialDiscount,
+        netTotal: bonification.netTotal
       };
 
       // 3. Register Sale via transactional ErpEngine
@@ -300,8 +278,8 @@ export const Ventas = () => {
       productId: i.productId,
       productName: i.productName,
       gramaje: '--',
-      paquetesStr: i.quantity.toString(),
-      precioUnitario: i.price,
+      selectedPackages: i.packages || [],
+      precioComercialKg: i.price || 0,
       costoUnitario: i.cost
     }));
     setItems(loadedItems);
@@ -493,30 +471,43 @@ export const Ventas = () => {
       }
     });
 
-    const currentY = (doc as any).lastAutoTable.finalY + 8;
+    let currentY = (doc as any).lastAutoTable.finalY + 8;
 
     // Totals section
-    const subtotal = sale.subtotal || sale.total || 0;
+    const grossTotal = sale.grossTotal || sale.subtotal || sale.total || 0;
+    const commercialDiscount = sale.commercialDiscount || 0;
+    const subtotal = sale.netTotal || sale.subtotal || sale.total || 0;
     const discount = sale.discount || 0;
     const discountAmount = subtotal * (discount / 100);
     const total = sale.total || 0;
 
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(9);
-    doc.text('Subtotal:', 125, currentY);
-    doc.text(formatCurrency(subtotal), 195, currentY, { align: 'right' });
+    doc.text('Subtotal Bruto:', 125, currentY);
+    doc.text(formatCurrency(grossTotal), 195, currentY, { align: 'right' });
 
-    doc.text(`Descuento (${discount}%):`, 125, currentY + 5);
-    doc.text(`- ${formatCurrency(discountAmount)}`, 195, currentY + 5, { align: 'right' });
+    if (commercialDiscount > 0) {
+      currentY += 5;
+      doc.text(`Bonificación Comercial:`, 125, currentY);
+      doc.text(`- ${formatCurrency(commercialDiscount)}`, 195, currentY, { align: 'right' });
+    }
 
+    if (discount > 0) {
+      currentY += 5;
+      doc.text(`Descuento Manual (${discount}%):`, 125, currentY);
+      doc.text(`- ${formatCurrency(discountAmount)}`, 195, currentY, { align: 'right' });
+    }
+
+    currentY += 8;
     doc.setDrawColor(0, 0, 0);
     doc.setLineWidth(0.5);
-    doc.line(120, currentY + 8, 195, currentY + 8);
+    doc.line(120, currentY, 195, currentY);
 
+    currentY += 6;
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(12);
-    doc.text('TOTAL:', 125, currentY + 14);
-    doc.text(formatCurrency(total), 195, currentY + 14, { align: 'right' });
+    doc.text('TOTAL NETO:', 125, currentY);
+    doc.text(formatCurrency(total), 195, currentY, { align: 'right' });
 
     // Footer section
     const footerY = currentY + 32;
@@ -549,7 +540,9 @@ export const Ventas = () => {
   // A4 PDF VIEW PREVIEW
   if (showRemito && selectedPreviewSale) {
     const saleItems = selectedPreviewSale.items || [];
-    const subtotal = selectedPreviewSale.subtotal || 0;
+    const grossTotal = selectedPreviewSale.grossTotal || selectedPreviewSale.subtotal || selectedPreviewSale.total || 0;
+    const commercialDiscount = selectedPreviewSale.commercialDiscount || 0;
+    const subtotal = selectedPreviewSale.netTotal || selectedPreviewSale.subtotal || selectedPreviewSale.total || 0;
     const discount = selectedPreviewSale.discount || 0;
     const discountAmount = subtotal * (discount / 100);
     const total = selectedPreviewSale.total || 0;
@@ -620,15 +613,23 @@ export const Ventas = () => {
           <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '40px' }}>
             <div style={{ width: '300px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid #e2e8f0' }}>
-                <span style={{ color: '#666' }}>Subtotal:</span>
-                <span>{formatCurrency(subtotal)}</span>
+                <span style={{ color: '#666' }}>Subtotal Bruto:</span>
+                <span>{formatCurrency(grossTotal)}</span>
               </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid #e2e8f0' }}>
-                <span style={{ color: '#666' }}>Descuento ({discount}%):</span>
-                <span>- {formatCurrency(discountAmount)}</span>
-              </div>
+              {commercialDiscount > 0 && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid #e2e8f0' }}>
+                  <span style={{ color: '#666' }}>Bonificación Comercial:</span>
+                  <span>- {formatCurrency(commercialDiscount)}</span>
+                </div>
+              )}
+              {discount > 0 && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid #e2e8f0' }}>
+                  <span style={{ color: '#666' }}>Descuento Manual ({discount}%):</span>
+                  <span>- {formatCurrency(discountAmount)}</span>
+                </div>
+              )}
               <div style={{ display: 'flex', justifyContent: 'space-between', padding: '16px 0', borderTop: '2px solid #000' }}>
-                <span style={{ fontSize: '1.25rem', fontWeight: 800 }}>TOTAL:</span>
+                <span style={{ fontSize: '1.25rem', fontWeight: 800 }}>TOTAL NETO:</span>
                 <span style={{ fontSize: '1.25rem', fontWeight: 800 }}>{formatCurrency(total)}</span>
               </div>
             </div>
@@ -738,12 +739,14 @@ export const Ventas = () => {
               
               <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '20px' }}>
                 {items.map(item => {
-                  const paq = parseNumber(item.paquetesStr);
-                  const available = stockCache[item.productId] ?? 0;
-                  const isInsufficient = available < paq;
+                  const paq = item.selectedPackages.length;
+                  const availablePackages = packages.filter(p => p.productId === item.productId && p.status === 'Disponible');
+                  const selectedPackagesWeight = packages.filter(p => item.selectedPackages.includes(p.id!)).reduce((sum, p) => sum + p.weight, 0);
+                  const selectedPackagesAmount = selectedPackagesWeight * item.precioComercialKg;
+                  const isInsufficient = availablePackages.length === 0 && item.productId;
                   
                   return (
-                    <div key={item.id} style={{ display: 'flex', alignItems: 'center', gap: '16px', padding: '16px', backgroundColor: 'var(--bg-primary)', border: isInsufficient && item.productId ? '1px solid #ef4444' : '1px solid var(--border-color)', borderRadius: '12px' }}>
+                    <div key={item.id} style={{ display: 'flex', alignItems: 'flex-start', gap: '16px', padding: '16px', backgroundColor: 'var(--bg-primary)', border: isInsufficient ? '1px solid #ef4444' : '1px solid var(--border-color)', borderRadius: '12px' }}>
                       <div style={{ flex: 1 }}>
                         <Select 
                           label=""
@@ -758,10 +761,10 @@ export const Ventas = () => {
                           <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)', backgroundColor: 'var(--bg-secondary)', padding: '2px 8px', borderRadius: '9999px', border: '1px solid var(--border-color)' }}>{item.gramaje}</span>
                           <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                              <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{formatCurrency(item.precioUnitario)} c/u</span>
+                              <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{formatCurrency(item.precioComercialKg)} / kg</span>
                               {item.productId && (
                                 <span style={{ fontSize: '0.8rem', fontWeight: 600, color: isInsufficient ? '#ef4444' : '#16a34a' }}>
-                                  Disponible: {available} paq.
+                                  Disponibles: {availablePackages.length} paq.
                                 </span>
                               )}
                             </div>
@@ -772,21 +775,39 @@ export const Ventas = () => {
                             )}
                           </div>
                         </div>
+
+                        {item.productId && availablePackages.length > 0 && (
+                          <div style={{ marginTop: '12px' }}>
+                            <span style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: '8px' }}>Seleccionar Paquetes Físicos:</span>
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', maxHeight: '120px', overflowY: 'auto', padding: '8px', border: '1px solid var(--border-color)', borderRadius: '8px', backgroundColor: 'var(--bg-secondary)' }}>
+                              {availablePackages.map(pkg => {
+                                const isSelected = item.selectedPackages.includes(pkg.id!);
+                                return (
+                                  <label key={pkg.id} style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', padding: '4px 8px', backgroundColor: isSelected ? 'var(--primary-light)' : '#fff', border: isSelected ? '1px solid var(--primary-color)' : '1px solid var(--border-color)', borderRadius: '6px', fontSize: '0.8rem' }}>
+                                    <input 
+                                      type="checkbox" 
+                                      checked={isSelected} 
+                                      onChange={(e) => {
+                                        const newSelected = e.target.checked 
+                                          ? [...item.selectedPackages, pkg.id!] 
+                                          : item.selectedPackages.filter(id => id !== pkg.id);
+                                        setItems(items.map(i => i.id === item.id ? { ...i, selectedPackages: newSelected } : i));
+                                      }}
+                                      style={{ cursor: 'pointer' }}
+                                    />
+                                    <span>{pkg.weight.toFixed(3)} Kg</span>
+                                  </label>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
                       </div>
 
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', backgroundColor: '#fff', padding: '4px 8px', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
-                        <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-secondary)' }}>PAQ:</span>
-                        <input 
-                          type="number" 
-                          value={item.paquetesStr} 
-                          onChange={e => updateItemQty(item.id, e.target.value)} 
-                          style={{ width: '50px', textAlign: 'center', padding: '4px', borderRadius: '4px', border: 'none', backgroundColor: 'var(--bg-primary)', outline: 'none', fontWeight: 700, fontSize: '1rem', color: 'var(--text-primary)' }} 
-                        />
-                      </div>
-
-                      <div style={{ width: '100px', textAlign: 'right' }}>
+                      <div style={{ width: '120px', textAlign: 'right' }}>
                         <span style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Subtotal</span>
-                        <span style={{ fontWeight: 700, color: 'var(--text-primary)', fontSize: '1rem' }}>{formatCurrency(paq * item.precioUnitario)}</span>
+                        <span style={{ fontWeight: 700, color: 'var(--text-primary)', fontSize: '1rem' }}>{formatCurrency(selectedPackagesAmount)}</span>
+                        <span style={{ display: 'block', fontSize: '0.75rem', color: 'var(--primary-color)', marginTop: '4px' }}>{paq} pq / {selectedPackagesWeight.toFixed(3)} Kg</span>
                       </div>
 
                       <button onClick={() => removeItem(item.id)} style={{ background: '#fee2e2', border: 'none', cursor: 'pointer', padding: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#ef4444', borderRadius: '8px', transition: 'background-color 0.2s' }}>

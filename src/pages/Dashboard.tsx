@@ -14,6 +14,8 @@ import { useInsumos } from '../hooks/useInsumos';
 import { usePresentaciones } from '../hooks/usePresentaciones';
 import { useCustomers } from '../hooks/useCustomers';
 import { useSuppliers } from '../hooks/useSuppliers';
+import { usePurchases } from '../hooks/usePurchases';
+import { usePartnerTransactions } from '../hooks/usePartnerTransactions';
 import { formatCurrency, formatNumber } from '../utils/format';
 
 const CAPITAL_CATEGORIES = ['aporte_socio', 'inversion_inicial', 'bien_capital', 'maquinaria', 'tecnologia', 'vehiculos', 'vehiculo', 'equipamiento', 'herramientas'];
@@ -27,11 +29,13 @@ export const Dashboard = () => {
   const { suppliers, loading: loadingSuppliers, error: errorSuppliers } = useSuppliers();
   const { movements, loading: loadingMovements, error: errorMovements } = useCashMovements();
   const { productStocks, loading: loadingStocks, error: errorStocks } = useStockMovements();
+  const { purchases, loading: loadingPurchases, error: errorPurchases } = usePurchases();
+  const { transactions, loading: loadingTrans, error: errorTrans } = usePartnerTransactions();
 
-  const [activeTab, setActiveTab] = useState<'ejecutivo' | 'stock' | 'rentabilidad' | 'flujo' | 'valor'>('ejecutivo');
+  const [activeTab, setActiveTab] = useState<'ejecutivo' | 'comercial' | 'stock' | 'rentabilidad' | 'flujo' | 'valor'>('ejecutivo');
 
-  const loading = loadingSales || loadingMercaderias || loadingInsumos || loadingPresentaciones || loadingCustomers || loadingSuppliers || loadingMovements || loadingStocks;
-  const error = errorSales || errorMercaderias || errorInsumos || errorPresentaciones || errorCustomers || errorSuppliers || errorMovements || errorStocks;
+  const loading = loadingSales || loadingMercaderias || loadingInsumos || loadingPresentaciones || loadingCustomers || loadingSuppliers || loadingMovements || loadingStocks || loadingPurchases || loadingTrans;
+  const error = errorSales || errorMercaderias || errorInsumos || errorPresentaciones || errorCustomers || errorSuppliers || errorMovements || errorStocks || errorPurchases || errorTrans;
 
   // 1. Stock Valorizado
   const stockValorizado = useMemo(() => {
@@ -115,8 +119,8 @@ export const Dashboard = () => {
 
     movements.forEach(m => {
       const cat = (m.category || '').toLowerCase();
-      const isNonMoney = cat === 'aporte_socio' && m.aporteType && m.aporteType !== 'dinero';
-      const isCapital = CAPITAL_CATEGORIES.some(c => cat.includes(c));
+      const isNonMoney = (cat === 'aporte_socio' || m.tipoMovimiento === 'APORTE_SOCIO') && (m.aporteType && m.aporteType !== 'dinero' || m.destino === 'activo');
+      const isCapital = CAPITAL_CATEGORIES.some(c => cat.includes(c)) || m.tipoMovimiento === 'APORTE_SOCIO';
 
       // Liquidity
       if (!isNonMoney && m.type !== 'transfer') {
@@ -125,7 +129,7 @@ export const Dashboard = () => {
       }
 
       // Activos Fijos
-      if (isCapital && m.aporteType !== 'dinero') {
+      if (isCapital && (m.destino === 'activo' || (m.aporteType && m.aporteType !== 'dinero'))) {
         if (m.type === 'in') activosFijos += m.amount;
       }
 
@@ -144,12 +148,33 @@ export const Dashboard = () => {
     });
 
     // Also consider Customer Debts as Pending Collections
-    const cobrosPendientes = customers.reduce((sum, c) => sum + (c.currentBalance || 0), 0);
-    // Supplier Debts as Pending Payments (if not already in movements, but prompt says "Toda info de Base Financiera", we assume movements pasivos + suppliers)
-    const pagosPendientes = pasivos + suppliers.reduce((sum, s) => sum + ((s as any).currentBalance || 0), 0);
+    const cobrosPendientes = sales
+      .filter(s => s.paymentMethod === 'cc' && (s.status === 'PENDIENTE' || s.status === 'PARCIAL'))
+      .reduce((acc, sale) => acc + (sale.saldoPendiente !== undefined ? sale.saldoPendiente : sale.total), 0);
+
+    // Supplier Debts as Pending Payments
+    let totalSupplierPurchases = 0;
+    let totalSupplierPayments = 0;
+    
+    suppliers.forEach(s => {
+      const sPurchases = purchases.filter(p => p.supplierId === s.id);
+      const sPayments = movements.filter(m => 
+        (m.type === 'out' || m.category === 'aporte_socio') &&
+        (m.supplierId === s.id || sPurchases.some(p => p.id === m.referenceId))
+      );
+      const sAportes = transactions.filter(t => 
+         t.type === 'APORTE' && 
+         (t.referenceId === s.id || sPurchases.some(p => p.id === t.referenceId))
+      );
+
+      totalSupplierPurchases += sPurchases.reduce((acc, p) => acc + (p.total || 0), 0);
+      totalSupplierPayments += sPayments.reduce((acc, m) => acc + (m.amount || 0), 0) + sAportes.reduce((acc, a) => acc + (a.amount || 0), 0);
+    });
+
+    const pagosPendientes = pasivos + (totalSupplierPurchases - totalSupplierPayments);
 
     return { liquidez, activosFijos, pasivos, pasivosList, cobrosPendientes, pagosPendientes, gananciaAcumulada: ingresosOp - egresosOp };
-  }, [movements, customers, suppliers]);
+  }, [movements, sales, suppliers, purchases, transactions]);
 
   // 4. Flujo de Fondos Proyectado
   const flujo = useMemo(() => {
@@ -159,14 +184,139 @@ export const Dashboard = () => {
     return { proj7, proj15, proj30 };
   }, [finData]);
 
+  // Gerencial Real Data
+  const gerencialData = useMemo(() => {
+    const currentMonth = new Date().getMonth();
+    const currentYear = new Date().getFullYear();
+    const isThisMonth = (d: number) => {
+      const date = new Date(d);
+      return date.getMonth() === currentMonth && date.getFullYear() === currentYear;
+    };
+
+    const ventasDelMes = sales.filter(s => isThisMonth(s.date) && s.status !== 'ANULADA').reduce((sum, s) => sum + s.total, 0);
+    
+    // Cobros del Mes: pagos de sales y movements de tipo "in" operativos
+    const cobrosDelMes = movements.filter(m => isThisMonth(m.date || m.createdAt) && m.type === 'in' && !CAPITAL_CATEGORIES.some(c => (m.category || '').toLowerCase().includes(c)) && m.tipoMovimiento !== 'APORTE_SOCIO').reduce((sum, m) => sum + m.amount, 0);
+
+    const comprasDelMes = purchases.filter(p => isThisMonth(p.date)).reduce((sum, p) => sum + (p.total || 0), 0);
+    
+    // Pagos a Proveedores del Mes
+    let pagosProveedoresMes = 0;
+    suppliers.forEach(s => {
+      const sPurchases = purchases.filter(p => p.supplierId === s.id);
+      const sPayments = movements.filter(m => 
+        isThisMonth(m.date || m.createdAt) && 
+        (m.type === 'out' || m.category === 'aporte_socio') &&
+        (m.supplierId === s.id || sPurchases.some(p => p.id === m.referenceId))
+      );
+      const sAportes = transactions.filter(t => 
+         isThisMonth(t.date) && 
+         t.type === 'APORTE' && 
+         (t.referenceId === s.id || sPurchases.some(p => p.id === t.referenceId))
+      );
+      pagosProveedoresMes += sPayments.reduce((acc, m) => acc + (m.amount || 0), 0) + sAportes.reduce((acc, a) => acc + (a.amount || 0), 0);
+    });
+
+    const clientesConDeuda = sales
+      .filter(s => s.paymentMethod === 'cc' && (s.status === 'PENDIENTE' || s.status === 'PARCIAL'))
+      .map(s => s.customerId)
+      .filter((v, i, a) => a.indexOf(v) === i).length; // Unique customer IDs with debt
+
+    let proveedoresConDeuda = 0;
+    suppliers.forEach(s => {
+      const sPurchases = purchases.filter(p => p.supplierId === s.id);
+      const sPayments = movements.filter(m => 
+        (m.type === 'out' || m.category === 'aporte_socio') &&
+        (m.supplierId === s.id || sPurchases.some(p => p.id === m.referenceId))
+      );
+      const sAportes = transactions.filter(t => 
+         t.type === 'APORTE' && 
+         (t.referenceId === s.id || sPurchases.some(p => p.id === t.referenceId))
+      );
+
+      const tPur = sPurchases.reduce((acc, p) => acc + (p.total || 0), 0);
+      const tPay = sPayments.reduce((acc, m) => acc + (m.amount || 0), 0) + sAportes.reduce((acc, a) => acc + (a.amount || 0), 0);
+      if (tPur - tPay > 0) proveedoresConDeuda++;
+    });
+
+    let cajaDisponible = 0;
+    let bancosDisponible = 0;
+    
+    movements.forEach(m => {
+      const cat = (m.category || '').toLowerCase();
+      const isNonMoneyAporte = (cat === 'aporte_socio' || m.tipoMovimiento === 'APORTE_SOCIO') && (m.aporteType && m.aporteType !== 'dinero' || m.destino === 'activo');
+      if (isNonMoneyAporte || m.type === 'transfer') return;
+      
+      const val = m.type === 'in' ? m.amount : -m.amount;
+      if (m.method === 'cash' || m.method === 'efectivo') {
+         cajaDisponible += val;
+      } else {
+         bancosDisponible += val;
+      }
+    });
+
+    const capitalAportado = transactions.filter(t => t.type === 'APORTE').reduce((sum, t) => sum + t.amount, 0) 
+      - transactions.filter(t => t.type === 'RETIRO' || t.type === 'DEVOLUCION').reduce((sum, t) => sum + t.amount, 0);
+      
+    let ingresosOp = 0;
+    let egresosOp = 0;
+    movements.forEach(m => {
+      if (m.type === 'transfer') return;
+      const cat = (m.category || '').toLowerCase();
+      const isCapital = CAPITAL_CATEGORIES.some(c => cat.includes(c)) || m.tipoMovimiento === 'APORTE_SOCIO';
+      if (!isCapital) {
+        if (m.type === 'in') ingresosOp += m.amount;
+        else if (m.type === 'out') egresosOp += m.amount;
+      }
+    });
+    const resultadoOperativo = ingresosOp - egresosOp;
+
+    return { ventasDelMes, cobrosDelMes, comprasDelMes, pagosProveedoresMes, clientesConDeuda, proveedoresConDeuda, cajaDisponible, bancosDisponible, capitalAportado, resultadoOperativo };
+  }, [sales, movements, purchases, suppliers, transactions]);
+
   // 5. Valor de Empresa
   const valorEmpresa = finData.liquidez + stockValorizado.total + finData.activosFijos - finData.pagosPendientes;
+
+  // Comercial Data (Phase 5B)
+  const comercialData = useMemo(() => {
+    let ventaBruta = 0;
+    let bonificaciones = 0;
+    let ventaNeta = 0;
+    
+    const clientesMap: Record<string, { name: string, bonificacion: number }> = {};
+
+    sales.filter(s => s.status !== 'ANULADA').forEach(s => {
+      const gross = s.grossTotal || s.subtotal || s.total || 0;
+      const net = s.total || 0;
+      const bonif = s.commercialDiscount || 0;
+
+      ventaBruta += gross;
+      ventaNeta += net;
+      bonificaciones += bonif;
+
+      if (bonif > 0) {
+        if (!clientesMap[s.customerId]) {
+          clientesMap[s.customerId] = { name: s.customerName, bonificacion: 0 };
+        }
+        clientesMap[s.customerId].bonificacion += bonif;
+      }
+    });
+
+    const descuentoPromedio = ventaBruta > 0 ? (bonificaciones / ventaBruta) * 100 : 0;
+    
+    const topClientes = Object.values(clientesMap)
+      .sort((a, b) => b.bonificacion - a.bonificacion)
+      .slice(0, 5);
+
+    return { ventaBruta, bonificaciones, ventaNeta, descuentoPromedio, topClientes };
+  }, [sales]);
 
   if (error) return <ErrorState message="Error cargando módulos de gestión empresarial." />;
   if (loading) return <LoadingSpinner message="Calculando inteligencia de negocios..." />;
 
   const tabs = [
     { id: 'ejecutivo', label: 'Centro de Decisiones', icon: Activity },
+    { id: 'comercial', label: 'Análisis Comercial', icon: BarChart3 },
     { id: 'stock', label: 'Stock Valorizado', icon: Package },
     { id: 'rentabilidad', label: 'Rentabilidad por Producto', icon: TrendingUp },
     { id: 'flujo', label: 'Flujo de Fondos', icon: Clock },
@@ -204,22 +354,69 @@ export const Dashboard = () => {
       <div style={{ minHeight: '60vh' }}>
         {activeTab === 'ejecutivo' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+            
+            {/* 1. KPIs Operativos (Mes Actual) */}
+            <h3 style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--text-primary)' }}>Métricas del Mes (Operativo)</h3>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px' }}>
-              <Card padding="sm" style={{ borderLeft: '4px solid #0d9488' }}>
-                <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontWeight: 600, textTransform: 'uppercase' }}>Dinero Disponible</p>
-                <h3 style={{ fontSize: '1.5rem', fontWeight: 800, color: '#0f766e', marginTop: '8px' }}>{formatCurrency(finData.liquidez)}</h3>
-              </Card>
               <Card padding="sm" style={{ borderLeft: '4px solid #16a34a' }}>
-                <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontWeight: 600, textTransform: 'uppercase' }}>Ganancia Acumulada</p>
-                <h3 style={{ fontSize: '1.5rem', fontWeight: 800, color: '#166534', marginTop: '8px' }}>{formatCurrency(finData.gananciaAcumulada)}</h3>
+                <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontWeight: 600, textTransform: 'uppercase' }}>Ventas del Mes</p>
+                <h3 style={{ fontSize: '1.5rem', fontWeight: 800, color: '#166534', marginTop: '8px' }}>{formatCurrency(gerencialData.ventasDelMes)}</h3>
               </Card>
-              <Card padding="sm" style={{ borderLeft: '4px solid #b45309' }}>
-                <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontWeight: 600, textTransform: 'uppercase' }}>Evolución Patrimonial</p>
-                <h3 style={{ fontSize: '1.5rem', fontWeight: 800, color: '#92400e', marginTop: '8px' }}>{formatCurrency(valorEmpresa)}</h3>
+              <Card padding="sm" style={{ borderLeft: '4px solid #0d9488' }}>
+                <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontWeight: 600, textTransform: 'uppercase' }}>Cobros del Mes</p>
+                <h3 style={{ fontSize: '1.5rem', fontWeight: 800, color: '#0f766e', marginTop: '8px' }}>{formatCurrency(gerencialData.cobrosDelMes)}</h3>
               </Card>
               <Card padding="sm" style={{ borderLeft: '4px solid #dc2626' }}>
-                <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontWeight: 600, textTransform: 'uppercase' }}>Deudas / Obligaciones</p>
-                <h3 style={{ fontSize: '1.5rem', fontWeight: 800, color: '#991b1b', marginTop: '8px' }}>{formatCurrency(finData.pagosPendientes)}</h3>
+                <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontWeight: 600, textTransform: 'uppercase' }}>Compras del Mes</p>
+                <h3 style={{ fontSize: '1.5rem', fontWeight: 800, color: '#991b1b', marginTop: '8px' }}>{formatCurrency(gerencialData.comprasDelMes)}</h3>
+              </Card>
+              <Card padding="sm" style={{ borderLeft: '4px solid #ea580c' }}>
+                <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontWeight: 600, textTransform: 'uppercase' }}>Pagos Proveedores (Mes)</p>
+                <h3 style={{ fontSize: '1.5rem', fontWeight: 800, color: '#9a3412', marginTop: '8px' }}>{formatCurrency(gerencialData.pagosProveedoresMes)}</h3>
+              </Card>
+            </div>
+
+            {/* 2. KPIs Financieros y Patrimonio */}
+            <h3 style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--text-primary)' }}>Liquidez y Capital</h3>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px' }}>
+              <Card padding="sm" style={{ borderLeft: '4px solid #0284c7' }}>
+                <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontWeight: 600, textTransform: 'uppercase' }}>Caja Física Disponible</p>
+                <h3 style={{ fontSize: '1.5rem', fontWeight: 800, color: '#0369a1', marginTop: '8px' }}>{formatCurrency(gerencialData.cajaDisponible)}</h3>
+              </Card>
+              <Card padding="sm" style={{ borderLeft: '4px solid #2563eb' }}>
+                <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontWeight: 600, textTransform: 'uppercase' }}>Bancos y Billeteras</p>
+                <h3 style={{ fontSize: '1.5rem', fontWeight: 800, color: '#1d4ed8', marginTop: '8px' }}>{formatCurrency(gerencialData.bancosDisponible)}</h3>
+              </Card>
+              <Card padding="sm" style={{ borderLeft: '4px solid #8b5cf6', backgroundColor: '#f5f3ff' }}>
+                <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontWeight: 600, textTransform: 'uppercase' }}>Capital Aportado Socios</p>
+                <h3 style={{ fontSize: '1.5rem', fontWeight: 800, color: '#6d28d9', marginTop: '8px' }}>{formatCurrency(gerencialData.capitalAportado)}</h3>
+                <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>Aislado de la operación</span>
+              </Card>
+              <Card padding="sm" style={{ borderLeft: '4px solid #10b981', backgroundColor: '#ecfdf5' }}>
+                <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontWeight: 600, textTransform: 'uppercase' }}>Resultado Operativo Total</p>
+                <h3 style={{ fontSize: '1.5rem', fontWeight: 800, color: '#047857', marginTop: '8px' }}>{formatCurrency(gerencialData.resultadoOperativo)}</h3>
+                <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>Sin ingresos de socios</span>
+              </Card>
+            </div>
+
+            {/* 3. Deudas y Obligaciones */}
+            <h3 style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--text-primary)' }}>Estado de Deudas</h3>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px' }}>
+               <Card padding="sm" style={{ borderLeft: '4px solid #f59e0b' }}>
+                <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontWeight: 600, textTransform: 'uppercase' }}>Clientes con Deuda</p>
+                <h3 style={{ fontSize: '1.5rem', fontWeight: 800, color: '#b45309', marginTop: '8px' }}>{gerencialData.clientesConDeuda} Clientes</h3>
+              </Card>
+              <Card padding="sm" style={{ borderLeft: '4px solid #14b8a6' }}>
+                <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontWeight: 600, textTransform: 'uppercase' }}>Total a Cobrar</p>
+                <h3 style={{ fontSize: '1.5rem', fontWeight: 800, color: '#0f766e', marginTop: '8px' }}>{formatCurrency(finData.cobrosPendientes)}</h3>
+              </Card>
+               <Card padding="sm" style={{ borderLeft: '4px solid #ef4444' }}>
+                <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontWeight: 600, textTransform: 'uppercase' }}>Proveedores con Deuda</p>
+                <h3 style={{ fontSize: '1.5rem', fontWeight: 800, color: '#b91c1c', marginTop: '8px' }}>{gerencialData.proveedoresConDeuda} Proveedores</h3>
+              </Card>
+              <Card padding="sm" style={{ borderLeft: '4px solid #f43f5e' }}>
+                <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontWeight: 600, textTransform: 'uppercase' }}>Total a Pagar</p>
+                <h3 style={{ fontSize: '1.5rem', fontWeight: 800, color: '#be123c', marginTop: '8px' }}>{formatCurrency(finData.pagosPendientes)}</h3>
               </Card>
             </div>
 
@@ -263,6 +460,46 @@ export const Dashboard = () => {
               </Card>
             </div>
           </div>
+        )}
+
+        {activeTab === 'comercial' && (
+          <Card>
+            <CardHeader title="Análisis Comercial y de Precios" subtitle="Impacto de listas de precios y bonificaciones otorgadas" />
+            <div style={{ padding: '24px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px', marginBottom: '32px' }}>
+                <div style={{ padding: '20px', backgroundColor: '#f8fafc', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+                  <p style={{ fontSize: '0.875rem', fontWeight: 600, color: '#64748b' }}>Venta Bruta (Oficial)</p>
+                  <h3 style={{ fontSize: '1.75rem', fontWeight: 800, color: '#334155' }}>{formatCurrency(comercialData.ventaBruta)}</h3>
+                </div>
+                <div style={{ padding: '20px', backgroundColor: '#fef2f2', borderRadius: '12px', border: '1px solid #fecaca' }}>
+                  <p style={{ fontSize: '0.875rem', fontWeight: 600, color: '#ef4444' }}>Bonificaciones Otorgadas</p>
+                  <h3 style={{ fontSize: '1.75rem', fontWeight: 800, color: '#dc2626' }}>{formatCurrency(comercialData.bonificaciones)}</h3>
+                </div>
+                <div style={{ padding: '20px', backgroundColor: '#f0fdf4', borderRadius: '12px', border: '1px solid #bbf7d0' }}>
+                  <p style={{ fontSize: '0.875rem', fontWeight: 600, color: '#16a34a' }}>Venta Neta</p>
+                  <h3 style={{ fontSize: '1.75rem', fontWeight: 800, color: '#15803d' }}>{formatCurrency(comercialData.ventaNeta)}</h3>
+                </div>
+                <div style={{ padding: '20px', backgroundColor: '#eff6ff', borderRadius: '12px', border: '1px solid #bfdbfe' }}>
+                  <p style={{ fontSize: '0.875rem', fontWeight: 600, color: '#2563eb' }}>% Descuento Promedio</p>
+                  <h3 style={{ fontSize: '1.75rem', fontWeight: 800, color: '#1d4ed8' }}>{comercialData.descuentoPromedio.toFixed(1)}%</h3>
+                </div>
+              </div>
+
+              <h3 style={{ fontSize: '1.1rem', fontWeight: 700, marginBottom: '16px' }}>Top Clientes por Bonificación</h3>
+              {comercialData.topClientes.length > 0 ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  {comercialData.topClientes.map((item, i) => (
+                    <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '16px', border: '1px solid var(--border-color)', borderRadius: '8px', backgroundColor: '#fff' }}>
+                      <span style={{ fontWeight: 600 }}>{i + 1}. {item.name}</span>
+                      <b style={{ color: '#dc2626' }}>{formatCurrency(item.bonificacion)}</b>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <EmptyState icon={Users} title="Sin datos" description="No hay bonificaciones otorgadas todavía." />
+              )}
+            </div>
+          </Card>
         )}
 
         {activeTab === 'stock' && (

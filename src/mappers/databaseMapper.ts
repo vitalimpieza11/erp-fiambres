@@ -42,7 +42,14 @@ export class DatabaseMapper {
         cost: parseNumber(item.cost)
       })) : [],
       total: parseNumber(data.total),
-      status: data.status || 'pending',
+      payments: Array.isArray(data.payments) ? data.payments.map((p: any) => ({
+        method: p.method || 'efectivo',
+        amount: parseNumber(p.amount),
+        partnerId: p.partnerId
+      })) : [],
+      amountPaid: data.amountPaid !== undefined ? parseNumber(data.amountPaid) : 0,
+      pendingBalance: data.pendingBalance !== undefined ? parseNumber(data.pendingBalance) : parseNumber(data.total),
+      status: (data.pendingBalance !== undefined && parseNumber(data.pendingBalance) <= 0) ? 'PAGADA' : (data.amountPaid > 0 ? 'PARCIAL' : 'PENDIENTE'),
       invoiceNumber: data.invoiceNumber || '',
       date: data.date || Date.now(),
       createdAt: data.createdAt || Date.now(),
@@ -78,6 +85,7 @@ export class DatabaseMapper {
       phone: data.phone || '',
       address: data.address || '',
       category: data.category || '',
+      currentBalance: parseNumber(data.currentBalance),
       isActive: typeof data.isActive === 'boolean' ? data.isActive : true,
       createdAt: data.createdAt || Date.now(),
       updatedAt: data.updatedAt || Date.now()
@@ -199,7 +207,7 @@ export class DatabaseMapper {
       bolsaName: data.bolsaName || '',
       etiquetaId: data.etiquetaId || '',
       etiquetaName: data.etiquetaName || '',
-      precioVentaKg: parseNumber(data.precioVentaKg) || 0,
+      precioComercialKg: parseNumber(data.precioComercialKg) || 0,
       manoObra: data.manoObra !== undefined ? parseNumber(data.manoObra) : undefined,
       observations: data.observations || '',
       isActive: typeof data.isActive === 'boolean' ? data.isActive : true,
