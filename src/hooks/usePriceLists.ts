@@ -42,6 +42,11 @@ export const usePriceLists = () => {
     const unsubscribe = onSnapshot(
       q,
       (snapshot) => {
+        console.log("[FORENSIC] 8. Dentro del onSnapshot que vuelve a cargar las listas. docs count:", snapshot.docs.length);
+        
+        // [STEP 8] datos que vuelven desde Firestore luego del guardado
+        console.log("[STEP 8] datos que vuelven desde Firestore (1er doc):", JSON.stringify(snapshot.docs[0]?.data(), null, 2));
+
         const list: PriceList[] = [];
         snapshot.forEach((doc) => {
           const data = doc.data();
@@ -91,12 +96,33 @@ export const usePriceLists = () => {
   }, [currentUser]);
 
   const savePriceList = async (priceList: Omit<PriceList, 'id' | 'createdAt' | 'updatedAt'>, id?: string) => {
-    if (id) {
-      const ref = doc(db, 'priceLists', id);
-      await updateDoc(ref, { ...priceList, updatedAt: Date.now() } as any);
-    } else {
-      const ref = doc(collection(db, 'priceLists'));
-      await setDoc(ref, { ...priceList, createdAt: Date.now(), updatedAt: Date.now() } as any);
+    console.log("[FORENSIC] 5. Dentro de savePriceList(). id:", id, "payload:", JSON.stringify(priceList, null, 2));
+    
+    // [STEP 5] payload recibido dentro de savePriceList
+    console.log("[STEP 5] payload recibido dentro de savePriceList:", JSON.stringify(priceList, null, 2));
+    
+    // [STEP 6] documentId utilizado
+    console.log("[STEP 6] documentId utilizado:", id);
+
+    try {
+      if (id) {
+        console.log("[FORENSIC] 6. Antes de updateDoc(). documentId:", id);
+        const ref = doc(db, 'priceLists', id);
+        await updateDoc(ref, { ...priceList, updatedAt: Date.now() } as any);
+        console.log("[FORENSIC] 7. Después de updateDoc(). documentId:", id);
+        
+        // [STEP 7] resultado de updateDoc
+        console.log("[STEP 7] resultado de updateDoc: EXITOSO");
+      } else {
+        console.log("[FORENSIC] 6. Antes de setDoc() nuevo documento.");
+        const ref = doc(collection(db, 'priceLists'));
+        await setDoc(ref, { ...priceList, createdAt: Date.now(), updatedAt: Date.now() } as any);
+        console.log("[FORENSIC] 7. Después de setDoc() nuevo documento. documentId:", ref.id);
+        console.log("[STEP 7] resultado de setDoc: EXITOSO");
+      }
+    } catch (error) {
+       console.log("[STEP 7] resultado de updateDoc: ERROR", error);
+       throw error;
     }
   };
 

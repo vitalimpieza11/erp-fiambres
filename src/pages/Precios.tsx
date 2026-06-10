@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { PageHeader, EmptyState } from '../components/EmptyState';
 import { LoadingSpinner, ErrorState, SkeletonLoader } from '../components/AsyncState';
 import { Card } from '../components/ui/Card';
@@ -47,6 +47,10 @@ export const Precios = () => {
   const [simulatorIncreasePct, setSimulatorIncreasePct] = useState(0);
   const [editingPresentation, setEditingPresentation] = useState<any | null>(null);
 
+  // Tracks if the user has made any local edits to the form or items.
+  // If true, the useEffect will NOT rebuild priceItems when Firestore collections update.
+  const [isDirty, setIsDirty] = useState(false);
+
   const globalError = errorLists || errorPres || errorMerc || errorIns || errorRec;
 
   // Build items function
@@ -54,8 +58,20 @@ export const Precios = () => {
     let items: any[] = [];
     
     if (types.includes('presentacion')) {
-      const presItems = presentaciones.filter(p => p.isActive).map(p => {
+      const presItems = presentaciones.filter(p => p.isActive).map((p, index) => {
         const cTot = calculatePresentationCost(p, mercaderias, insumos, recipes);
+        
+        // [AUDITORÍA EXACTA SOLICITADA]
+        if (index === 0 && overrides && Object.keys(overrides).length > 0) {
+          console.log("=== EVIDENCIA FORENSE DE CLAVES (1er item) ===");
+          console.log("1. Object.keys(overrides):", Object.keys(overrides));
+          console.log("2. p.id:", p.id);
+          console.log("3. p.name:", p.name);
+          console.log("4. overrides[p.id]:", overrides[p.id!]);
+          console.log("5. overrides[p.name]:", overrides[p.name]);
+          console.log("================================================");
+        }
+
         const overrideMargin = overrides?.[p.id!]?.margin ?? baseMargin;
         const isExcluded = overrides?.[p.id!]?.excluded ?? false;
         const itemMode = overrides?.[p.id!]?.mode ?? mode;
@@ -95,25 +111,30 @@ export const Precios = () => {
     return items;
   };
   useEffect(() => {
-    if (selectedList) {
+    // Only rebuild the entire edit form when the selected list changes OR if we haven't dirtied the form yet.
+    // Changes in presentaciones / mercaderias / insumos / recipes triggered by
+    // their own onSnapshot listeners must NOT reset priceItems if the user is editing,
+    // because that would silently discard any in-progress edits made by the user.
+    if (selectedList && !isDirty) {
       setListNameInput(selectedList.name);
       setListTargetInput(selectedList.target);
       setListActiveInput(selectedList.isActive);
       setGeneralMarginStr(selectedList.margin.toString());
-      
-      let initTypes = selectedList.includedTypes && selectedList.includedTypes.length > 0 
-        ? selectedList.includedTypes 
+
+      let initTypes = selectedList.includedTypes && selectedList.includedTypes.length > 0
+        ? selectedList.includedTypes
         : ['presentacion', 'mercaderia'];
-      
+
       if (selectedList.type === 'presentaciones' && (!selectedList.includedTypes || selectedList.includedTypes.length === 0)) initTypes = ['presentacion'];
       if (selectedList.type === 'mercaderias' && (!selectedList.includedTypes || selectedList.includedTypes.length === 0)) initTypes = ['mercaderia'];
-      
+
       const initialMode = selectedList.mode || 'auto';
       setIncludedTypes(initTypes);
       setListModeInput(initialMode);
       setPriceItems(buildItems(initTypes, initialMode, selectedList.margin, selectedList.productOverrides));
     }
-  }, [selectedList, presentaciones, mercaderias, insumos, recipes]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedList, presentaciones, mercaderias, insumos, recipes, isDirty]);
 
   const handleCreateNewList = () => {
     setSelectedList({
@@ -133,32 +154,44 @@ export const Precios = () => {
     setListActiveInput(true);
     setIncludedTypes(['presentacion', 'mercaderia']);
     setListModeInput('auto');
+    setIsDirty(false); // Clean state, let useEffect build the items
     setViewMode('edit');
   };
 
   // When general margin changes, update all active products
   const handleGeneralMarginChange = (val: string) => {
+    setIsDirty(true);
     setGeneralMarginStr(val);
     setPriceItems(priceItems.map(item => !item.excluded ? { ...item, marginStr: val } : item));
   };
 
   const updateItemMargin = (id: string, val: string) => {
+    setIsDirty(true);
     setPriceItems(priceItems.map(item => item.id === id ? { ...item, marginStr: val } : item));
   };
 
   const toggleItemExclusion = (id: string) => {
+    setIsDirty(true);
     setPriceItems(priceItems.map(item => item.id === id ? { ...item, excluded: !item.excluded } : item));
   };
 
   const updateItemMode = (id: string, mode: 'auto' | 'manual') => {
+    setIsDirty(true);
     setPriceItems(priceItems.map(item => item.id === id ? { ...item, mode } : item));
   };
 
+  const updateItemPrice = (id: string, priceStr: string) => {
+    setIsDirty(true);
+    setPriceItems(priceItems.map(item => item.id === id ? { ...item, manualPriceStr: priceStr, mode: 'manual' } : item));
+  };
+
   const updateItemManualPrice = (id: string, priceStr: string) => {
+    setIsDirty(true);
     setPriceItems(priceItems.map(item => item.id === id ? { ...item, manualPriceStr: priceStr } : item));
   };
 
   const handleTypeToggle = (typeStr: string) => {
+    setIsDirty(true);
     let newTypes = [...includedTypes];
     if (newTypes.includes(typeStr)) {
       newTypes = newTypes.filter(t => t !== typeStr);
@@ -166,10 +199,24 @@ export const Precios = () => {
       newTypes.push(typeStr);
     }
     setIncludedTypes(newTypes);
-    setPriceItems(buildItems(newTypes, listModeInput, parseNumber(generalMarginStr), selectedList?.productOverrides));
+    // Derive overrides from the CURRENT LOCAL priceItems state so that any
+    // in-flight edits (exclusions, margins, manual prices) are preserved when
+    // the user toggles a category checkbox.
+    const localOverrides: Record<string, any> = {};
+    priceItems.forEach(item => {
+      localOverrides[item.id] = {
+        margin: parseNumber(item.marginStr),
+        excluded: item.excluded,
+        mode: item.mode,
+        manualPrice: parseNumber(item.manualPriceStr),
+        itemType: item.itemType
+      };
+    });
+    setPriceItems(buildItems(newTypes, listModeInput, parseNumber(generalMarginStr), localOverrides));
   };
 
   const handleModeChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    setIsDirty(true);
     const newMode = e.target.value as 'auto' | 'manual';
     setListModeInput(newMode);
     setPriceItems(buildItems(includedTypes, newMode, parseNumber(generalMarginStr), selectedList?.productOverrides));
@@ -177,12 +224,14 @@ export const Precios = () => {
 
   const handleApplyGeneralMargin = () => {
     if (window.confirm("¿Aplicar el margen general a todos los productos activos?")) {
+      setIsDirty(true);
       setPriceItems(priceItems.map(item => ({ ...item, marginStr: generalMarginStr })));
     }
   };
 
   const handleAdvancedRound = (mode: string) => {
     if (window.confirm(`¿Aplicar redondeo comercial y pasar los productos a modo Manual?`)) {
+      setIsDirty(true);
       setPriceItems(priceItems.map(item => {
         if (!item.active || item.excluded) return item;
         const margin = parseNumber(item.marginStr);
@@ -221,6 +270,10 @@ export const Precios = () => {
 
   const handleReviewChanges = () => {
     if (!selectedList) return;
+    
+    // [STEP 1] priceItems antes de abrir modal
+    console.log("[STEP 1] priceItems antes de abrir modal (total activos/no excluidos):", priceItems.filter(i => i.active && !i.excluded).length);
+    console.log("[STEP 1] Ejemplo de un item modificado (primer item activo):", JSON.stringify(priceItems.find(i => i.active), null, 2));
 
     const rItems = priceItems.map(item => {
       if (!item.active || item.excluded) return null;
@@ -262,6 +315,12 @@ export const Precios = () => {
   };
 
   const handleSavePrices = async () => {
+    console.log("[FORENSIC] 1. Inicio de handleSavePrices. selectedList.id:", selectedList?.id);
+    
+    // [STEP 2] priceItems al confirmar modal
+    console.log("[STEP 2] priceItems al confirmar modal. Total items:", priceItems.length);
+    console.log("[STEP 2] Muestra del primer item:", JSON.stringify(priceItems[0], null, 2));
+
     if (!selectedList) return;
 
     const belowCostItems = priceItems.filter(item => {
@@ -282,6 +341,7 @@ export const Precios = () => {
 
     setIsSaving(true);
     try {
+      console.log("[FORENSIC] 2. Antes de construir overrides. priceItems length:", priceItems.length);
       // BUG 1 FIX: Start from the existing overrides in Firebase so we don't
       // lose settings for items that belong to currently-excluded types.
       const overrides: Record<string, { margin: number; mode?: 'auto' | 'manual'; manualPrice?: number; excluded?: boolean; itemType?: 'mercaderia' | 'presentacion' | 'receta' }> = {
@@ -290,19 +350,37 @@ export const Precios = () => {
 
       // Apply current priceItems state on top (these are the items currently visible)
       priceItems.forEach(item => {
-        if (item.marginStr !== generalMarginStr || item.excluded || item.mode !== listModeInput || item.mode === 'manual') {
+        const itemMargin = parseNumber(item.marginStr);
+        const generalMargin = parseNumber(generalMarginStr);
+        const itemManualPrice = parseNumber(item.manualPriceStr);
+        // Compute the auto price at the general margin so we can detect if
+        // the manual price is actually different from the auto-calculated one.
+        const autoPrice = generalMargin >= 100 ? item.cost * 2 : (item.cost / (1 - generalMargin / 100));
+        const isManualPriceDifferent = item.mode === 'manual' && Math.abs(itemManualPrice - autoPrice) > 0.001;
+
+        const isDefault =
+          !item.excluded &&
+          item.mode === listModeInput &&
+          Math.abs(itemMargin - generalMargin) < 0.001 &&
+          !isManualPriceDifferent;
+
+        if (!isDefault) {
           overrides[item.id] = {
-            margin: parseNumber(item.marginStr),
+            margin: itemMargin,
             ...(item.excluded ? { excluded: true } : {}),
             mode: item.mode,
-            manualPrice: parseNumber(item.manualPriceStr),
+            manualPrice: itemManualPrice,
             itemType: item.itemType
           };
         } else {
-          // Item is back to defaults – remove its override to keep Firestore clean
+          // Item is truly at defaults – remove override to keep Firestore clean
           delete overrides[item.id];
         }
       });
+      console.log("[FORENSIC] 3. Después de construir overrides. overrides count:", Object.keys(overrides).length);
+      
+      // [STEP 3] overrides generados
+      console.log("[STEP 3] overrides generados:", JSON.stringify(overrides, null, 2));
 
       const updatedList = {
         name: listNameInput,
@@ -314,7 +392,12 @@ export const Precios = () => {
         productOverrides: overrides
       };
 
+      console.log("[FORENSIC] 4. Antes de savePriceList(). payload:", JSON.stringify(updatedList, null, 2));
+      // [STEP 4] payload final enviado a savePriceList
+      console.log("[STEP 4] payload final enviado a savePriceList:", JSON.stringify(updatedList, null, 2));
+
       await savePriceList(updatedList, selectedList.id);
+      setIsDirty(false);
       setShowReviewModal(false);
       setViewMode('list');
       setSelectedList(null);
@@ -571,7 +654,7 @@ export const Precios = () => {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
             <button 
-              onClick={() => { setViewMode('list'); setSelectedList(null); }}
+              onClick={() => { setViewMode('list'); setSelectedList(null); setIsDirty(false); }}
               className="btn btn-icon"
             >
               <ArrowLeft size={20} color="var(--text-secondary)" />
@@ -605,7 +688,7 @@ export const Precios = () => {
               <input 
                 type="text" 
                 value={listNameInput} 
-                onChange={e => setListNameInput(e.target.value)}
+                onChange={e => { setListNameInput(e.target.value); setIsDirty(true); }}
                 className="form-input" 
                 style={{ width: '100%', padding: '10px 12px', border: '1px solid var(--border-color)', borderRadius: '8px', outline: 'none', backgroundColor: 'var(--bg-primary)', color: 'var(--text-primary)' }}
               />
@@ -615,7 +698,7 @@ export const Precios = () => {
               <input 
                 type="text" 
                 value={listTargetInput} 
-                onChange={e => setListTargetInput(e.target.value)}
+                onChange={e => { setListTargetInput(e.target.value); setIsDirty(true); }}
                 className="form-input" 
                 style={{ width: '100%', padding: '10px 12px', border: '1px solid var(--border-color)', borderRadius: '8px', outline: 'none', backgroundColor: 'var(--bg-primary)', color: 'var(--text-primary)' }}
               />
@@ -657,7 +740,7 @@ export const Precios = () => {
               <div style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '6px' }}>Estado</div>
               <select
                 value={listActiveInput ? 'active' : 'inactive'}
-                onChange={e => setListActiveInput(e.target.value === 'active')}
+                onChange={e => { setListActiveInput(e.target.value === 'active'); setIsDirty(true); }}
                 style={{
                   width: '100%',
                   padding: '10px 12px',
