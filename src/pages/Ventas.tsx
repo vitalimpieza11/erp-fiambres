@@ -62,6 +62,16 @@ export const Ventas = () => {
   const [showRemito, setShowRemito] = useState(false);
   const [selectedPreviewSale, setSelectedPreviewSale] = useState<any | null>(null);
 
+  // Protección permanente: Reportar ventas huérfanas
+  useEffect(() => {
+    if (!loadingSales && !loadingOrders) {
+      const orphaned = sales.filter((s: any) => s.orderId && !orders.some((o: any) => o.id === s.orderId));
+      if (orphaned.length > 0) {
+        console.warn('⚠️ PROTECCIÓN PERMANENTE: Ventas huérfanas detectadas (tienen orderId pero el pedido no existe):', orphaned.map((s: any) => s.id));
+      }
+    }
+  }, [sales, orders, loadingSales, loadingOrders]);
+
   // Form States
   const [customerId, setCustomerId] = useState('');
   const [tipoCliente, setTipoCliente] = useState('gastro');

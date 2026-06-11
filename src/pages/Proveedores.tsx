@@ -28,9 +28,7 @@ export const Proveedores = () => {
   const [isPaying, setIsPaying] = useState(false);
   
   // Payment Form States
-  const [payAmount, setPayAmount] = useState('');
-  const [payMethod, setPayMethod] = useState('efectivo');
-  const [payPartner, setPayPartner] = useState('');
+  const [payments, setPayments] = useState<{ id: number, method: string, amountStr: string, partnerId: string }[]>([]);
   const [payDate, setPayDate] = useState(new Date().toISOString().split('T')[0]);
   const [payReference, setPayReference] = useState('');
 
@@ -92,26 +90,28 @@ export const Proveedores = () => {
     setSelectedSupplier(supplier);
     setViewState('account');
     setIsPaying(false);
-    setPayAmount('');
-    setPayMethod('efectivo');
+    setPayments([{ id: Date.now(), method: 'efectivo', amountStr: '', partnerId: '' }]);
     setPayDate(new Date().toISOString().split('T')[0]);
     setPayReference('');
   };
 
   const handleConfirmPayment = async () => {
-    const amount = parseNumber(payAmount);
-    if (!amount || amount <= 0) {
-      alert("Ingrese un monto válido.");
+    const validPayments = payments.map(p => ({ ...p, amount: parseNumber(p.amountStr) })).filter(p => p.amount > 0);
+    if (validPayments.length === 0) {
+      alert("Ingrese al menos un monto válido.");
       return;
     }
-    try {
-      if (payMethod === 'aporte_socio' && !payPartner) {
+    for (const p of validPayments) {
+      if (p.method === 'aporte_socio' && !p.partnerId) {
         alert("Seleccione un socio para el aporte.");
         return;
       }
-      await registerPayment(selectedSupplier.id, amount, payMethod, new Date(payDate).getTime(), payReference, payMethod === 'aporte_socio' ? payPartner : undefined);
+    }
+    try {
+      const paymentData = validPayments.map(p => ({ amount: p.amount, method: p.method, partnerId: p.partnerId }));
+      await registerPayment(selectedSupplier.id, paymentData, new Date(payDate).getTime(), payReference);
       setIsPaying(false);
-      setPayAmount('');
+      setPayments([]);
       setPayReference('');
     } catch (e: any) {
       alert(e.message || "Error al registrar pago");
@@ -347,24 +347,42 @@ export const Proveedores = () => {
 
         {isPaying && (
           <Card style={{ marginBottom: '24px', backgroundColor: '#f8fafc', border: '1px solid #cbd5e1' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
-              <CreditCard size={20} color="var(--primary-color)" />
-              <h3 style={{ fontSize: '1rem', fontWeight: 600 }}>Nuevo Pago a Proveedor</h3>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <CreditCard size={20} color="var(--primary-color)" />
+                <h3 style={{ fontSize: '1rem', fontWeight: 600 }}>Nuevo Pago a Proveedor</h3>
+              </div>
+              <button onClick={() => setPayments([...payments, { id: Date.now(), method: 'efectivo', amountStr: '', partnerId: '' }])} className="btn btn-secondary" style={{ padding: '6px 12px', fontSize: '0.875rem' }}>
+                <Plus size={16} /> Agregar Pago
+              </button>
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 2fr auto', gap: '16px', alignItems: 'flex-end' }}>
-              <Input label="Monto a Pagar ($)" type="number" placeholder="0.00" value={payAmount} onChange={e => setPayAmount(e.target.value)} />
-              <Select label="Medio de Pago" value={payMethod} onChange={e => setPayMethod(e.target.value)} options={[
-                { value: 'efectivo', label: 'Efectivo' },
-                { value: 'transferencia', label: 'Transferencia' },
-                { value: 'cheque', label: 'Cheque' },
-                { value: 'aporte_socio', label: 'Aporte de Socio' }
-              ]} />
-              {payMethod === 'aporte_socio' && (
-                <Select label="Socio" value={payPartner} onChange={e => setPayPartner(e.target.value)} options={[
-                  { value: '', label: 'Seleccionar...' },
-                  ...partners.map(p => ({ value: p.id!, label: p.name }))
-                ]} />
-              )}
+            
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginBottom: '16px' }}>
+              {payments.map(payment => (
+                <div key={payment.id} style={{ display: 'flex', gap: '16px', alignItems: 'flex-end', backgroundColor: '#fff', padding: '16px', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
+                  <Input label="Monto a Pagar ($)" type="number" placeholder="0.00" value={payment.amountStr} onChange={e => setPayments(payments.map(p => p.id === payment.id ? { ...p, amountStr: e.target.value } : p))} />
+                  <Select label="Medio de Pago" value={payment.method} onChange={e => setPayments(payments.map(p => p.id === payment.id ? { ...p, method: e.target.value } : p))} options={[
+                    { value: 'efectivo', label: 'Efectivo' },
+                    { value: 'transferencia', label: 'Transferencia' },
+                    { value: 'cheque', label: 'Cheque' },
+                    { value: 'aporte_socio', label: 'Aporte de Socio' }
+                  ]} />
+                  {payment.method === 'aporte_socio' && (
+                    <Select label="Socio" value={payment.partnerId} onChange={e => setPayments(payments.map(p => p.id === payment.id ? { ...p, partnerId: e.target.value } : p))} options={[
+                      { value: '', label: 'Seleccionar...' },
+                      ...partners.map(p => ({ value: p.id!, label: p.name }))
+                    ]} />
+                  )}
+                  {payments.length > 1 && (
+                    <button onClick={() => setPayments(payments.filter(p => p.id !== payment.id))} className="btn-icon" style={{ marginBottom: '8px', color: '#dc2626' }}>
+                      <Trash2 size={18} />
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: '16px', alignItems: 'flex-end', borderTop: '1px solid #cbd5e1', paddingTop: '16px' }}>
               <Input label="Fecha" type="date" value={payDate} onChange={e => setPayDate(e.target.value)} />
               <Input label="Referencia / Comprobante" placeholder="Nº de recibo" value={payReference} onChange={e => setPayReference(e.target.value)} />
               <div style={{ display: 'flex', gap: '8px' }}>

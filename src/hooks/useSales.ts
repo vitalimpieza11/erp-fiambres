@@ -62,10 +62,10 @@ export const useSales = () => {
 
     const newSale = {
       ...saleData,
-      status: 'PENDIENTE',
+      status: saleData.status || 'PENDIENTE',
       subtotal: calc.subtotal,
       total: calc.total,
-      saldoPendiente: calc.total,
+      saldoPendiente: saleData.status === 'PAGADA' ? 0 : calc.total,
       discount: discountPercent,
       id: saleId,
       createdAt: Date.now(),
@@ -238,6 +238,33 @@ export const useSales = () => {
 
     const cashSnap = await getDocs(query(collection(db, 'cash_movements'), where('referenceId', '==', id)));
     cashSnap.forEach(d => batch.delete(d.ref));
+
+    // REGLA 2: Eliminar receipts asociados a la venta y los cash_movements de esos receipts
+    const receiptsSnap = await getDocs(query(collection(db, 'payment_receipts'), where('customerId', '==', target.customerId)));
+    for (const rDoc of receiptsSnap.docs) {
+      const data = rDoc.data();
+      const hasSale = data.appliedInvoices?.some((inv: any) => inv.saleId === id);
+      if (hasSale) {
+        batch.delete(rDoc.ref); // Elimina el recibo asociado
+        
+        // REGLA 3: Eliminar cash_movements originados por este receipt
+        const rmSnap = await getDocs(query(collection(db, 'cash_movements'), where('referenceId', '==', rDoc.id)));
+        rmSnap.forEach(rmDoc => batch.delete(rmDoc.ref));
+      }
+    }
+
+    // Restaurar el pedido original si existe
+    if (target.orderId) {
+      const orderSnap = await getDocs(query(collection(db, 'orders'), where('__name__', '==', target.orderId)));
+      if (!orderSnap.empty) {
+        const orderRef = doc(db, 'orders', target.orderId);
+        batch.update(orderRef, {
+          status: 'ENTREGADO',
+          saleId: null,
+          updatedAt: Date.now()
+        });
+      }
+    }
 
     await batch.commit();
 

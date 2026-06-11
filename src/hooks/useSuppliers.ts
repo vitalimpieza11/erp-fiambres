@@ -55,43 +55,54 @@ export const useSuppliers = () => {
     await deleteDoc(ref);
   };
 
-  const registerPayment = async (supplierId: string, amount: number, method: string, date: number, reference: string, partnerId?: string) => {
+  const registerPayment = async (
+    supplierId: string, 
+    payments: { amount: number; method: string; partnerId?: string }[], 
+    date: number, 
+    reference: string
+  ) => {
     const batch = writeBatch(db);
+    let totalAmount = 0;
     
-    if (method === 'aporte_socio') {
-      const partnerTxRef = doc(collection(db, 'partner_transactions'));
-      batch.set(partnerTxRef, {
-        partnerId: partnerId || '',
-        date: date,
-        amount: amount,
-        type: 'APORTE',
-        method: 'COMPENSACION',
-        referenceId: supplierId,
-        description: `Pago directo a Proveedor (Ref: ${reference})`,
-        createdAt: Date.now()
-      });
-    } else {
-      const cashMovRef = doc(collection(db, 'cash_movements'));
-      batch.set(cashMovRef, {
-        type: 'out',
-        amount: amount,
-        method: method,
-        description: `Pago a Proveedor (Ref: ${reference})`,
-        category: 'supplier_payment',
-        referenceId: supplierId,
-        supplierId: supplierId,
-        date: date,
-        createdAt: Date.now()
-      });
+    for (const payment of payments) {
+      if (payment.amount <= 0) continue;
+      totalAmount += payment.amount;
+
+      if (payment.method === 'aporte_socio') {
+        const partnerTxRef = doc(collection(db, 'partner_transactions'));
+        batch.set(partnerTxRef, {
+          partnerId: payment.partnerId || '',
+          date: date,
+          amount: payment.amount,
+          type: 'APORTE',
+          method: 'COMPENSACION',
+          referenceId: supplierId,
+          description: `Pago directo a Proveedor (Ref: ${reference})`,
+          createdAt: Date.now()
+        });
+      } else {
+        const cashMovRef = doc(collection(db, 'cash_movements'));
+        batch.set(cashMovRef, {
+          type: 'out',
+          amount: payment.amount,
+          method: payment.method,
+          description: `Pago a Proveedor (Ref: ${reference})`,
+          category: 'supplier_payment',
+          referenceId: supplierId,
+          supplierId: supplierId,
+          date: date,
+          createdAt: Date.now()
+        });
+      }
     }
 
     const supplierRef = doc(db, 'suppliers', supplierId);
     batch.update(supplierRef, {
-      currentBalance: increment(-amount)
+      currentBalance: increment(-totalAmount)
     });
 
     const purchasesSnap = await getDocs(query(collection(db, 'purchases'), where('supplierId', '==', supplierId), where('pendingBalance', '>', 0), orderBy('date', 'asc')));
-    let remainingToApply = amount;
+    let remainingToApply = totalAmount;
     purchasesSnap.forEach(pDoc => {
       if (remainingToApply > 0) {
         const pData = pDoc.data();

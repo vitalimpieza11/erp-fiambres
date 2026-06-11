@@ -181,13 +181,8 @@ export const useOrders = () => {
     const targetOrder = orders.find(o => o.id === id);
     if (!targetOrder) throw new Error('Pedido no encontrado');
 
-    // If it has a sale, we must fetch the sale to know if it was CC so we can revert the balance
-    let saleData: any = null;
     if (targetOrder.saleId) {
-      const saleSnap = await getDocs(query(collection(db, 'sales'), where('__name__', '==', targetOrder.saleId)));
-      if (!saleSnap.empty) {
-        saleData = saleSnap.docs[0].data();
-      }
+      throw new Error('No se puede eliminar un pedido que ya tiene una venta asociada. Elimine la venta primero.');
     }
 
     const batch = writeBatch(db);
@@ -198,34 +193,7 @@ export const useOrders = () => {
     const prodStockSnap = await getDocs(query(collection(db, 'stock_movements'), where('referenceId', '==', id)));
     prodStockSnap.forEach(d => batch.delete(d.ref));
 
-    // 2. Revert sale
-    if (targetOrder.saleId) {
-      const saleId = targetOrder.saleId;
-      batch.delete(doc(db, 'sales', saleId));
-
-      const saleStockSnap = await getDocs(query(collection(db, 'stock_movements'), where('referenceId', '==', saleId)));
-      saleStockSnap.forEach(d => batch.delete(d.ref));
-
-      const saleCashSnap = await getDocs(query(collection(db, 'cash_movements'), where('referenceId', '==', saleId)));
-      saleCashSnap.forEach(d => batch.delete(d.ref));
-    }
-
     await batch.commit();
-
-    // 3. Revert customer balance if sale was CC
-    if (saleData && saleData.paymentMethod === 'cc') {
-      const customerRef = doc(db, 'customers', targetOrder.customerId);
-      await runTransaction(db, async (transaction) => {
-        const custSnap = await transaction.get(customerRef);
-        if (custSnap.exists()) {
-          const currentBalance = custSnap.data().currentBalance || 0;
-          transaction.update(customerRef, {
-            currentBalance: currentBalance - (saleData.total || 0),
-            updatedAt: Date.now()
-          });
-        }
-      }).catch(e => console.error('Error reverting customer balance:', e));
-    }
   };
 
   const updateOrderStatus = async (
