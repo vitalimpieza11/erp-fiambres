@@ -24,6 +24,7 @@ import { StockService } from '../services/StockService';
 import { usePriceLists } from '../hooks/usePriceLists';
 import { useDateFilter } from '../contexts/DateFilterContext';
 import { usePackages } from '../hooks/usePackages';
+import { useSettings } from '../hooks/useSettings';
 
 interface SaleFormItem {
   id: number;
@@ -48,6 +49,7 @@ export const Ventas = () => {
   const { priceLists, loading: loadingLists, error: errorLists } = usePriceLists();
   const { filterDate, viewType } = useDateFilter();
   const { packages, savePackage } = usePackages();
+  const { settings } = useSettings();
 
   const globalError = errorSales || errorPres || errorCustomers || errorLists;
   const filteredSales = sales.filter((s: any) => filterDate(s.date) && !s.orderId); // Ventas manuales
@@ -381,16 +383,18 @@ export const Ventas = () => {
       }
     }
 
-    // Title text
     doc.setTextColor(33, 37, 41); // #212529
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(20);
-    doc.text('Al Vacío', 34, 21);
+    doc.text(settings?.empresa_nombre || 'Al Vacío', 34, 21);
     
     doc.setTextColor(73, 80, 87); // #495057
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(9);
     doc.text('Distribuidora Mayorista • Alimentos Envasados', 34, 26);
+    if (settings?.empresa_cuit) doc.text(`CUIT: ${settings.empresa_cuit}`, 34, 30);
+    if (settings?.empresa_direccion) doc.text(`Dir: ${settings.empresa_direccion}`, 34, 34);
+    if (settings?.empresa_telefono) doc.text(`Tel: ${settings.empresa_telefono}`, 34, 38);
 
     // Right side document type
     doc.setTextColor(0, 0, 0);
@@ -411,38 +415,43 @@ export const Ventas = () => {
     // Divider line: 2px solid black (we use 0.6mm thickness)
     doc.setDrawColor(0, 0, 0);
     doc.setLineWidth(0.6);
-    doc.line(15, 35, 195, 35);
+    doc.line(15, 42, 195, 42);
 
     // Client section
     doc.setFillColor(248, 250, 252); // #f8fafc
-    doc.roundedRect(15, 42, 180, 24, 2, 2, 'F');
+    doc.roundedRect(15, 46, 180, 24, 2, 2, 'F');
     doc.setDrawColor(226, 232, 240); // #e2e8f0
     doc.setLineWidth(0.3);
-    doc.roundedRect(15, 42, 180, 24, 2, 2, 'S');
+    doc.roundedRect(15, 46, 180, 24, 2, 2, 'S');
 
     doc.setTextColor(0, 0, 0);
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(10);
-    doc.text('DATOS DEL CLIENTE', 20, 48);
+    doc.text('DATOS DEL CLIENTE', 20, 52);
 
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(9);
-    doc.text(`Razón Social: ${sale.customerName}`, 20, 54);
-    doc.text(`Estado Pago: ${sale.paymentStatus === 'paid' ? 'Pagado/Cobrado' : 'Pendiente'}`, 20, 59);
-    doc.text(`Método Pago: ${sale.paymentMethod === 'cc' ? 'Cuenta Corriente' : 'Contado/Transferencia'}`, 110, 54);
+    doc.text(`Razón Social: ${sale.customerName}`, 20, 58);
+    doc.text(`Estado Pago: ${sale.paymentStatus === 'paid' ? 'Pagado/Cobrado' : 'Pendiente'}`, 20, 63);
+    doc.text(`Método Pago: ${sale.paymentMethod === 'cc' ? 'Cuenta Corriente' : 'Contado/Transferencia'}`, 110, 58);
+    
+    let startYTable = 76;
+    if (sale.sellerName) {
+      doc.text(`Vendedor: ${sale.sellerName}`, 110, 63);
+    }
 
     // Products Table
     const tableItems = sale.items || [];
     const tableRows = tableItems.map((item: any) => [
-      `${item.quantity} paq.`,
+      `${item.quantity}`,
       item.productName,
       formatCurrency(item.price),
       formatCurrency(item.quantity * item.price)
     ]);
 
     autoTable(doc, {
-      startY: 72,
-      head: [['Cant.', 'Descripción', 'Precio Unit.', 'Subtotal']],
+      startY: startYTable,
+      head: [['Cant.', 'Producto', 'Precio Unit.', 'Subtotal']],
       body: tableRows,
       theme: 'plain',
       headStyles: {
@@ -526,7 +535,7 @@ export const Ventas = () => {
     doc.setTextColor(102, 102, 102); // #666
     doc.text('Observaciones:', 15, footerY);
     doc.setTextColor(0, 0, 0);
-    doc.text('La mercadería viaja por cuenta y orden del comprador.', 15, footerY + 5);
+    doc.text(sale.observaciones || sale.observations || 'La mercadería viaja por cuenta y orden del comprador.', 15, footerY + 5, { maxWidth: 100 });
 
     doc.setDrawColor(0, 0, 0);
     doc.setLineWidth(0.3);
@@ -536,7 +545,7 @@ export const Ventas = () => {
 
     doc.setFontSize(9);
     doc.setTextColor(102, 102, 102); // #666
-    doc.text('Firma y Aclaración - Recibí Conforme', 157.5, footerY + 9, { align: 'center' });
+    doc.text('Firma Cliente y Aclaración - DNI', 157.5, footerY + 9, { align: 'center' });
 
     // Save PDF
     doc.save(`remito-${sale.remitoNumber.toLowerCase()}.pdf`);
@@ -579,8 +588,11 @@ export const Ventas = () => {
             <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
               <img src="/logo_stamp.svg" alt="Al Vacío Sello" style={{ width: '64px', height: '64px' }} />
               <div>
-                <h1 style={{ fontSize: '1.85rem', fontWeight: 900, letterSpacing: '-0.03em', color: '#212529', margin: 0, fontFamily: 'var(--font-title)' }}>Al Vacío</h1>
+                <h1 style={{ fontSize: '1.85rem', fontWeight: 900, letterSpacing: '-0.03em', color: '#212529', margin: 0, fontFamily: 'var(--font-title)' }}>{settings?.empresa_nombre || 'Al Vacío'}</h1>
                 <p style={{ color: '#495057', fontSize: '0.85rem', fontWeight: 500, fontFamily: 'var(--font-body)' }}>Distribuidora Mayorista • Alimentos Envasados</p>
+                {settings?.empresa_cuit && <p style={{ color: '#495057', fontSize: '0.85rem' }}>CUIT: {settings.empresa_cuit}</p>}
+                {settings?.empresa_direccion && <p style={{ color: '#495057', fontSize: '0.85rem' }}>Dir: {settings.empresa_direccion}</p>}
+                {settings?.empresa_telefono && <p style={{ color: '#495057', fontSize: '0.85rem' }}>Tel: {settings.empresa_telefono}</p>}
               </div>
             </div>
             <div style={{ textAlign: 'right' }}>
@@ -596,6 +608,7 @@ export const Ventas = () => {
               <div><strong>Razón Social:</strong> {selectedPreviewSale.customerName}</div>
               <div><strong>Método Pago:</strong> {selectedPreviewSale.paymentMethod === 'cc' ? 'Cuenta Corriente' : 'Contado/Transferencia'}</div>
               <div><strong>Estado Pago:</strong> {selectedPreviewSale.paymentStatus === 'paid' ? 'Pagado/Cobrado' : 'Pendiente'}</div>
+              {selectedPreviewSale.sellerName && <div><strong>Vendedor:</strong> {selectedPreviewSale.sellerName}</div>}
             </div>
           </div>
 
@@ -603,7 +616,7 @@ export const Ventas = () => {
             <thead>
               <tr style={{ backgroundColor: '#f1f5f9', borderTop: '2px solid #000', borderBottom: '2px solid #000' }}>
                 <th style={{ padding: '12px', textAlign: 'left', fontSize: '0.875rem', color: '#000' }}>Cant.</th>
-                <th style={{ padding: '12px', textAlign: 'left', fontSize: '0.875rem', color: '#000' }}>Descripción</th>
+                <th style={{ padding: '12px', textAlign: 'left', fontSize: '0.875rem', color: '#000' }}>Producto</th>
                 <th style={{ padding: '12px', textAlign: 'right', fontSize: '0.875rem', color: '#000' }}>Precio Unit.</th>
                 <th style={{ padding: '12px', textAlign: 'right', fontSize: '0.875rem', color: '#000' }}>Subtotal</th>
               </tr>
@@ -611,7 +624,7 @@ export const Ventas = () => {
             <tbody>
               {saleItems.map((item: any, idx: number) => (
                 <tr key={idx} style={{ borderBottom: '1px solid #e2e8f0' }}>
-                  <td style={{ padding: '12px' }}><strong>{item.quantity}</strong> paq.</td>
+                  <td style={{ padding: '12px' }}><strong>{item.quantity}</strong></td>
                   <td style={{ padding: '12px' }}>{item.productName}</td>
                   <td style={{ padding: '12px', textAlign: 'right' }}>{formatCurrency(item.price)}</td>
                   <td style={{ padding: '12px', textAlign: 'right' }}>{formatCurrency(item.quantity * item.price)}</td>
@@ -648,10 +661,10 @@ export const Ventas = () => {
           <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '60px' }}>
             <div style={{ width: '45%' }}>
               <p style={{ fontSize: '0.875rem', color: '#666', marginBottom: '4px' }}>Observaciones:</p>
-              <p style={{ fontSize: '0.875rem' }}>La mercadería viaja por cuenta y orden del comprador.</p>
+              <p style={{ fontSize: '0.875rem', whiteSpace: 'pre-wrap' }}>{selectedPreviewSale.observaciones || selectedPreviewSale.observations || 'La mercadería viaja por cuenta y orden del comprador.'}</p>
             </div>
             <div style={{ width: '45%', borderTop: '1px dashed #000', paddingTop: '8px', textAlign: 'center' }}>
-              <p style={{ fontSize: '0.875rem', color: '#666' }}>Firma y Aclaración - Recibí Conforme</p>
+              <p style={{ fontSize: '0.875rem', color: '#666' }}>Firma Cliente y Aclaración - DNI</p>
             </div>
           </div>
         </div>
@@ -1038,9 +1051,23 @@ export const Ventas = () => {
                         FACTURAR
                       </button>
                     )}
+                    {item.tipoItem === 'Pedido' && ((item as any).saleId || item.status === 'FACTURADO' || item.status === 'CERRADO') && (
+                      <button 
+                        onClick={(e) => { 
+                          e.stopPropagation(); 
+                          const sale = sales.find((s: any) => s.orderId === item.id);
+                          if (sale) handleOpenPreview(sale);
+                          else alert('No se encontró la venta asociada a este pedido.');
+                        }} 
+                        className="btn btn-secondary-light btn-sm" style={{ padding: '4px 8px' }}
+                        title="Imprimir Remito"
+                      >
+                        <Printer size={14} />
+                      </button>
+                    )}
                     {item.tipoItem !== 'Pedido' && (
-                      <button onClick={() => handleOpenPreview(item)} className="btn btn-secondary-light btn-sm" style={{ padding: '4px 8px' }}>
-                        <FileText size={14} />
+                      <button onClick={(e) => { e.stopPropagation(); handleOpenPreview(item); }} className="btn btn-secondary-light btn-sm" style={{ padding: '4px 8px' }} title="Imprimir Remito">
+                        <Printer size={14} />
                       </button>
                     )}
                   </div>
