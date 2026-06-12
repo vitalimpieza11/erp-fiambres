@@ -7,7 +7,7 @@ import { Input, Select } from '../components/ui/Forms';
 import { 
   Plus, Edit2, Trash2, Tag, Layers, Settings, HelpCircle, 
   Percent, Hash, Anchor, DollarSign, Package, User, FileText, ShoppingBag,
-  Activity, ShieldAlert
+  Activity, ShieldAlert, Search, ChevronDown, ChevronRight
 } from 'lucide-react';
 import { formatCurrency, formatNumber, parseNumber } from '../utils/format';
 import { useMercaderias } from '../hooks/useMercaderias';
@@ -15,12 +15,16 @@ import { useInsumos } from '../hooks/useInsumos';
 import { usePresentaciones } from '../hooks/usePresentaciones';
 import { useRecipes } from '../hooks/useRecipes';
 import { useCustomers } from '../hooks/useCustomers';
-import { calculatePresentationCost } from '../core/calculations';
+import { calculatePresentationCost, calculateBaseCost } from '../core/calculations';
 import type { Mercaderia, Insumo, Presentacion, Recipe, RecipeIngredient } from '../types/database';
 
 export const Productos = () => {
   // Tabs: 'presentaciones' | 'mercaderias' | 'insumos' | 'recetas'
   const [activeTab, setActiveTab] = useState<'presentaciones' | 'mercaderias' | 'insumos' | 'recetas'>('presentaciones');
+
+  // Grouping & Search
+  const [searchQuery, setSearchQuery] = useState('');
+  const [expandedCustomers, setExpandedCustomers] = useState<Record<string, boolean>>({});
 
   // Hooks
   const { mercaderias, loading: loadingMerc, error: errorMerc, saveMercaderia, deleteMercaderia } = useMercaderias();
@@ -72,6 +76,7 @@ export const Productos = () => {
   const [recLaborCost, setRecLaborCost] = useState('0');
   const [recAdditionalCost, setRecAdditionalCost] = useState('0');
   const [recMethod, setRecMethod] = useState<'weight' | 'percentage' | 'fetas'>('weight');
+  const [recUsarMerma, setRecUsarMerma] = useState(false);
   const [recIngredients, setRecIngredients] = useState<any[]>([]);
 
   const loading = loadingMerc || loadingIns || loadingPres || loadingRec || loadingCust;
@@ -164,6 +169,7 @@ export const Productos = () => {
       setRecLaborCost(item.costoManoObra.toString());
       setRecAdditionalCost(item.costoAdicional.toString());
       setRecMethod(item.method || 'weight');
+      setRecUsarMerma(item.usarMermaEnCosto || false);
       
       const parsedIngredients = item.ingredients.map(ing => {
         const parts = (ing.productName || '').split(' @');
@@ -221,6 +227,7 @@ export const Productos = () => {
       setRecLaborCost('0');
       setRecAdditionalCost('0');
       setRecMethod('weight');
+      setRecUsarMerma(false);
       setRecIngredients([{ productId: '', productName: '', quantity: 1, unit: 'g' }]);
     }
     setIsFormOpen(true);
@@ -315,7 +322,8 @@ export const Productos = () => {
           ingredients: ingredientsPayload,
           costoManoObra: parseNumber(recLaborCost),
           costoAdicional: parseNumber(recAdditionalCost),
-          method: recMethod
+          method: recMethod,
+          usarMermaEnCosto: recUsarMerma
         };
 
         if (editingId) {
@@ -420,6 +428,10 @@ export const Productos = () => {
 
     presEstimatedCost = calculatePresentationCost(tempPres, mercaderias, insumos, recipes);
     
+    // El precio sugerido se calcula exclusivamente usando Costo MP + Costo Bolsa + Costo Etiqueta
+    const { baseCost } = calculateBaseCost(tempPres, mercaderias, insumos, recipes);
+    const baseCostKg = weightKg > 0 ? baseCost / weightKg : 0;
+    
     if (presTypeToggle === 'recipe') {
       presRecetaCost = presEstimatedCost - presBolsaCost - presEtiquetaCost - presManoObraCost;
     } else {
@@ -430,7 +442,7 @@ export const Productos = () => {
     
     const targetMarginVal = parseNumber(presMargenObjetivo);
     if (targetMarginVal >= 0 && targetMarginVal < 100) {
-      presSuggestedPriceKg = presEstimatedCostKg / (1 - (targetMarginVal / 100));
+      presSuggestedPriceKg = baseCostKg / (1 - (targetMarginVal / 100));
     }
 
     pricePerUnit = tempPres.precioComercialKg * weightKg;
@@ -590,119 +602,178 @@ export const Productos = () => {
               description="Las presentaciones representan las configuraciones de venta enviadas a clientes (ej: Sobres de 200g, Hormas)."
             />
           ) : (
-            <Table 
-              data={presentaciones}
-              keyExtractor={p => p.id!}
-              columns={[
-                { 
-                  header: 'Nombre Presentación', 
-                  accessor: p => {
-                    const statusColors: any = {
-                      activo: { bg: '#dcfce7', text: '#166534' },
-                      destacado: { bg: '#dbeafe', text: '#1e40af' },
-                      promocion: { bg: '#ffedd5', text: '#c2410c' },
-                      lanzamiento: { bg: '#f3e8ff', text: '#7e22ce' },
-                      pausado: { bg: '#f1f5f9', text: '#475569' },
-                      descontinuado: { bg: '#fee2e2', text: '#991b1b' }
-                    };
-                    const status = p.commercialStatus || 'activo';
-                    const sColor = statusColors[status] || statusColors.activo;
+            <div style={{ padding: '16px' }}>
+              <div style={{ marginBottom: '16px' }}>
+                <Input
+                  label=""
+                  icon={<Search size={18} />}
+                  placeholder="Buscar por cliente o presentación..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                />
+              </div>
 
-                    return (
-                      <div>
-                        <div style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          {p.name}
-                          {status !== 'activo' && (
-                            <span style={{ fontSize: '0.65rem', padding: '2px 6px', borderRadius: '4px', backgroundColor: sColor.bg, color: sColor.text, textTransform: 'uppercase', fontWeight: 700 }}>
-                              {status}
-                            </span>
+              {(() => {
+                const filtered = presentaciones.filter(p => {
+                  const query = searchQuery.toLowerCase();
+                  const cName = (p.customerName || 'SIN CLIENTE').toLowerCase();
+                  const pName = (p.name || '').toLowerCase();
+                  return cName.includes(query) || pName.includes(query);
+                });
+
+                const grouped = filtered.reduce((acc, p) => {
+                  const cName = p.customerName || 'SIN CLIENTE';
+                  if (!acc[cName]) acc[cName] = [];
+                  acc[cName].push(p);
+                  return acc;
+                }, {} as Record<string, Presentacion[]>);
+
+                const sortedCustomers = Object.keys(grouped).sort((a, b) => {
+                  if (a === 'SIN CLIENTE') return 1;
+                  if (b === 'SIN CLIENTE') return -1;
+                  return a.localeCompare(b);
+                });
+
+                if (sortedCustomers.length === 0) {
+                  return (
+                    <div style={{ textAlign: 'center', padding: '32px', color: 'var(--text-secondary)' }}>
+                      No se encontraron resultados para la búsqueda.
+                    </div>
+                  );
+                }
+
+                return (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    {sortedCustomers.map(customerName => {
+                      const customerPres = grouped[customerName].sort((a, b) => a.name.localeCompare(b.name));
+                      const isExpanded = expandedCustomers[customerName];
+                      const toggleExpand = () => setExpandedCustomers(prev => ({ ...prev, [customerName]: !prev[customerName] }));
+
+                      return (
+                        <div key={customerName} style={{ border: '1px solid var(--border-color)', borderRadius: '8px', overflow: 'hidden', backgroundColor: 'var(--bg-secondary)' }}>
+                          <button
+                            onClick={toggleExpand}
+                            style={{
+                              width: '100%',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'space-between',
+                              padding: '12px 16px',
+                              backgroundColor: 'transparent',
+                              border: 'none',
+                              cursor: 'pointer',
+                              fontWeight: 600,
+                              fontSize: '1rem',
+                              color: 'var(--text-primary)',
+                              textAlign: 'left'
+                            }}
+                          >
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                              {isExpanded ? <ChevronDown size={20} /> : <ChevronRight size={20} />}
+                              <span>{customerName} <span style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', fontWeight: 400 }}>({customerPres.length} {customerPres.length === 1 ? 'presentación' : 'presentaciones'})</span></span>
+                            </div>
+                          </button>
+                          {isExpanded && (
+                            <div style={{ borderTop: '1px solid var(--border-color)', backgroundColor: 'white' }}>
+                              <Table 
+                                data={customerPres}
+                                keyExtractor={p => p.id!}
+                                columns={[
+                                  { 
+                                    header: 'Nombre Presentación', 
+                                    accessor: p => {
+                                      const statusColors: any = {
+                                        activo: { bg: '#dcfce7', text: '#166534' },
+                                        destacado: { bg: '#dbeafe', text: '#1e40af' },
+                                        promocion: { bg: '#ffedd5', text: '#c2410c' },
+                                        lanzamiento: { bg: '#f3e8ff', text: '#7e22ce' },
+                                        pausado: { bg: '#f1f5f9', text: '#475569' },
+                                        descontinuado: { bg: '#fee2e2', text: '#991b1b' }
+                                      };
+                                      const status = p.commercialStatus || 'activo';
+                                      const sColor = statusColors[status] || statusColors.activo;
+
+                                      return (
+                                        <div>
+                                          <div style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                            {p.name}
+                                            {status !== 'activo' && (
+                                              <span style={{ fontSize: '0.65rem', padding: '2px 6px', borderRadius: '4px', backgroundColor: sColor.bg, color: sColor.text, textTransform: 'uppercase', fontWeight: 700 }}>
+                                                {status}
+                                              </span>
+                                            )}
+                                          </div>
+                                          {(p.unidadesPorCaja || 1) > 1 && (
+                                            <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                                              📦 {p.unidadesPorCaja} un. por caja
+                                            </div>
+                                          )}
+                                        </div>
+                                      );
+                                    } 
+                                  },
+                                  {
+                                    header: 'Costo Kg',
+                                    accessor: p => {
+                                      const cost = calculatePresentationCost(p, mercaderias, insumos, recipes);
+                                      const weightKg = p.pesoObjetivoGramos / 1000;
+                                      const costoKg = weightKg > 0 ? cost / weightKg : 0;
+                                      return <span style={{ color: '#ef4444', fontWeight: 600 }}>{formatCurrency(costoKg)}</span>;
+                                    }
+                                  },
+                                  {
+                                    header: 'P. Comercial Kg',
+                                    accessor: p => {
+                                      return (
+                                        <div>
+                                          <div style={{ fontWeight: 700 }}>{formatCurrency(p.precioComercialKg)}</div>
+                                        </div>
+                                      );
+                                    }
+                                  },
+                                  {
+                                    header: 'Rentabilidad %',
+                                    accessor: p => {
+                                      const cost = calculatePresentationCost(p, mercaderias, insumos, recipes);
+                                      const weightKg = p.pesoObjetivoGramos / 1000;
+                                      const costoKg = weightKg > 0 ? cost / weightKg : 0;
+                                      const comercial = p.precioComercialKg;
+                                      
+                                      const rentabilidadPercent = comercial > 0 ? ((comercial - costoKg) / comercial) * 100 : 0;
+                                      const color = rentabilidadPercent >= 0 ? '#10b981' : '#ef4444';
+                                      
+                                      return (
+                                        <span style={{ fontWeight: 700, color }}>
+                                          {formatNumber(rentabilidadPercent)} %
+                                        </span>
+                                      );
+                                    }
+                                  },
+                                  {
+                                    header: 'Acciones',
+                                    accessor: p => (
+                                      <div style={{ display: 'flex', gap: '8px', justifyContent: 'center' }}>
+                                        <button onClick={() => handleOpenPresForm(p)} className="btn btn-icon">
+                                          <Edit2 size={16} color="#3b82f6" />
+                                        </button>
+                                        <button onClick={() => handleDelete(p.id!)} className="btn btn-icon">
+                                          <Trash2 size={16} color="#ef4444" />
+                                        </button>
+                                      </div>
+                                    ),
+                                    align: 'center'
+                                  }
+                                ]}
+                              />
+                            </div>
                           )}
                         </div>
-                        {(p.unidadesPorCaja || 1) > 1 && (
-                          <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-                            📦 {p.unidadesPorCaja} un. por caja
-                          </div>
-                        )}
-                      </div>
-                    );
-                  } 
-                },
-                { header: 'Cliente', accessor: p => p.customerName || 'Todos' },
-                { header: 'Tipo', accessor: p => p.productoBaseId ? <span style={{ color: '#0ea5e9', fontWeight: 500 }}>Simple</span> : <span style={{ color: '#ec4899', fontWeight: 500 }}>Compuesto</span> },
-                { header: 'Peso Objetivo', accessor: p => `${p.pesoObjetivoGramos} g` },
-                { 
-                  header: 'Bolsa / Etiqueta', 
-                  accessor: p => (
-                    <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-                      <div>👜 {p.bolsaName || '--'}</div>
-                      <div>🏷️ {p.etiquetaName || '--'}</div>
-                    </div>
-                  ) 
-                },
-                {
-                  header: 'Costo Kg',
-                  accessor: p => {
-                    const cost = calculatePresentationCost(p, mercaderias, insumos, recipes);
-                    const weightKg = p.pesoObjetivoGramos / 1000;
-                    const costoKg = weightKg > 0 ? cost / weightKg : 0;
-                    return <span style={{ color: '#ef4444', fontWeight: 600 }}>{formatCurrency(costoKg)}</span>;
-                  }
-                },
-                {
-                  header: 'P. Sugerido Kg',
-                  accessor: p => {
-                    const cost = calculatePresentationCost(p, mercaderias, insumos, recipes);
-                    const weightKg = p.pesoObjetivoGramos / 1000;
-                    const costoKg = weightKg > 0 ? cost / weightKg : 0;
-                    // Sugerido is calculated from costoKg using commercial default/optimal margin. Wait, if there's no margin stored, we can use 40% as a dummy or get it from settings. Since I don't have access to settings here, I'll calculate it using margin 40 for display, or show p.precioSugeridoKg if we stored it. The prompt says "precioSugeridoKg Lo calcula el ERP usando el margen objetivo." 
-                    // I'll assume we can calculate it dynamically or just display it if it was stored:
-                    const sugerido = p.precioSugeridoKg || (costoKg / (1 - 0.4)); // Fallback
-                    return <span style={{ color: 'var(--text-secondary)' }}>{formatCurrency(sugerido)}</span>;
-                  }
-                },
-                {
-                  header: 'P. Comercial Kg',
-                  accessor: p => {
-                    return (
-                      <div>
-                        <div style={{ fontWeight: 700 }}>{formatCurrency(p.precioComercialKg)}</div>
-                      </div>
-                    );
-                  }
-                },
-                {
-                  header: 'Diferencia %',
-                  accessor: p => {
-                    const cost = calculatePresentationCost(p, mercaderias, insumos, recipes);
-                    const weightKg = p.pesoObjetivoGramos / 1000;
-                    const costoKg = weightKg > 0 ? cost / weightKg : 0;
-                    const sugerido = p.precioSugeridoKg || (costoKg / (1 - 0.4));
-                    const comercial = p.precioComercialKg;
-                    const diffPercent = sugerido > 0 ? ((comercial - sugerido) / sugerido) * 100 : 0;
-                    const color = diffPercent >= 0 ? '#10b981' : '#ef4444';
-                    return (
-                      <span style={{ fontWeight: 700, color }}>
-                        {diffPercent > 0 ? '+' : ''}{formatNumber(diffPercent, '%')}
-                      </span>
-                    );
-                  }
-                },
-                {
-                  header: 'Acciones',
-                  accessor: p => (
-                    <div style={{ display: 'flex', gap: '8px', justifyContent: 'center' }}>
-                      <button onClick={() => handleOpenPresForm(p)} className="btn btn-icon">
-                        <Edit2 size={16} color="#3b82f6" />
-                      </button>
-                      <button onClick={() => handleDelete(p.id!)} className="btn btn-icon">
-                        <Trash2 size={16} color="#ef4444" />
-                      </button>
-                    </div>
-                  ),
-                  align: 'center'
-                }
-              ]}
-            />
+                      );
+                    })}
+                  </div>
+                );
+              })()}
+            </div>
           )}
         </Card>
       )}
@@ -812,16 +883,23 @@ export const Productos = () => {
                       fetas: { label: 'Por Fetas (U)', color: '#3b82f6', bg: '#dbeafe' }
                     }[method];
                     return (
-                      <span style={{ 
-                        padding: '4px 10px', 
-                        borderRadius: '9999px', 
-                        fontSize: '0.75rem', 
-                        fontWeight: 600,
-                        color: labels.color,
-                        backgroundColor: labels.bg
-                      }}>
-                        {labels.label}
-                      </span>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', alignItems: 'flex-start' }}>
+                        <span style={{ 
+                          padding: '4px 10px', 
+                          borderRadius: '9999px', 
+                          fontSize: '0.75rem', 
+                          fontWeight: 600,
+                          color: labels.color,
+                          backgroundColor: labels.bg
+                        }}>
+                          {labels.label}
+                        </span>
+                        {r.usarMermaEnCosto && (
+                          <span style={{ fontSize: '0.65rem', fontWeight: 700, backgroundColor: '#fef3c7', color: '#b45309', padding: '2px 6px', borderRadius: '4px' }}>
+                            Aplica Merma
+                          </span>
+                        )}
+                      </div>
                     );
                   } 
                 },
@@ -1277,6 +1355,17 @@ export const Productos = () => {
                     />
                     <Input label="Costo Mano Obra ($)" type="number" value={recLaborCost} onChange={e => setRecLaborCost(e.target.value)} />
                     <Input label="Costos Fijos/Adicionales ($)" type="number" value={recAdditionalCost} onChange={e => setRecAdditionalCost(e.target.value)} />
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <input 
+                      type="checkbox" 
+                      id="recUsarMerma" 
+                      checked={recUsarMerma} 
+                      onChange={e => setRecUsarMerma(e.target.checked)} 
+                    />
+                    <label htmlFor="recUsarMerma" style={{ fontSize: '0.9rem', fontWeight: 600, cursor: 'pointer' }}>
+                      Aplicar Merma Global en el Costo (Divide el costo por 1 - %Merma)
+                    </label>
                   </div>
 
                   <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '12px' }}>

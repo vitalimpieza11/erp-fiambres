@@ -45,6 +45,8 @@ export const useOrders = () => {
             saleId: data.saleId || undefined,
             actualConsumptions: data.actualConsumptions || undefined,
             actualProduced: data.actualProduced || undefined,
+            realProductionCost: data.realProductionCost !== undefined ? Number(data.realProductionCost) : undefined,
+            finalChargedAmount: data.finalChargedAmount !== undefined ? Number(data.finalChargedAmount) : undefined,
           });
         });
         setOrders(list);
@@ -151,16 +153,24 @@ export const useOrders = () => {
       insumos,
       recipes
     );
-    const totalValue = order.total || 0;
-    const marginPercent = totalValue > 0 ? ((totalValue - productionCost) / totalValue) * 100 : 0;
+    const totalValue = order.finalChargedAmount ?? order.total ?? 0;
+    const activeCost = order.realProductionCost ?? productionCost;
+    const marginPercent = totalValue > 0 ? ((totalValue - activeCost) / totalValue) * 100 : 0;
 
-    const orderPayload = {
+    const orderPayload: any = {
       ...order,
       rawMaterialNeeds,
       productionCost,
       marginPercent,
       updatedAt: Date.now()
     };
+
+    // Remove any undefined properties to prevent Firebase errors
+    Object.keys(orderPayload).forEach(key => {
+      if (orderPayload[key] === undefined) {
+        delete orderPayload[key];
+      }
+    });
 
     if (id) {
       const existingOrder = orders.find(o => o.id === id);
@@ -205,6 +215,7 @@ export const useOrders = () => {
       shippingCost?: number;
       actualConsumptions?: Record<string, number>;
       actualProduced?: Record<string, number[]>;
+      mermaGlobalPorcentaje?: number;
     }
   ) => {
     const orderRef = doc(db, 'orders', orderId);
@@ -306,6 +317,7 @@ export const useOrders = () => {
       batch.update(orderRef, { 
         status: 'PRODUCIDO', 
         items: targetOrder.items,
+        mermaGlobalPorcentaje: options?.mermaGlobalPorcentaje || 0,
         updatedAt: Date.now() 
       });
       await batch.commit();
@@ -432,13 +444,16 @@ export const useOrders = () => {
       };
 
       batch.set(saleRef, { ...salePayload, id: saleId });
+      const definitiveCost = targetOrder.realProductionCost ?? totalCost;
+      const definitiveSale = targetOrder.finalChargedAmount ?? realTotal;
+
       batch.update(orderRef, { 
         status: 'FACTURADO', 
         saleId, 
         total: realTotal, // Update order's definitive total!
         subtotal: realSubtotal,
         productionCost: totalCost,
-        marginPercent: realTotal > 0 ? ((realTotal - totalCost) / realTotal) * 100 : 0,
+        marginPercent: definitiveSale > 0 ? ((definitiveSale - definitiveCost) / definitiveSale) * 100 : 0,
         updatedAt: Date.now() 
       });
 

@@ -66,59 +66,75 @@ export function getIngredientGrams(
 /**
  * Calculates the total cost of a presentation.
  */
-export function calculatePresentationCost(
+export function calculateBaseCost(
   pres: Presentacion,
   mercaderias: Mercaderia[],
   insumos: Insumo[],
   recipes: Recipe[]
-): number {
+): { baseCost: number, avgMerma: number, usarMerma: boolean } {
   let costMercaderia = 0;
+  let avgMerma = 0;
+  let usarMerma = false;
 
   if (pres.productoBaseId) {
     const base = mercaderias.find(m => m.id === pres.productoBaseId);
     if (base) {
-      const merma = base.mermaEstimada || 0;
       const weightKg = (pres.pesoObjetivoGramos || 0) / 1000;
-      costMercaderia = (weightKg * base.costoKg) / (1 - merma / 100);
+      costMercaderia = weightKg * base.costoKg;
+      avgMerma = base.mermaEstimada || 0;
+      usarMerma = false; // By default false for simple presentations
     }
   } else {
-    // Check if there is an associated recipe
     const recipe = recipes.find(r => r.productId === pres.id || r.id === pres.recipeId || r.id === pres.recetaId || (r.productId === pres.productoBaseId && r.customerId === pres.customerId));
     if (recipe) {
+      usarMerma = recipe.usarMermaEnCosto === true;
       let ingredientsCost = 0;
+      let totalWeight = 0;
+      let weightedMerma = 0;
+
       recipe.ingredients.forEach((ing) => {
         const merc = mercaderias.find(m => m.id === ing.productId);
         if (merc) {
           const qtyGrams = getIngredientGrams(ing, recipe.method, pres, merc);
           const qtyKg = qtyGrams / 1000;
           ingredientsCost += qtyKg * merc.costoKg;
+          weightedMerma += (merc.mermaEstimada || 0) * qtyKg;
+          totalWeight += qtyKg;
         }
       });
-      costMercaderia = ingredientsCost + (recipe.costoManoObra || 0) + (recipe.costoAdicional || 0);
+      costMercaderia = ingredientsCost;
+      if (totalWeight > 0) {
+        avgMerma = weightedMerma / totalWeight;
+      }
     }
   }
 
   const bag = insumos.find(i => i.id === pres.bolsaId);
   const label = insumos.find(i => i.id === pres.etiquetaId);
   
-  let totalCost = costMercaderia;
+  let costBolsa = bag?.costoUnitario || 0;
+  let costEtiqueta = label?.costoUnitario || 0;
 
-  const costBolsa = bag?.costoUnitario;
-  if (typeof costBolsa === "number" && !isNaN(costBolsa)) {
-    totalCost += costBolsa;
+  return {
+    baseCost: costMercaderia + costBolsa + costEtiqueta,
+    avgMerma,
+    usarMerma
+  };
+}
+
+export function calculatePresentationCost(
+  pres: Presentacion,
+  mercaderias: Mercaderia[],
+  insumos: Insumo[],
+  recipes: Recipe[]
+): number {
+  const { baseCost, avgMerma, usarMerma } = calculateBaseCost(pres, mercaderias, insumos, recipes);
+
+  if (usarMerma && avgMerma > 0) {
+    return baseCost / (1 - avgMerma / 100);
   }
 
-  const costEtiqueta = label?.costoUnitario;
-  if (typeof costEtiqueta === "number" && !isNaN(costEtiqueta)) {
-    totalCost += costEtiqueta;
-  }
-
-  const costManoObra = pres.manoObra;
-  if (typeof costManoObra === "number" && !isNaN(costManoObra)) {
-    totalCost += costManoObra;
-  }
-
-  return totalCost;
+  return baseCost;
 }
 
 /**

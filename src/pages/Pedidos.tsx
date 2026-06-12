@@ -49,6 +49,8 @@ export const Pedidos = () => {
   const [observaciones, setObservaciones] = useState('');
   const [status, setStatus] = useState<any>('PENDIENTE');
   const [orderItems, setOrderItems] = useState<{ productId: string; quantity: number; price: number; priceOrigin?: string }[]>([]);
+  const [realProductionCostStr, setRealProductionCostStr] = useState('');
+  const [finalChargedAmountStr, setFinalChargedAmountStr] = useState('');
 
   const globalError = errorOrders;
 
@@ -69,6 +71,8 @@ export const Pedidos = () => {
         price: i.price,
         priceOrigin: i.priceOrigin || 'Precio Base'
       })));
+      setRealProductionCostStr(order.realProductionCost ? order.realProductionCost.toString() : '');
+      setFinalChargedAmountStr(order.finalChargedAmount ? order.finalChargedAmount.toString() : '');
     } else {
       setEditingId(null);
       setCustomerId('');
@@ -76,6 +80,8 @@ export const Pedidos = () => {
       setObservaciones('');
       setStatus('PENDIENTE');
       setOrderItems([{ productId: '', quantity: 1, price: 0, priceOrigin: '' }]);
+      setRealProductionCostStr('');
+      setFinalChargedAmountStr('');
     }
     setIsFormOpen(true);
   };
@@ -87,6 +93,8 @@ export const Pedidos = () => {
     setObservaciones('');
     setStatus('PENDIENTE');
     setOrderItems([]);
+    setRealProductionCostStr('');
+    setFinalChargedAmountStr('');
   };
 
   // Prepopulate item price when presentación is selected
@@ -130,7 +138,9 @@ export const Pedidos = () => {
       }),
       status,
       observations: observaciones,
-      date: Date.now()
+      date: Date.now(),
+      realProductionCost: realProductionCostStr ? parseNumber(realProductionCostStr) : undefined,
+      finalChargedAmount: finalChargedAmountStr ? parseNumber(finalChargedAmountStr) : undefined
     };
 
     setIsSaving(true);
@@ -352,11 +362,29 @@ export const Pedidos = () => {
               <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                 <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>
                   El pedido registra la cantidad de paquetes solicitados. 
-                  El monto total y rentabilidad se definirán al facturar los paquetes físicos con peso real.
+                  El monto total y rentabilidad se definirán al facturar los paquetes físicos con peso real, pero pueden ser ajustados aquí.
                 </p>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '12px' }}>
-                  <span style={{ color: 'var(--text-secondary)' }}>Costo Est. de Producción</span>
-                  <span style={{ fontWeight: 600, color: '#ef4444' }}>{formatCurrency(totalProdCost)}</span>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '12px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ color: 'var(--text-secondary)' }}>Costo Calculado</span>
+                    <span style={{ fontWeight: 600, color: '#ef4444' }}>{formatCurrency(totalProdCost)}</span>
+                  </div>
+                  
+                  <Input 
+                    label="Costo Real"
+                    type="number"
+                    value={realProductionCostStr}
+                    onChange={e => setRealProductionCostStr(e.target.value)}
+                    placeholder="Ej. 13500"
+                  />
+
+                  <Input 
+                    label="Precio Final Cobrado"
+                    type="number"
+                    value={finalChargedAmountStr}
+                    onChange={e => setFinalChargedAmountStr(e.target.value)}
+                    placeholder="Ej. 20000"
+                  />
                 </div>
               </div>
             </Card>
@@ -550,11 +578,40 @@ export const Pedidos = () => {
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '12px', borderTop: '1px solid var(--border-color)', paddingTop: '16px' }}>
                 <div>
-                  <span style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>Costo Estimado de Producción</span>
-                  <span style={{ fontSize: '1.1rem', fontWeight: 700 }}>{formatCurrency(selectedOrderForView.productionCost || 0)}</span>
-                  <p style={{ color: 'var(--text-secondary)', fontSize: '0.8rem', marginTop: '8px' }}>
-                    * Los montos facturados y utilidades se calculan sobre el peso real de los paquetes producidos en la instancia de Venta.
-                  </p>
+                  <h4 style={{ fontWeight: 600, fontSize: '0.9rem', marginBottom: '8px' }}>Rentabilidad Real</h4>
+                  <div style={{ backgroundColor: 'var(--bg-secondary)', borderRadius: '8px', padding: '12px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.875rem' }}>
+                      <span style={{ color: 'var(--text-secondary)' }}>Venta Real</span>
+                      <span style={{ fontWeight: 600, color: '#10b981' }}>
+                        {formatCurrency(selectedOrderForView.finalChargedAmount ?? selectedOrderForView.total ?? 0)}
+                      </span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.875rem' }}>
+                      <span style={{ color: 'var(--text-secondary)' }}>Costo Real</span>
+                      <span style={{ fontWeight: 600, color: '#ef4444' }}>
+                        {formatCurrency(selectedOrderForView.realProductionCost ?? selectedOrderForView.productionCost ?? 0)}
+                      </span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.875rem', borderTop: '1px solid var(--border-color)', paddingTop: '8px', marginTop: '4px' }}>
+                      <span style={{ fontWeight: 600 }}>Ganancia Real</span>
+                      <span style={{ fontWeight: 700, color: '#10b981' }}>
+                        {formatCurrency(
+                          (selectedOrderForView.finalChargedAmount ?? selectedOrderForView.total ?? 0) - 
+                          (selectedOrderForView.realProductionCost ?? selectedOrderForView.productionCost ?? 0)
+                        )}
+                      </span>
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.875rem' }}>
+                      <span style={{ fontWeight: 600 }}>Margen Real %</span>
+                      <span style={{ fontWeight: 700, color: '#3b82f6' }}>
+                        {formatNumber(
+                          ((selectedOrderForView.finalChargedAmount ?? selectedOrderForView.total ?? 0) > 0 ? 
+                          (((selectedOrderForView.finalChargedAmount ?? selectedOrderForView.total ?? 0) - (selectedOrderForView.realProductionCost ?? selectedOrderForView.productionCost ?? 0)) / (selectedOrderForView.finalChargedAmount ?? selectedOrderForView.total ?? 0)) * 100 : 0),
+                          '%'
+                        )}
+                      </span>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>

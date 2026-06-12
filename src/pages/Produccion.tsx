@@ -11,11 +11,11 @@ import { useMercaderias } from '../hooks/useMercaderias';
 import { useInsumos } from '../hooks/useInsumos';
 import { useRecipes } from '../hooks/useRecipes';
 import { useDateFilter } from '../contexts/DateFilterContext';
-import { Play, CheckCircle, ClipboardList, Calendar, ShoppingBag, Layers, Scissors, Package, Printer } from 'lucide-react';
+import { Play, CheckCircle, ClipboardList, Calendar, ShoppingBag, Layers, Scissors, Package, Printer, ChevronDown, ChevronRight } from 'lucide-react';
 import { getIngredientGrams } from '../core/calculations';
 import { IngredientInput } from '../components/IngredientInput';
 import type { Presentacion, Mercaderia, Recipe, Order, OrderItem } from '../types/database';
-import { formatNumber, parseNumber } from '../utils/format';
+import { formatNumber, parseNumber, formatCurrency } from '../utils/format';
 
 type ConsumptionUnit = 'g' | 'kg' | 'fetas' | 'unidades';
 
@@ -124,11 +124,17 @@ export const Produccion = () => {
   const handleDeliverOrder = async (order: Order) => {
     const customConsumptions: Record<string, number> = {};
     const customProduced: Record<string, number[]> = {};
+    let totalMpInKg = 0;
+    let totalProdOutKg = 0;
+
     order.items.forEach((item) => {
       const pres = presentaciones.find(p => p.id === item.productId);
       if (!pres) return;
       const prodKey = `${order.id}_${item.productId}`;
-      if (actualProduced[prodKey] !== undefined) customProduced[item.productId] = actualProduced[prodKey];
+      if (actualProduced[prodKey] !== undefined) {
+          customProduced[item.productId] = actualProduced[prodKey];
+          totalProdOutKg += actualProduced[prodKey].reduce((a, b) => a + b, 0);
+      }
       const recipe = recipes.find(r => r.productId === item.productId || r.id === pres.recipeId || r.id === pres.recetaId || (r.productId === pres.productoBaseId && r.customerId === pres.customerId));
       const rows = buildIngredientRows(item, pres, recipe, mercaderias);
       rows.forEach(row => {
@@ -141,19 +147,51 @@ export const Produccion = () => {
         let qtyGrams = value;
         if (unit === 'kg') qtyGrams = value * 1000;
         else if (unit === 'fetas' || unit === 'unidades') qtyGrams = value * recipeFetaWeight;
-        customConsumptions[stateKey] = qtyGrams / 1000;
+        const qtyKg = qtyGrams / 1000;
+        customConsumptions[stateKey] = qtyKg;
+
+        if (row.isMercaderia) {
+            totalMpInKg += qtyKg;
+        }
       });
     });
+
+    let mermaGlobalPorcentaje = 0;
+    if (totalMpInKg > 0 && totalProdOutKg > 0) {
+      mermaGlobalPorcentaje = ((totalMpInKg - totalProdOutKg) / totalMpInKg) * 100;
+      mermaGlobalPorcentaje = Math.round(mermaGlobalPorcentaje * 100) / 100;
+    }
+
     try {
-      await updateOrderStatus(order.id!, 'PRODUCIDO', { actualConsumptions: customConsumptions, actualProduced: customProduced });
+      await updateOrderStatus(order.id!, 'PRODUCIDO', { actualConsumptions: customConsumptions, actualProduced: customProduced, mermaGlobalPorcentaje });
     } catch (e: any) { alert('Error al producir pedido: ' + e.message); }
   };
 
   const loading = loadingOrders || loadingPres || loadingMerc || loadingIns || loadingRec;
 
   const activeOrders = useMemo(() => {
-    return orders.filter(o => filterDate(o.date) && (o.status === 'PENDIENTE' || o.status === 'EN_PRODUCCION'));
+    return orders.filter(o => filterDate(o.date) && ['PENDIENTE', 'EN_PRODUCCION', 'PRODUCIDO', 'ENTREGADO'].includes(o.status));
   }, [orders, filterDate]);
+
+  const [expandedClients, setExpandedClients] = useState<Record<string, boolean>>({});
+  const toggleClient = (client: string) => {
+    setExpandedClients(prev => ({ ...prev, [client]: !prev[client] }));
+  };
+
+  const [expandedOrders, setExpandedOrders] = useState<Record<string, boolean>>({});
+  const toggleOrder = (orderId: string) => {
+    setExpandedOrders(prev => ({ ...prev, [orderId]: !prev[orderId] }));
+  };
+
+  const groupedOrders = useMemo(() => {
+    const map: Record<string, typeof activeOrders> = {};
+    activeOrders.forEach(order => {
+      const customer = order.customerName || 'Cliente Desconocido';
+      if (!map[customer]) map[customer] = [];
+      map[customer].push(order);
+    });
+    return map;
+  }, [activeOrders]);
 
   // --- AGGREGATIONS ---
   const planMaestro = useMemo(() => {
@@ -323,97 +361,164 @@ export const Produccion = () => {
         {activeTab === 'pedidos' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
             <h2 style={{ fontSize: '1.25rem', fontWeight: 700 }}>Gestión Individual de Pedidos</h2>
-            {activeOrders.length === 0 ? <EmptyState icon={ClipboardList} title="Al día" description="No hay pedidos pendientes." /> : 
-              activeOrders.map((order) => (
-                <Card key={order.id} padding="md" style={{ borderLeft: order.status === 'EN_PRODUCCION' ? '5px solid #d97706' : '5px solid #94a3b8' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', borderBottom: '1px solid var(--border-color)', paddingBottom: '12px', marginBottom: '16px' }}>
-                    <div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                        <span style={{ fontSize: '1.1rem', fontWeight: 700 }}>Pedido de {order.customerName}</span>
-                        <span style={{ padding: '2px 8px', borderRadius: '9999px', fontSize: '0.7rem', fontWeight: 600, backgroundColor: order.status === 'EN_PRODUCCION' ? '#fef3c7' : '#e2e8f0', color: order.status === 'EN_PRODUCCION' ? '#b45309' : '#475569' }}>
-                          {order.status === 'EN_PRODUCCION' ? 'En Preparación' : 'Pendiente'}
-                        </span>
-                      </div>
-                      <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', display: 'flex', gap: '16px', marginTop: '4px' }}>
-                        <span><Calendar size={12} style={{ display: 'inline', marginRight: '4px' }}/> {new Date(order.date).toLocaleDateString()}</span>
-                        <span>ID: {order.id?.slice(-6)}</span>
-                      </div>
+            {Object.keys(groupedOrders).length === 0 ? <EmptyState icon={ClipboardList} title="Al día" description="No hay pedidos pendientes." /> : 
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', padding: '16px', backgroundColor: 'var(--bg-primary)', borderRadius: '12px' }}>
+                {Object.entries(groupedOrders).map(([clientName, clientOrders]) => (
+                  <div key={clientName} style={{ border: '1px solid var(--border-color)', borderRadius: '8px', overflow: 'hidden' }}>
+                    <div 
+                      onClick={() => toggleClient(clientName)}
+                      style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '12px 16px', backgroundColor: 'var(--bg-secondary)', cursor: 'pointer', fontWeight: 700 }}
+                    >
+                      {expandedClients[clientName] ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
+                      <span>{clientName}</span>
+                      <span style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', marginLeft: 'auto' }}>
+                        {clientOrders.length} pedido(s)
+                      </span>
                     </div>
-                    <div style={{ display: 'flex', gap: '8px' }}>
-                      {order.status === 'PENDIENTE' ? (
-                        <button onClick={() => handleTransitionStatus(order.id!, 'EN_PRODUCCION')} className="btn btn-secondary-light btn-sm"><Play size={14} /> Comenzar</button>
-                      ) : (
-                        <button onClick={() => handleDeliverOrder(order)} className="btn btn-primary btn-sm" style={{ backgroundColor: '#059669', border: 'none' }}><CheckCircle size={14} /> Marcar como Producido</button>
-                      )}
-                    </div>
-                  </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                    {order.items.map((item, idx) => {
-                      const pres = presentaciones.find(p => p.id === item.productId);
-                      const recipe = pres ? recipes.find(r => r.productId === item.productId || r.id === pres.recipeId || r.id === pres.recetaId || (r.productId === pres.productoBaseId && r.customerId === pres.customerId)) : undefined;
-                      const rows = pres ? buildIngredientRows(item, pres, recipe, mercaderias) : [];
-                      return (
-                        <div key={idx} style={{ backgroundColor: 'var(--bg-primary)', padding: '12px 16px', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><ShoppingBag size={14} color="var(--primary-color)" /> <span style={{ fontWeight: 600 }}>{item.productName}</span></div>
-                            {order.status === 'EN_PRODUCCION' ? (
-                              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                                <div style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)' }}>Pesos Reales por Paquete (Kg):</div>
-                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-                                  {Array.from({ length: item.quantity }).map((_, pIdx) => {
-                                    const weights = actualProduced[`${order.id}_${item.productId}`] || Array(item.quantity).fill(0);
-                                    return (
-                                      <div key={pIdx} style={{ display: 'flex', alignItems: 'center', gap: '4px', background: '#f8fafc', padding: '4px', borderRadius: '4px', border: '1px solid #cbd5e1' }}>
-                                        <span style={{ fontSize: '0.7rem', color: '#64748b' }}>P{pIdx+1}</span>
-                                        <WeightInput 
-                                          value={weights[pIdx] || 0}
-                                          onChange={(num) => {
-                                            const newWeights = [...weights];
-                                            newWeights[pIdx] = num;
-                                            handleChangeProducedWeights(order.id!, item.productId, newWeights);
-                                          }}
-                                        />
-                                      </div>
-                                    );
-                                  })}
+
+                    {expandedClients[clientName] && (
+                      <div style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '16px', backgroundColor: 'var(--bg-primary)' }}>
+                        {clientOrders.map(order => (
+                          <div key={order.id} style={{ border: '1px solid var(--border-color)', borderRadius: '8px', overflow: 'hidden' }}>
+                            <div 
+                              onClick={() => toggleOrder(order.id!)}
+                              style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', backgroundColor: order.status === 'EN_PRODUCCION' ? '#fffbeb' : 'var(--bg-secondary)', cursor: 'pointer', borderLeft: order.status === 'EN_PRODUCCION' ? '4px solid #d97706' : '4px solid #94a3b8' }}
+                            >
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                {expandedOrders[order.id!] ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                                <div>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    <span style={{ fontWeight: 600 }}>Pedido {order.id?.slice(-6) || 'N/A'}</span>
+                                    <span style={{ padding: '2px 8px', borderRadius: '9999px', fontSize: '0.7rem', fontWeight: 600, backgroundColor: order.status === 'EN_PRODUCCION' ? '#fef3c7' : '#e2e8f0', color: order.status === 'EN_PRODUCCION' ? '#b45309' : '#475569' }}>
+                                      {order.status === 'EN_PRODUCCION' ? 'En Preparación' : 'Pendiente'}
+                                    </span>
+                                  </div>
+                                  <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                                    <Calendar size={12} style={{ display: 'inline', marginRight: '4px', verticalAlign: 'middle' }}/> 
+                                    {new Date(order.date).toLocaleDateString()}
+                                  </div>
                                 </div>
                               </div>
-                            ) : (
-                              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '4px' }}>
-                                <span style={{ fontSize: '0.85rem', fontWeight: 700, backgroundColor: 'var(--primary-light)', color: 'var(--primary-color)', padding: '2px 8px', borderRadius: '4px' }}>
-                                  {item.quantity} paquetes
-                                </span>
-                                {order.status === 'PRODUCIDO' && (
-                                  <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-                                    Peso total: {(actualProduced[`${order.id}_${item.productId}`] || []).reduce((a, b) => a + b, 0).toFixed(3)} Kg
-                                  </span>
+                              <div style={{ display: 'flex', gap: '8px' }} onClick={e => e.stopPropagation()}>
+                                {order.status === 'PENDIENTE' ? (
+                                  <button onClick={() => handleTransitionStatus(order.id!, 'EN_PRODUCCION')} className="btn btn-secondary-light btn-sm"><Play size={14} /> Comenzar</button>
+                                ) : (
+                                  <button onClick={() => handleDeliverOrder(order)} className="btn btn-primary btn-sm" style={{ backgroundColor: '#059669', border: 'none' }}><CheckCircle size={14} /> Marcar como Producido</button>
+                                )}
+                              </div>
+                            </div>
+
+                            {expandedOrders[order.id!] && (
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', padding: '16px', backgroundColor: 'var(--bg-primary)' }}>
+                                {order.items.map((item, idx) => {
+                                  const pres = presentaciones.find(p => p.id === item.productId);
+                                  const recipe = pres ? recipes.find(r => r.productId === item.productId || r.id === pres.recipeId || r.id === pres.recetaId || (r.productId === pres.productoBaseId && r.customerId === pres.customerId)) : undefined;
+                                  const rows = pres ? buildIngredientRows(item, pres, recipe, mercaderias) : [];
+                                  return (
+                                    <div key={idx} style={{ backgroundColor: 'var(--bg-primary)', padding: '12px 16px', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
+                                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}><ShoppingBag size={14} color="var(--primary-color)" /> <span style={{ fontWeight: 600 }}>{item.productName}</span></div>
+                                        {order.status === 'EN_PRODUCCION' ? (
+                                          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                            <div style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)' }}>Pesos Reales por Paquete (Kg):</div>
+                                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                                              {Array.from({ length: item.quantity }).map((_, pIdx) => {
+                                                const weights = actualProduced[`${order.id}_${item.productId}`] || Array(item.quantity).fill(0);
+                                                return (
+                                                  <div key={pIdx} style={{ display: 'flex', alignItems: 'center', gap: '4px', background: '#f8fafc', padding: '4px', borderRadius: '4px', border: '1px solid #cbd5e1' }}>
+                                                    <span style={{ fontSize: '0.7rem', color: '#64748b' }}>P{pIdx+1}</span>
+                                                    <WeightInput 
+                                                      value={weights[pIdx] || 0}
+                                                      onChange={(num) => {
+                                                        const newWeights = [...weights];
+                                                        newWeights[pIdx] = num;
+                                                        handleChangeProducedWeights(order.id!, item.productId, newWeights);
+                                                      }}
+                                                    />
+                                                  </div>
+                                                );
+                                              })}
+                                            </div>
+                                          </div>
+                                        ) : (
+                                          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '4px' }}>
+                                            <span style={{ fontSize: '0.85rem', fontWeight: 700, backgroundColor: 'var(--primary-light)', color: 'var(--primary-color)', padding: '2px 8px', borderRadius: '4px' }}>
+                                              {item.quantity} paquetes
+                                            </span>
+                                            {order.status === 'PRODUCIDO' && (
+                                              <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                                                Peso total: {(actualProduced[`${order.id}_${item.productId}`] || []).reduce((a, b) => a + b, 0).toFixed(3)} Kg
+                                              </span>
+                                            )}
+                                          </div>
+                                        )}
+                                      </div>
+                                      <div style={{ padding: '8px 12px', backgroundColor: 'rgba(255,255,255,0.02)', borderRadius: '6px', fontSize: '0.85rem' }}>
+                                        <div style={{ borderTop: '1px dashed var(--border-color)', paddingTop: '6px' }}>
+                                          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                            {rows.map(row => {
+                                              const stateKey = `${order.id}_${item.productId}_${row.productId}`;
+                                              const saved = order.actualConsumptions?.[stateKey] || actualConsumptions[stateKey];
+                                              return (
+                                                <IngredientInput
+                                                  key={row.productId} orderId={order.id!} itemId={item.productId} productId={row.productId} name={row.name}
+                                                  theoreticalQty={row.theoreticalQty} unit={row.unit} currentValue={saved?.value ?? row.theoreticalQty} currentUnit={(saved?.unit as ConsumptionUnit) ?? row.unit}
+                                                  isEditable={order.status === 'EN_PRODUCCION'} onChangeValue={handleChangeValue} onChangeUnit={handleChangeUnit}
+                                                />
+                                              );
+                                            })}
+                                          </div>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                                {['PRODUCIDO', 'ENTREGADO'].includes(order.status) && (
+                                  <div style={{ marginTop: '16px', padding: '16px', backgroundColor: 'var(--bg-secondary)', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
+                                    <h4 style={{ fontWeight: 600, fontSize: '0.9rem', marginBottom: '12px' }}>Rentabilidad Real del Pedido</h4>
+                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '12px', fontSize: '0.85rem' }}>
+                                      <div>
+                                        <div style={{ color: 'var(--text-secondary)' }}>Costo Calculado</div>
+                                        <div style={{ fontWeight: 600 }}>{formatCurrency(order.productionCost || 0)}</div>
+                                      </div>
+                                      <div>
+                                        <div style={{ color: 'var(--text-secondary)' }}>Costo Real</div>
+                                        <div style={{ fontWeight: 600, color: '#ef4444' }}>{formatCurrency(order.realProductionCost ?? order.productionCost ?? 0)}</div>
+                                      </div>
+                                      <div>
+                                        <div style={{ color: 'var(--text-secondary)' }}>Precio Final Cobrado</div>
+                                        <div style={{ fontWeight: 600, color: '#10b981' }}>{formatCurrency(order.finalChargedAmount ?? order.total ?? 0)}</div>
+                                      </div>
+                                      <div>
+                                        <div style={{ color: 'var(--text-secondary)' }}>Ganancia Real</div>
+                                        <div style={{ fontWeight: 700, color: '#10b981' }}>
+                                          {formatCurrency(
+                                            (order.finalChargedAmount ?? order.total ?? 0) - (order.realProductionCost ?? order.productionCost ?? 0)
+                                          )}
+                                        </div>
+                                      </div>
+                                      <div>
+                                        <div style={{ color: 'var(--text-secondary)' }}>Margen Real</div>
+                                        <div style={{ fontWeight: 700, color: '#3b82f6' }}>
+                                          {formatNumber(
+                                            ((order.finalChargedAmount ?? order.total ?? 0) > 0 ? 
+                                            (((order.finalChargedAmount ?? order.total ?? 0) - (order.realProductionCost ?? order.productionCost ?? 0)) / (order.finalChargedAmount ?? order.total ?? 0)) * 100 : 0),
+                                            '%'
+                                          )}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </div>
                                 )}
                               </div>
                             )}
                           </div>
-                          <div style={{ padding: '8px 12px', backgroundColor: 'rgba(255,255,255,0.02)', borderRadius: '6px', fontSize: '0.85rem' }}>
-                            <div style={{ borderTop: '1px dashed var(--border-color)', paddingTop: '6px' }}>
-                              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                                {rows.map(row => {
-                                  const stateKey = `${order.id}_${item.productId}_${row.productId}`;
-                                  const saved = order.actualConsumptions?.[stateKey] || actualConsumptions[stateKey];
-                                  return (
-                                    <IngredientInput
-                                      key={row.productId} orderId={order.id!} itemId={item.productId} productId={row.productId} name={row.name}
-                                      theoreticalQty={row.theoreticalQty} unit={row.unit} currentValue={saved?.value ?? row.theoreticalQty} currentUnit={(saved?.unit as ConsumptionUnit) ?? row.unit}
-                                      isEditable={order.status === 'EN_PRODUCCION'} onChangeValue={handleChangeValue} onChangeUnit={handleChangeUnit}
-                                    />
-                                  );
-                                })}
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
+                        ))}
+                      </div>
+                    )}
                   </div>
-                </Card>
-              ))
+                ))}
+              </div>
             }
           </div>
         )}

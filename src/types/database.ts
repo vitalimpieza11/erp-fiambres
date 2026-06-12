@@ -281,6 +281,7 @@ export interface Recipe {
   costoManoObra: number;
   costoAdicional: number;
   method?: 'weight' | 'percentage' | 'fetas'; // POR PESO, POR PORCENTAJE, POR FETAS
+  usarMermaEnCosto?: boolean;
   createdAt: number;
   updatedAt: number;
 }
@@ -316,6 +317,9 @@ export interface Order {
   saleId?: string;
   actualConsumptions?: Record<string, { value: number; unit: string }>;
   actualProduced?: Record<string, number[]>; // array of weights in kg
+  mermaGlobalPorcentaje?: number;
+  realProductionCost?: number;
+  finalChargedAmount?: number;
 }
 
 export interface Mercaderia {
