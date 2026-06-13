@@ -1,0 +1,105 @@
+.expandable-card {
+  background: var(--surface-color);
+  border-radius: var(--radius-lg);
+  padding: 24px;
+  box-shadow: var(--shadow-sm);
+  border: 1px solid rgba(0,0,0,0.02);
+  transition: transform 0.25s cubic-bezier(0.2, 0.8, 0.2, 1), box-shadow 0.25s ease;
+  display: flex;
+  flex-direction: column;
+}
+
+.expandable-card:hover {
+  box-shadow: var(--shadow-hover);
+}
+
+.expandable-card.expanded {
+  box-shadow: var(--shadow-md);
+}
+
+.ec-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 12px;
+}
+
+.ec-title-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.ec-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.ec-badge {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 12px;
+  text-transform: uppercase;
+}
+
+.ec-subtitle {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-top: 4px;
+}
+
+.ec-toggle {
+  color: var(--text-secondary);
+  background: var(--bg-color);
+  border-radius: 50%;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s;
+}
+
+.expandable-card:hover .ec-toggle {
+  background: rgba(196, 49, 38, 0.1);
+  color: var(--alvacio-red);
+}
+
+.ec-collapsed-content {
+  font-size: 14px;
+  color: var(--text-primary);
+}
+
+.ec-expanded-content-wrapper {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.3s ease;
+}
+
+.ec-expanded-content-wrapper.open {
+  grid-template-rows: 1fr;
+}
+
+.ec-expanded-inner {
+  overflow: hidden;
+}
+
+.ec-divider {
+  height: 1px;
+  background-color: var(--border-color);
+  margin: 20px 0;
+}
+
+.ec-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 24px;
+}
+
+.ec-actions button {
+  flex: 1;
+  padding: 10px;
+  font-size: 14px;
+}

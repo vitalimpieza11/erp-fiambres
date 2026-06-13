@@ -1,0 +1,75 @@
+.right-panel {
+  position: fixed;
+  top: 24px;
+  right: 24px;
+  bottom: 24px;
+  width: 480px;
+  background-color: var(--alvacio-panel-bg);
+  border-radius: var(--radius-xl);
+  box-shadow: -10px 0 40px rgba(196, 49, 38, 0.15);
+  display: flex;
+  flex-direction: column;
+  z-index: 1000;
+  transition: transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1), opacity 0.3s ease;
+  overflow: hidden;
+  border: 1px solid rgba(196, 49, 38, 0.05);
+}
+
+.right-panel.closed {
+  transform: translateX(110%);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.right-panel.open {
+  transform: translateX(0);
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.right-panel-header {
+  padding: 30px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid rgba(196, 49, 38, 0.1);
+}
+
+.right-panel-header h2 {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--alvacio-red-dark);
+  margin: 0;
+}
+
+.close-btn {
+  background: transparent;
+  color: var(--alvacio-red);
+  padding: 8px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.close-btn:hover {
+  background: rgba(196, 49, 38, 0.1);
+  box-shadow: none;
+  transform: none;
+}
+
+.right-panel-content {
+  flex: 1;
+  padding: 30px;
+  overflow-y: auto;
+}
+
+.right-panel-content .form-group label {
+  color: var(--alvacio-red-dark);
+}
+
+.right-panel-content input, 
+.right-panel-content select, 
+.right-panel-content textarea {
+  background-color: #ffffff;
+}
