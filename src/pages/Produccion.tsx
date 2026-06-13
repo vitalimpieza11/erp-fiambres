@@ -135,7 +135,19 @@ export const Produccion = () => {
           customProduced[item.productId] = actualProduced[prodKey];
           totalProdOutKg += actualProduced[prodKey].reduce((a, b) => a + b, 0);
       }
-      const recipe = recipes.find(r => r.productId === item.productId || r.id === pres.recipeId || r.id === pres.recetaId || (r.productId === pres.productoBaseId && r.customerId === pres.customerId));
+      let recipe = recipes.find(r => pres.recipeId && r.id === pres.recipeId);
+      if (!recipe) {
+        recipe = recipes.find(r => pres.recetaId && r.id === pres.recetaId);
+      }
+      if (!recipe) {
+        recipe = recipes.find(r => r.productId && item.productId && r.productId === item.productId);
+      }
+      if (!recipe) {
+        recipe = recipes.find(r => 
+          r.productId && pres.productoBaseId && r.productId === pres.productoBaseId && 
+          r.customerId && pres.customerId && r.customerId === pres.customerId
+        );
+      }
       const rows = buildIngredientRows(item, pres, recipe, mercaderias);
       rows.forEach(row => {
         const stateKey = `${order.id}_${item.productId}_${row.productId}`;
@@ -218,7 +230,19 @@ export const Produccion = () => {
       o.items.forEach(item => {
         const pres = presentaciones.find(p => p.id === item.productId);
         if (!pres) return;
-        const recipe = recipes.find(r => r.productId === item.productId || r.id === pres.recipeId || r.id === pres.recetaId || (r.productId === pres.productoBaseId && r.customerId === pres.customerId));
+        let recipe = recipes.find(r => pres.recipeId && r.id === pres.recipeId);
+        if (!recipe) {
+          recipe = recipes.find(r => pres.recetaId && r.id === pres.recetaId);
+        }
+        if (!recipe) {
+          recipe = recipes.find(r => r.productId && item.productId && r.productId === item.productId);
+        }
+        if (!recipe) {
+          recipe = recipes.find(r => 
+            r.productId && pres.productoBaseId && r.productId === pres.productoBaseId && 
+            r.customerId && pres.customerId && r.customerId === pres.customerId
+          );
+        }
         const rows = buildIngredientRows(item, pres, recipe, mercaderias);
         rows.forEach(row => {
           if (row.isMercaderia) {
@@ -412,7 +436,22 @@ export const Produccion = () => {
                               <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', padding: '16px', backgroundColor: 'var(--bg-primary)' }}>
                                 {order.items.map((item, idx) => {
                                   const pres = presentaciones.find(p => p.id === item.productId);
-                                  const recipe = pres ? recipes.find(r => r.productId === item.productId || r.id === pres.recipeId || r.id === pres.recetaId || (r.productId === pres.productoBaseId && r.customerId === pres.customerId)) : undefined;
+                                  let recipe: Recipe | undefined = undefined;
+                                  if (pres) {
+                                    recipe = recipes.find(r => pres.recipeId && r.id === pres.recipeId);
+                                    if (!recipe) {
+                                      recipe = recipes.find(r => pres.recetaId && r.id === pres.recetaId);
+                                    }
+                                    if (!recipe) {
+                                      recipe = recipes.find(r => r.productId && item.productId && r.productId === item.productId);
+                                    }
+                                    if (!recipe) {
+                                      recipe = recipes.find(r => 
+                                        r.productId && pres.productoBaseId && r.productId === pres.productoBaseId && 
+                                        r.customerId && pres.customerId && r.customerId === pres.customerId
+                                      );
+                                    }
+                                  }
                                   const rows = pres ? buildIngredientRows(item, pres, recipe, mercaderias) : [];
                                   return (
                                     <div key={idx} style={{ backgroundColor: 'var(--bg-primary)', padding: '12px 16px', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
@@ -456,17 +495,21 @@ export const Produccion = () => {
                                       <div style={{ padding: '8px 12px', backgroundColor: 'rgba(255,255,255,0.02)', borderRadius: '6px', fontSize: '0.85rem' }}>
                                         <div style={{ borderTop: '1px dashed var(--border-color)', paddingTop: '6px' }}>
                                           <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                                            {rows.map(row => {
-                                              const stateKey = `${order.id}_${item.productId}_${row.productId}`;
-                                              const saved = order.actualConsumptions?.[stateKey] || actualConsumptions[stateKey];
-                                              return (
-                                                <IngredientInput
-                                                  key={row.productId} orderId={order.id!} itemId={item.productId} productId={row.productId} name={row.name}
-                                                  theoreticalQty={row.theoreticalQty} unit={row.unit} currentValue={saved?.value ?? row.theoreticalQty} currentUnit={(saved?.unit as ConsumptionUnit) ?? row.unit}
-                                                  isEditable={order.status === 'EN_PRODUCCION'} onChangeValue={handleChangeValue} onChangeUnit={handleChangeUnit}
-                                                />
-                                              );
-                                            })}
+                                            {rows.length === 0 ? (
+                                              <div style={{ fontSize: '0.85rem', color: '#ef4444', fontStyle: 'italic' }}>Receta no encontrada</div>
+                                            ) : (
+                                              rows.map(row => {
+                                                const stateKey = `${order.id}_${item.productId}_${row.productId}`;
+                                                const saved = order.actualConsumptions?.[stateKey] || actualConsumptions[stateKey];
+                                                return (
+                                                  <IngredientInput
+                                                    key={row.productId} orderId={order.id!} itemId={item.productId} productId={row.productId} name={row.name}
+                                                    theoreticalQty={row.theoreticalQty} unit={row.unit} currentValue={saved?.value ?? row.theoreticalQty} currentUnit={(saved?.unit as ConsumptionUnit) ?? row.unit}
+                                                    isEditable={order.status === 'EN_PRODUCCION'} onChangeValue={handleChangeValue} onChangeUnit={handleChangeUnit}
+                                                  />
+                                                );
+                                              })
+                                            )}
                                           </div>
                                         </div>
                                       </div>
