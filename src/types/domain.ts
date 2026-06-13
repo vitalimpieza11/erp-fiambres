@@ -211,6 +211,7 @@ export type CajaMovement = {
   reasonType?: string;
   sourceType?: string;
   sourceId?: string;
+  shareholderId?: string;
   reversalOf?: string | null;
   isDeleted: boolean;
   deletedAt?: number;

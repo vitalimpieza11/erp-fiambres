@@ -1,4 +1,6 @@
-import type { Product, UnitType } from '../../types/domain';
+import { getDocs, addDoc, updateDoc, doc } from 'firebase/firestore';
+import { db, COLLECTIONS } from '../lib/firebase';
+import type { Product, UnitType } from '../types/domain';
 
 export interface DomainError {
   code: string;
@@ -62,24 +64,35 @@ export function validateProduct(product: Partial<Product>, catalog: Product[]): 
   }
 }
 
-import { useEffect } from 'react';
-import { useProductsStore } from '../../store/productsStore';
+export const productsRepository = {
+  async fetchProducts(): Promise<Product[]> {
+    const snapshot = await getDocs(COLLECTIONS.PRODUCTS);
+    return snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Product));
+  },
 
-export function useProducts() {
-  const productos = useProductsStore((state) => state.productos);
-  const loading = useProductsStore((state) => state.loading);
-  const fetchProductos = useProductsStore((state) => state.fetchProductos);
-  const saveProduct = useProductsStore((state) => state.saveProduct);
-  const toggleStatus = useProductsStore((state) => state.toggleStatus);
+  async saveProduct(product: Partial<Product>, catalog: Product[]): Promise<void> {
+    validateProduct(product, catalog);
 
-  useEffect(() => {
-    fetchProductos();
-  }, [fetchProductos]);
+    const dataToSave = {
+      ...product,
+      precioSugerido: Number(product.precioSugerido || 0),
+      precioComercial: Number(product.precioComercial || 0),
+      costoActual: product.costoActual || 0,
+      stockActual: product.stockActual || 0,
+    };
 
-  return {
-    productos,
-    loading,
-    saveProduct,
-    toggleStatus
-  };
-}
+    if (product.type !== 'PRESENTACION') {
+      delete dataToSave.recipeItems;
+    }
+
+    if (product.id) {
+      await updateDoc(doc(db, 'products', product.id), dataToSave);
+    } else {
+      await addDoc(COLLECTIONS.PRODUCTS, dataToSave);
+    }
+  },
+
+  async toggleProductStatus(id: string, currentStatus: boolean): Promise<void> {
+    await updateDoc(doc(db, 'products', id), { activo: !currentStatus });
+  }
+};

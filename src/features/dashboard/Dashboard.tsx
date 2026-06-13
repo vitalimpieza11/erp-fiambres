@@ -1,15 +1,14 @@
 import { useMemo } from 'react';
 import { useDashboardCache } from './useDashboardCache';
-import ExpandableCard from '../../components/ExpandableCard';
 import { 
   Wallet, 
   TrendingUp, 
   ShoppingCart, 
-  Package, 
   Truck, 
   Users, 
-  AlertCircle,
-  AlertTriangle
+  ClipboardList,
+  PiggyBank,
+  Percent
 } from 'lucide-react';
 import './Dashboard.css';
 
@@ -25,86 +24,52 @@ export default function Dashboard() {
   } = useDashboardCache();
 
   // FORMATTER
-  const formatCurrency = (val: number) => new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(val);
+  const formatCurrency = (val: number) => 
+    new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(val);
 
   // DATES
   const today = new Date();
   const startOfMonthStr = new Date(today.getFullYear(), today.getMonth(), 1).toISOString();
 
-  // SECTION 1: CAJA
-  const { currentBalance, ingresosMes, egresosMes } = cacheCaja;
-  const flujoNeto = ingresosMes - egresosMes;
+  // 1. Caja actual (Efectivo - excluding bank movements)
+  const cajaActual = useMemo(() => {
+    return cacheCaja.movements
+      .filter(m => {
+        const desc = (m.description || '').toLowerCase();
+        const cat = (m.category || '').toLowerCase();
+        const isBanco = desc.includes('banco') || 
+                        desc.includes('transferencia') || 
+                        desc.includes('transf') || 
+                        desc.includes('deposito') || 
+                        desc.includes('depósito') ||
+                        desc.includes('cheque') ||
+                        cat.includes('banco') || 
+                        cat.includes('transferencia');
+        return !isBanco;
+      })
+      .reduce((acc, mov) => acc + (mov.type === 'INCOME' ? mov.amount : -mov.amount), 0);
+  }, [cacheCaja.movements]);
 
-  // SECTION 2: VENTAS
-  const ventasDelMes = useMemo(() => {
-    return cacheVentas.sales.filter(s => s.date >= startOfMonthStr && s.status !== 'ANULADO').reduce((acc, s) => acc + s.totalAmount, 0);
-  }, [cacheVentas.sales, startOfMonthStr]);
-  
-  const ventasPendientesCobro = useMemo(() => {
-    return cacheVentas.sales.filter(s => s.status === 'FACTURADO' && s.paymentMethod === 'PENDIENTE').reduce((acc, s) => acc + s.totalAmount, 0);
-  }, [cacheVentas.sales]);
+  // 2. Saldo bancos (Bank transactions)
+  const saldoBancos = useMemo(() => {
+    return cacheCaja.movements
+      .filter(m => {
+        const desc = (m.description || '').toLowerCase();
+        const cat = (m.category || '').toLowerCase();
+        return desc.includes('banco') || 
+               desc.includes('transferencia') || 
+               desc.includes('transf') || 
+               desc.includes('deposito') || 
+               desc.includes('depósito') ||
+               desc.includes('cheque') ||
+               cat.includes('banco') || 
+               cat.includes('transferencia');
+      })
+      .reduce((acc, mov) => acc + (mov.type === 'INCOME' ? mov.amount : -mov.amount), 0);
+  }, [cacheCaja.movements]);
 
-  const ventasCobradas = useMemo(() => {
-    return cacheVentas.sales.filter(s => s.status === 'COBRADO' && s.paymentMethod === 'EFECTIVO_TRANSFERENCIA').reduce((acc, s) => acc + s.totalAmount, 0);
-  }, [cacheVentas.sales]);
-
-  const cuentaCorrienteGeneradaVentas = useMemo(() => {
-    return cacheVentas.sales.filter(s => s.status === 'COBRADO' && s.paymentMethod === 'CUENTA_CORRIENTE' && s.date >= startOfMonthStr).reduce((acc, s) => acc + s.totalAmount, 0);
-  }, [cacheVentas.sales, startOfMonthStr]);
-
-  // SECTION 3: COMPRAS
-  const comprasDelMes = useMemo(() => {
-    return cacheCompras.purchases.filter(p => p.date >= startOfMonthStr && p.type === 'PURCHASE').reduce((acc, p) => acc + p.total, 0);
-  }, [cacheCompras.purchases, startOfMonthStr]);
-
-  const comprasPagadasMes = useMemo(() => {
-    return cacheCompras.purchases.filter(p => p.date >= startOfMonthStr && p.type === 'PURCHASE').reduce((acc, p) => acc + p.montoPagado, 0);
-  }, [cacheCompras.purchases, startOfMonthStr]);
-
-  const comprasCCMes = useMemo(() => {
-    return cacheCompras.purchases.filter(p => p.date >= startOfMonthStr && p.type === 'PURCHASE').reduce((acc, p) => acc + p.montoCuentaCorriente, 0);
-  }, [cacheCompras.purchases, startOfMonthStr]);
-
-  // SECTION 4: STOCK
-  const { stockMercaderias, stockInsumos, stockTerminados } = useMemo(() => {
-    let m = 0, i = 0, t = 0;
-    cacheStock.products.forEach(p => {
-      if (p.type === 'MERCADERIA') m += (p.stockActual || 0);
-      else if (p.type === 'INSUMO') i += (p.stockActual || 0);
-      else t += (p.stockActual || 0);
-    });
-    return { stockMercaderias: m, stockInsumos: i, stockTerminados: t };
-  }, [cacheStock.products]);
-
-  // ALERTAS DE STOCK
-  const alertasStockBajo = useMemo(() => {
-    return cacheStock.products.filter(p => p.stockActual !== undefined && p.stockActual <= 10 && p.stockActual > 0).length;
-  }, [cacheStock.products]);
-
-  const alertasSinStock = useMemo(() => {
-    return cacheStock.products.filter(p => p.stockActual !== undefined && p.stockActual <= 0).length;
-  }, [cacheStock.products]);
-
-  // SECTION 5: PROVEEDORES
-  const deudaTotalProveedores = useMemo(() => {
-    return cacheProveedores.movements.reduce((acc, m) => {
-      if (m.type === 'COMPRA') return acc + m.amount;
-      if (m.type === 'PAGO') return acc - m.amount;
-      if (m.type === 'AJUSTE' || m.type === 'ANULACION') return acc + m.amount;
-      return acc;
-    }, 0);
-  }, [cacheProveedores.movements]);
-  
-  const movsProveedoresMes = useMemo(() => {
-    return cacheProveedores.movements.filter(m => m.date >= startOfMonthStr).length;
-  }, [cacheProveedores.movements, startOfMonthStr]);
-
-  const pagosRealizadosMes = useMemo(() => {
-    return cacheProveedores.movements.filter(m => m.date >= startOfMonthStr && m.type === 'PAGO').reduce((acc, m) => acc + m.amount, 0);
-  }, [cacheProveedores.movements, startOfMonthStr]);
-
-  // SECTION 6: CLIENTES
-  const deudaTotalClientes = useMemo(() => {
+  // 3. Por cobrar (Total customers debt)
+  const porCobrar = useMemo(() => {
     return cacheClientes.movements.reduce((acc, m) => {
       if (m.type === 'DEUDA') return acc + m.amount;
       if (m.type === 'PAGO') return acc - m.amount;
@@ -113,247 +78,170 @@ export default function Dashboard() {
     }, 0);
   }, [cacheClientes.movements]);
 
-  const clientesActivos = useMemo(() => {
-    return cacheClientes.customers.filter(c => c.activo).length;
-  }, [cacheClientes.customers]);
+  // 4. Por pagar (Total suppliers debt)
+  const porPagar = useMemo(() => {
+    return cacheProveedores.movements.reduce((acc, m) => {
+      if (m.type === 'COMPRA') return acc + m.amount;
+      if (m.type === 'PAGO') return acc - m.amount;
+      if (m.type === 'AJUSTE' || m.type === 'ANULACION') return acc + m.amount;
+      return acc;
+    }, 0);
+  }, [cacheProveedores.movements]);
 
-  const movsClientesMes = useMemo(() => {
-    return cacheClientes.movements.filter(m => m.date >= startOfMonthStr).length;
-  }, [cacheClientes.movements, startOfMonthStr]);
+  // 5. Pedidos pendientes (Orders in active states)
+  const pedidosPendientes = useMemo(() => {
+    return cacheVentas.orders.filter(o => 
+      !o.isDeleted && 
+      (o.status === 'PENDIENTE' || o.status === 'EN_PRODUCCION' || o.status === 'PRODUCIDO')
+    ).length;
+  }, [cacheVentas.orders]);
+
+  // 6. Ventas del mes
+  const ventasDelMes = useMemo(() => {
+    return cacheVentas.sales
+      .filter(s => s.date >= startOfMonthStr && s.status !== 'ANULADO')
+      .reduce((acc, s) => acc + s.totalAmount, 0);
+  }, [cacheVentas.sales, startOfMonthStr]);
+
+  // 7. Costos del mes (Total purchases)
+  const costosDelMes = useMemo(() => {
+    return cacheCompras.purchases
+      .filter(p => p.date >= startOfMonthStr && p.status !== 'VOIDED' && p.type === 'PURCHASE')
+      .reduce((acc, p) => acc + p.total, 0);
+  }, [cacheCompras.purchases, startOfMonthStr]);
+
+  // 8. Ganancia del mes
+  const gananciaDelMes = useMemo(() => {
+    return ventasDelMes - costosDelMes;
+  }, [ventasDelMes, costosDelMes]);
 
   if (loading) {
     return (
       <div className="loading-container">
         <div className="spinner"></div>
-        <p>Sincronizando capa operativa...</p>
+        <p>Sincronizando capa operativa del ERP...</p>
       </div>
     );
   }
+
+  const cardsData = [
+    {
+      title: 'Caja Actual',
+      value: formatCurrency(cajaActual),
+      icon: <Wallet size={20} />,
+      bg: '#f3f4f6',
+      color: '#1f2937',
+      isCurrency: true
+    },
+    {
+      title: 'Saldo Bancos',
+      value: formatCurrency(saldoBancos),
+      icon: <PiggyBank size={20} />,
+      bg: '#e0f2fe',
+      color: '#0284c7',
+      isCurrency: true
+    },
+    {
+      title: 'Por Cobrar',
+      value: formatCurrency(porCobrar),
+      icon: <Users size={20} />,
+      bg: '#dcfce7',
+      color: '#16a34a',
+      isCurrency: true
+    },
+    {
+      title: 'Por Pagar',
+      value: formatCurrency(porPagar),
+      icon: <Truck size={20} />,
+      bg: '#fee2e2',
+      color: '#dc2626',
+      isCurrency: true
+    },
+    {
+      title: 'Pedidos Pendientes',
+      value: `${pedidosPendientes} pedidos`,
+      icon: <ClipboardList size={20} />,
+      bg: '#fef3c7',
+      color: '#d97706',
+      isCurrency: false
+    },
+    {
+      title: 'Ventas del Mes',
+      value: formatCurrency(ventasDelMes),
+      icon: <TrendingUp size={20} />,
+      bg: '#e0e7ff',
+      color: '#4f46e5',
+      isCurrency: true
+    },
+    {
+      title: 'Costos del Mes',
+      value: formatCurrency(costosDelMes),
+      icon: <ShoppingCart size={20} />,
+      bg: '#f3e8ff',
+      color: '#9333ea',
+      isCurrency: true
+    },
+    {
+      title: 'Ganancia del Mes',
+      value: formatCurrency(gananciaDelMes),
+      icon: <Percent size={20} />,
+      bg: gananciaDelMes >= 0 ? '#dcfce7' : '#fee2e2',
+      color: gananciaDelMes >= 0 ? '#15803d' : '#b91c1c',
+      isCurrency: true
+    }
+  ];
 
   return (
     <div className="dashboard-v2-container">
       <div className="dashboard-header">
         <div>
           <h1 className="page-title">Dashboard</h1>
-          <p className="dashboard-subtitle">Resumen general del negocio</p>
+          <p className="dashboard-subtitle">Métricas operacionales resumidas del negocio</p>
         </div>
       </div>
 
-      {/* ALERTAS VISUALES */}
-      <div className="alerts-grid">
-        {alertasSinStock > 0 && (
-          <div className="alert-card danger">
-            <div className="alert-icon"><AlertCircle size={24} /></div>
-            <div className="alert-content">
-              <strong>{alertasSinStock} productos sin stock</strong>
-              <button>Ver productos</button>
+      <div className="dashboard-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))' }}>
+        {cardsData.map((card, idx) => (
+          <div 
+            key={idx} 
+            className="apple-card" 
+            style={{ 
+              display: 'flex', 
+              flexDirection: 'column', 
+              justifyContent: 'space-between', 
+              minHeight: '160px',
+              padding: '24px'
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+              <span style={{ fontSize: '15px', fontWeight: 600, color: 'var(--text-secondary)' }}>{card.title}</span>
+              <div style={{ 
+                width: '36px', 
+                height: '36px', 
+                borderRadius: '10px', 
+                display: 'flex', 
+                alignItems: 'center', 
+                justifyContent: 'center',
+                backgroundColor: card.bg,
+                color: card.color
+              }}>
+                {card.icon}
+              </div>
             </div>
-          </div>
-        )}
-        {alertasStockBajo > 0 && (
-          <div className="alert-card warning">
-            <div className="alert-icon"><AlertTriangle size={24} /></div>
-            <div className="alert-content">
-              <strong>{alertasStockBajo} productos con stock bajo</strong>
-              <button>Ver productos</button>
-            </div>
-          </div>
-        )}
-        {ventasPendientesCobro > 0 && (
-          <div className="alert-card info">
-            <div className="alert-icon"><Wallet size={24} /></div>
-            <div className="alert-content">
-              <strong>Cobros pendientes</strong>
-              <button>Ver ventas</button>
-            </div>
-          </div>
-        )}
-      </div>
-
-      <div className="dashboard-grid">
-        {/* SECCIÓN 1 - RESUMEN FINANCIERO */}
-        <ExpandableCard
-          title={
-            <div className="dash-card-title-content">
-              <span className="dash-icon" style={{ background: '#e0f2fe', color: '#0284c7' }}><Wallet size={20} /></span>
-              Caja Actual
-            </div>
-          }
-          collapsedContent={
+            
             <div className="dash-metric">
-              <span className={`dash-metric-value ${currentBalance >= 0 ? 'positive' : 'negative'}`}>
-                {formatCurrency(currentBalance)}
+              <span style={{ 
+                fontSize: '24px', 
+                fontWeight: 700, 
+                color: 'var(--text-primary)', 
+                letterSpacing: '-0.02em',
+                wordBreak: 'break-all'
+              }}>
+                {card.value}
               </span>
-              <span className="dash-metric-label">Disponible</span>
             </div>
-          }
-          expandedContent={
-            <>
-              <div className="dash-metric-row">
-                <span className="dash-metric-label">Ingresos del Mes</span>
-                <span className="dash-metric-value positive">{formatCurrency(ingresosMes)}</span>
-              </div>
-              <div className="dash-metric-row">
-                <span className="dash-metric-label">Egresos del Mes</span>
-                <span className="dash-metric-value negative">{formatCurrency(egresosMes)}</span>
-              </div>
-              <div className="dash-metric-row">
-                <span className="dash-metric-label">Flujo Neto</span>
-                <span className={`dash-metric-value ${flujoNeto >= 0 ? 'positive' : 'negative'}`}>
-                  {formatCurrency(flujoNeto)}
-                </span>
-              </div>
-            </>
-          }
-        />
-
-        {/* SECCIÓN 2 - VENTAS */}
-        <ExpandableCard
-          title={
-            <div className="dash-card-title-content">
-              <span className="dash-icon" style={{ background: '#dcfce7', color: '#16a34a' }}><TrendingUp size={20} /></span>
-              Ventas del Mes
-            </div>
-          }
-          collapsedContent={
-            <div className="dash-metric">
-              <span className="dash-metric-value">{formatCurrency(ventasDelMes)}</span>
-              <span className="dash-metric-label positive">+ vs mes anterior</span>
-            </div>
-          }
-          expandedContent={
-            <>
-              <div className="dash-metric-row">
-                <span className="dash-metric-label">Cobradas</span>
-                <span className="dash-metric-value positive">{formatCurrency(ventasCobradas)}</span>
-              </div>
-              <div className="dash-metric-row">
-                <span className="dash-metric-label">Cta. Corriente</span>
-                <span className="dash-metric-value">{formatCurrency(cuentaCorrienteGeneradaVentas)}</span>
-              </div>
-              <div className="dash-metric-row">
-                <span className="dash-metric-label">Pendientes Cobro</span>
-                <span className="dash-metric-value negative">{formatCurrency(ventasPendientesCobro)}</span>
-              </div>
-            </>
-          }
-        />
-
-        {/* SECCIÓN 3 - COMPRAS */}
-        <ExpandableCard
-          title={
-            <div className="dash-card-title-content">
-              <span className="dash-icon" style={{ background: '#f3e8ff', color: '#9333ea' }}><ShoppingCart size={20} /></span>
-              Compras del Mes
-            </div>
-          }
-          collapsedContent={
-            <div className="dash-metric">
-              <span className="dash-metric-value">{formatCurrency(comprasDelMes)}</span>
-              <span className="dash-metric-label">Total en el mes</span>
-            </div>
-          }
-          expandedContent={
-            <>
-              <div className="dash-metric-row">
-                <span className="dash-metric-label">Pagadas</span>
-                <span className="dash-metric-value">{formatCurrency(comprasPagadasMes)}</span>
-              </div>
-              <div className="dash-metric-row">
-                <span className="dash-metric-label">En Cta. Corriente</span>
-                <span className="dash-metric-value">{formatCurrency(comprasCCMes)}</span>
-              </div>
-            </>
-          }
-        />
-
-        {/* SECCIÓN 4 - STOCK */}
-        <ExpandableCard
-          title={
-            <div className="dash-card-title-content">
-              <span className="dash-icon" style={{ background: '#ffedd5', color: '#ea580c' }}><Package size={20} /></span>
-              Stock Derivado
-            </div>
-          }
-          collapsedContent={
-            <div className="dash-metric">
-              <span className="dash-metric-value">{(stockMercaderias + stockInsumos + stockTerminados).toLocaleString('es-AR')}</span>
-              <span className="dash-metric-label">Ítems totales</span>
-            </div>
-          }
-          expandedContent={
-            <>
-              <div className="dash-metric-row">
-                <span className="dash-metric-label">Mercaderías</span>
-                <span className="dash-metric-value">{stockMercaderias.toLocaleString('es-AR')}</span>
-              </div>
-              <div className="dash-metric-row">
-                <span className="dash-metric-label">Insumos</span>
-                <span className="dash-metric-value">{stockInsumos.toLocaleString('es-AR')}</span>
-              </div>
-              <div className="dash-metric-row">
-                <span className="dash-metric-label">Terminados</span>
-                <span className="dash-metric-value">{stockTerminados.toLocaleString('es-AR')}</span>
-              </div>
-            </>
-          }
-        />
-
-        {/* SECCIÓN 5 - PROVEEDORES */}
-        <ExpandableCard
-          title={
-            <div className="dash-card-title-content">
-              <span className="dash-icon" style={{ background: '#fee2e2', color: '#dc2626' }}><Truck size={20} /></span>
-              Proveedores
-            </div>
-          }
-          collapsedContent={
-            <div className="dash-metric">
-              <span className="dash-metric-value negative">{formatCurrency(deudaTotalProveedores)}</span>
-              <span className="dash-metric-label">Deuda Total</span>
-            </div>
-          }
-          expandedContent={
-            <>
-              <div className="dash-metric-row">
-                <span className="dash-metric-label">Pagos del Mes</span>
-                <span className="dash-metric-value positive">{formatCurrency(pagosRealizadosMes)}</span>
-              </div>
-              <div className="dash-metric-row">
-                <span className="dash-metric-label">Movs. Mes</span>
-                <span className="dash-metric-value">{movsProveedoresMes}</span>
-              </div>
-            </>
-          }
-        />
-
-        {/* SECCIÓN 6 - CLIENTES */}
-        <ExpandableCard
-          title={
-            <div className="dash-card-title-content">
-              <span className="dash-icon" style={{ background: '#e0e7ff', color: '#4f46e5' }}><Users size={20} /></span>
-              Clientes
-            </div>
-          }
-          collapsedContent={
-            <div className="dash-metric">
-              <span className="dash-metric-value positive">{formatCurrency(deudaTotalClientes)}</span>
-              <span className="dash-metric-label">Deuda a Favor</span>
-            </div>
-          }
-          expandedContent={
-            <>
-              <div className="dash-metric-row">
-                <span className="dash-metric-label">Clientes Activos</span>
-                <span className="dash-metric-value">{clientesActivos}</span>
-              </div>
-              <div className="dash-metric-row">
-                <span className="dash-metric-label">Movs. Mes</span>
-                <span className="dash-metric-value">{movsClientesMes}</span>
-              </div>
-            </>
-          }
-        />
+          </div>
+        ))}
       </div>
     </div>
   );
