@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { proveedoresRepository } from '../repositories/proveedoresRepository';
+import { proveedoresRepository } from '../repositories/proveedores/proveedoresRepository';
 import type { Supplier, SupplierMovement } from '../types/domain';
 
 interface ProveedoresState {

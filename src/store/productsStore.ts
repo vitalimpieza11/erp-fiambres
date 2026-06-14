@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { productsRepository } from '../repositories/productsRepository';
+import { productsRepository } from '../repositories/stock/productsRepository';
 import type { Product } from '../types/domain';
 
 interface ProductsState {

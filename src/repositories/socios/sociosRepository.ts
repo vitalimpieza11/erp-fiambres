@@ -1,6 +1,6 @@
 import { collection, onSnapshot, query, where, doc, setDoc } from 'firebase/firestore';
-import { db } from '../lib/firebase';
-import type { Shareholder, ShareholderMovement, CajaMovement } from '../types/domain';
+import { db } from '../../lib/firebase';
+import type { Shareholder, ShareholderMovement, CajaMovement } from '../../types/domain';
 
 export const sociosRepository = {
   subscribeShareholders(onData: (shareholders: Shareholder[]) => void): () => void {

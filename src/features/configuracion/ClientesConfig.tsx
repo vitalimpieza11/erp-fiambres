@@ -6,6 +6,8 @@ import ExpandableCard from '../../components/ExpandableCard';
 import RightPanel from '../../components/RightPanel';
 import { Users, Edit3, Power, PowerOff } from 'lucide-react';
 
+import LoadingSpinner from '../../components/LoadingSpinner';
+
 export default function ClientesConfig() {
   const [clientes, setClientes] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(true);
@@ -65,7 +67,7 @@ export default function ClientesConfig() {
     c.cuit?.includes(searchTerm)
   );
 
-  if (loading) return <div className="loading-container"><div className="spinner"></div><p>Cargando clientes...</p></div>;
+  if (loading) return <LoadingSpinner message="Cargando clientes..." />;
 
   return (
     <div>

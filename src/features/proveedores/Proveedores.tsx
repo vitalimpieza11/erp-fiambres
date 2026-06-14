@@ -1,185 +1,63 @@
-import { useState } from 'react';
+import React from 'react';
 import { useProveedores } from './useProveedores';
-import type { Supplier, SupplierMovement } from '../../types/domain';
+import type { Supplier } from '../../types/domain';
 import ExpandableCard from '../../components/ExpandableCard';
 import RightPanel from '../../components/RightPanel';
-import { Truck, DollarSign, Activity, FileText, Plus, Edit, Phone, Mail, MapPin, Check, X } from 'lucide-react';
-
-const formatCurrency = (val: number) => 
-  new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(val);
-
-const formatDate = (dateStr: any) => {
-  if (!dateStr) return 'S/D';
-  const d = new Date(dateStr);
-  return isNaN(d.getTime()) ? 'S/D' : d.toLocaleDateString();
-};
+import { Plus, Edit, Phone, Mail, MapPin } from 'lucide-react';
+import { formatCurrency, formatDate } from '../../lib/formatters';
+import LoadingSpinner from '../../components/LoadingSpinner';
+import FilterBar from '../../components/FilterBar';
 
 export default function Proveedores() {
   const {
     suppliers,
     movements,
     loading,
-    registerCompra,
-    registerPago,
-    registerAjuste,
-    annulMovement,
     getCalculatedBalance,
-    saveSupplier,
-    toggleSupplierStatus
+    searchTerm,
+    setSearchTerm,
+    statusFilter,
+    setStatusFilter,
+    showPanel,
+    selectedSupplierId,
+    supplierName,
+    setSupplierName,
+    supplierRazonSocial,
+    setSupplierRazonSocial,
+    supplierCuit,
+    setSupplierCuit,
+    supplierTelefono,
+    setSupplierTelefono,
+    supplierEmail,
+    setSupplierEmail,
+    supplierDireccion,
+    setSupplierDireccion,
+    supplierObservaciones,
+    setSupplierObservaciones,
+    supplierActivo,
+    setSupplierActivo,
+    amount,
+    setAmount,
+    date,
+    setDate,
+    sourceId,
+    setSourceId,
+    observaciones,
+    setObservaciones,
+    fromCaja,
+    setFromCaja,
+    handleOpenTransactionPanel,
+    handleOpenNewSupplier,
+    handleOpenEditSupplier,
+    handleClosePanel,
+    handleSubmit,
+    handleToggleStatus,
+    handleAnnul,
+    filteredSuppliers
   } = useProveedores();
 
-  const [searchTerm, setSearchTerm] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('active');
-  
-  const [showPanel, setShowPanel] = useState<false | 'COMPRA' | 'PAGO' | 'AJUSTE' | 'NEW_SUPPLIER' | 'EDIT_SUPPLIER'>(false);
-  const [selectedSupplierId, setSelectedSupplierId] = useState<string>('');
-  
-  // Supplier Form states
-  const [supplierName, setSupplierName] = useState('');
-  const [supplierRazonSocial, setSupplierRazonSocial] = useState('');
-  const [supplierCuit, setSupplierCuit] = useState('');
-  const [supplierTelefono, setSupplierTelefono] = useState('');
-  const [supplierEmail, setSupplierEmail] = useState('');
-  const [supplierDireccion, setSupplierDireccion] = useState('');
-  const [supplierObservaciones, setSupplierObservaciones] = useState('');
-  const [supplierActivo, setSupplierActivo] = useState(true);
-
-  // CC Movement Form states
-  const [amount, setAmount] = useState<number | ''>('');
-  const [date, setDate] = useState<string>(new Date().toISOString().split('T')[0]);
-  const [sourceId, setSourceId] = useState<string>('');
-  const [observaciones, setObservaciones] = useState<string>('');
-  const [fromCaja, setFromCaja] = useState<boolean>(true);
-
-  const handleOpenTransactionPanel = (supplierId: string, type: 'COMPRA' | 'PAGO' | 'AJUSTE') => {
-    setSelectedSupplierId(supplierId);
-    setShowPanel(type);
-    setAmount('');
-    setDate(new Date().toISOString().split('T')[0]);
-    setSourceId('');
-    setObservaciones('');
-    setFromCaja(true);
-  };
-
-  const handleOpenNewSupplier = () => {
-    setShowPanel('NEW_SUPPLIER');
-    setSelectedSupplierId('');
-    setSupplierName('');
-    setSupplierRazonSocial('');
-    setSupplierCuit('');
-    setSupplierTelefono('');
-    setSupplierEmail('');
-    setSupplierDireccion('');
-    setSupplierObservaciones('');
-    setSupplierActivo(true);
-  };
-
-  const handleOpenEditSupplier = (e: React.MouseEvent, supplier: Supplier) => {
-    e.stopPropagation();
-    setShowPanel('EDIT_SUPPLIER');
-    setSelectedSupplierId(supplier.id);
-    setSupplierName(supplier.nombre);
-    setSupplierRazonSocial(supplier.razonSocial || '');
-    setSupplierCuit(supplier.cuit || '');
-    setSupplierTelefono(supplier.telefono || '');
-    setSupplierEmail(supplier.email || '');
-    setSupplierDireccion(supplier.direccion || '');
-    setSupplierObservaciones(supplier.observaciones || '');
-    setSupplierActivo(supplier.activo);
-  };
-
-  const handleClosePanel = () => {
-    setShowPanel(false);
-    setSelectedSupplierId('');
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-
-    if (showPanel === 'NEW_SUPPLIER' || showPanel === 'EDIT_SUPPLIER') {
-      if (!supplierName.trim()) {
-        alert("El nombre comercial es obligatorio.");
-        return;
-      }
-      try {
-        const supplierData: Partial<Supplier> = {
-          nombre: supplierName,
-          razonSocial: supplierRazonSocial,
-          cuit: supplierCuit,
-          telefono: supplierTelefono,
-          email: supplierEmail,
-          direccion: supplierDireccion,
-          observaciones: supplierObservaciones,
-          activo: supplierActivo
-        };
-        if (selectedSupplierId) {
-          supplierData.id = selectedSupplierId;
-        }
-        await saveSupplier(supplierData);
-        handleClosePanel();
-      } catch (error) {
-        console.error("Error al guardar proveedor:", error);
-        alert("No se pudo guardar el proveedor.");
-      }
-      return;
-    }
-
-    if (!amount || typeof amount !== 'number') return;
-
-    try {
-      if (showPanel === 'COMPRA') {
-        await registerCompra(selectedSupplierId, amount, date, sourceId, observaciones);
-      } else if (showPanel === 'PAGO') {
-        await registerPago(selectedSupplierId, amount, date, sourceId, observaciones, fromCaja);
-      } else if (showPanel === 'AJUSTE') {
-        await registerAjuste(selectedSupplierId, amount, date, observaciones);
-      }
-      handleClosePanel();
-    } catch (error) {
-      console.error("Error registrando movimiento:", error);
-      alert("Error al registrar movimiento.");
-    }
-  };
-
-  const handleToggleStatus = async (e: React.MouseEvent, supplier: Supplier) => {
-    e.stopPropagation();
-    try {
-      await toggleSupplierStatus(supplier.id, supplier.activo);
-    } catch (error) {
-      console.error("Error al cambiar estado de proveedor:", error);
-    }
-  };
-
-  const handleAnnul = async (movId: string) => {
-    const reason = prompt("Ingrese el motivo de anulación:");
-    if (!reason || !reason.trim()) return;
-    
-    try {
-      await annulMovement(movId, reason);
-    } catch (error) {
-      console.error("Error al anular:", error);
-      alert("No se pudo anular el movimiento.");
-    }
-  };
-
-  const filteredSuppliers = suppliers.filter(s => {
-    const matchesSearch = 
-      s.nombre.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (s.cuit && s.cuit.includes(searchTerm)) ||
-      (s.razonSocial && s.razonSocial.toLowerCase().includes(searchTerm.toLowerCase()));
-    
-    if (statusFilter === 'active') return matchesSearch && s.activo;
-    if (statusFilter === 'inactive') return matchesSearch && !s.activo;
-    return matchesSearch;
-  });
-
   if (loading && suppliers.length === 0) {
-    return (
-      <div className="loading-container">
-        <div className="spinner"></div>
-        <p>Cargando proveedores...</p>
-      </div>
-    );
+    return <LoadingSpinner message="Cargando proveedores..." />;
   }
 
   return (
@@ -191,55 +69,13 @@ export default function Proveedores() {
         </button>
       </div>
 
-      {/* Top filters */}
-      <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', marginBottom: '24px' }}>
-        <input 
-          type="text" 
-          placeholder="Buscar proveedor por nombre, razón social o CUIT..." 
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-          style={{ flex: 1, minWidth: '280px', maxWidth: '400px' }}
-        />
-
-        <div style={{ display: 'flex', gap: '4px', background: '#e5e7eb', padding: '4px', borderRadius: '12px' }}>
-          <button 
-            type="button" 
-            onClick={() => setStatusFilter('active')}
-            style={{
-              padding: '8px 16px', fontSize: '13px', borderRadius: '10px',
-              backgroundColor: statusFilter === 'active' ? '#fff' : 'transparent',
-              color: statusFilter === 'active' ? 'var(--text-primary)' : 'var(--text-secondary)',
-              boxShadow: statusFilter === 'active' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none'
-            }}
-          >
-            Activos
-          </button>
-          <button 
-            type="button" 
-            onClick={() => setStatusFilter('inactive')}
-            style={{
-              padding: '8px 16px', fontSize: '13px', borderRadius: '10px',
-              backgroundColor: statusFilter === 'inactive' ? '#fff' : 'transparent',
-              color: statusFilter === 'inactive' ? 'var(--text-primary)' : 'var(--text-secondary)',
-              boxShadow: statusFilter === 'inactive' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none'
-            }}
-          >
-            Inactivos
-          </button>
-          <button 
-            type="button" 
-            onClick={() => setStatusFilter('all')}
-            style={{
-              padding: '8px 16px', fontSize: '13px', borderRadius: '10px',
-              backgroundColor: statusFilter === 'all' ? '#fff' : 'transparent',
-              color: statusFilter === 'all' ? 'var(--text-primary)' : 'var(--text-secondary)',
-              boxShadow: statusFilter === 'all' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none'
-            }}
-          >
-            Todos
-          </button>
-        </div>
-      </div>
+      <FilterBar
+        searchTerm={searchTerm}
+        onSearchChange={setSearchTerm}
+        searchPlaceholder="Buscar proveedor por nombre, razón social o CUIT..."
+        statusFilter={statusFilter}
+        onStatusFilterChange={setStatusFilter}
+      />
       
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(400px, 1fr))', gap: '24px' }}>
         {filteredSuppliers.length === 0 ? (

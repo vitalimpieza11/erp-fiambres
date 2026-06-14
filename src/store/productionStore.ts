@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { productionRepository } from '../repositories/productionRepository';
+import { productionRepository } from '../repositories/produccion/productionRepository';
 import type { Order, Product, Equivalencia, StockMovement } from '../types/domain';
 
 interface ProductionState {

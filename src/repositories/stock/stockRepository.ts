@@ -1,6 +1,6 @@
 import { getDocs, query, where, doc, runTransaction, collection, orderBy, limit } from 'firebase/firestore';
-import { db, COLLECTIONS } from '../lib/firebase';
-import type { Product, StockMovement, Equivalencia } from '../types/domain';
+import { db, COLLECTIONS } from '../../lib/firebase';
+import type { Product, StockMovement, Equivalencia } from '../../types/domain';
 
 export const stockRepository = {
   async fetchStockData(): Promise<{

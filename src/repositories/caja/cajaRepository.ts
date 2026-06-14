@@ -1,6 +1,6 @@
 import { collection, onSnapshot, query, where, doc, setDoc, orderBy, limit } from 'firebase/firestore';
-import { db, COLLECTIONS } from '../lib/firebase';
-import type { CajaMovement } from '../types/domain';
+import { db, COLLECTIONS } from '../../lib/firebase';
+import type { CajaMovement } from '../../types/domain';
 
 export const cajaRepository = {
   subscribeMovements(onData: (movements: CajaMovement[]) => void): () => void {

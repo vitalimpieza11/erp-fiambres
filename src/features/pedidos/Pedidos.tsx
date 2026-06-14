@@ -13,9 +13,11 @@ const STATUS_COLORS: Record<OrderStatus, string> = {
   ANULADO: '#ef4444'
 };
 
+import LoadingSpinner from '../../components/LoadingSpinner';
+
 export default function Pedidos() {
   const { pedidos, clientes, productos, loading, savePedido, deletePedido, changeStatus, getProductPrice } = usePedidos();
-  
+
   const [isEditing, setIsEditing] = useState(false);
   const [currentPedido, setCurrentPedido] = useState<Partial<Order>>({});
   
@@ -142,7 +144,7 @@ export default function Pedidos() {
     }).sort((a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime());
   }, [pedidos, clientes, searchTerm, filterCliente, filterEstado, filterFecha]);
 
-  if (loading) return <div className="loading-container"><div className="spinner"></div><p>Cargando módulo de pedidos...</p></div>;
+  if (loading) return <LoadingSpinner message="Cargando módulo de pedidos..." />;
 
   return (
     <div>

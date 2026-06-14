@@ -10,6 +10,8 @@ import {
   PiggyBank,
   Percent
 } from 'lucide-react';
+import { formatCurrency } from '../../lib/formatters';
+import LoadingSpinner from '../../components/LoadingSpinner';
 import './Dashboard.css';
 
 export default function Dashboard() {
@@ -23,9 +25,7 @@ export default function Dashboard() {
     loading
   } = useDashboardCache();
 
-  // FORMATTER
-  const formatCurrency = (val: number) => 
-    new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(val);
+
 
   // DATES
   const today = new Date();
@@ -115,14 +115,7 @@ export default function Dashboard() {
     return ventasDelMes - costosDelMes;
   }, [ventasDelMes, costosDelMes]);
 
-  if (loading) {
-    return (
-      <div className="loading-container">
-        <div className="spinner"></div>
-        <p>Sincronizando capa operativa del ERP...</p>
-      </div>
-    );
-  }
+  if (loading) return <LoadingSpinner message="Sincronizando capa operativa del ERP..." />;
 
   const cardsData = [
     {

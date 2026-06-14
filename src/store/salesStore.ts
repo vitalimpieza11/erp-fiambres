@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { salesRepository } from '../repositories/salesRepository';
+import { salesRepository } from '../repositories/ventas/salesRepository';
 import type { Sale, Order, Customer, Product, SaleItem } from '../types/domain';
 
 interface SalesState {

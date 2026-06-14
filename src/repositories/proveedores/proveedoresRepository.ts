@@ -1,6 +1,6 @@
 import { collection, onSnapshot, query, where, doc, setDoc, getDocs, orderBy, limit } from 'firebase/firestore';
-import { db, COLLECTIONS } from '../lib/firebase';
-import type { Supplier, SupplierMovement, CajaMovement } from '../types/domain';
+import { db, COLLECTIONS } from '../../lib/firebase';
+import type { Supplier, SupplierMovement, CajaMovement } from '../../types/domain';
 
 export const proveedoresRepository = {
   subscribeSuppliers(onData: (suppliers: Supplier[]) => void): () => void {

@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { clientesRepository } from '../repositories/clientesRepository';
+import { clientesRepository } from '../repositories/clientes/clientesRepository';
 import type { Customer, CustomerMovement, PriceList, Order, Sale } from '../types/domain';
 
 interface ClientesState {

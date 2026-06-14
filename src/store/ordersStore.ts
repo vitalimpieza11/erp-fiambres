@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { ordersRepository } from '../repositories/ordersRepository';
+import { ordersRepository } from '../repositories/pedidos/ordersRepository';
 import type { Order, Customer, Product, PriceList } from '../types/domain';
 
 interface OrdersState {

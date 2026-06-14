@@ -6,6 +6,8 @@ import RightPanel from '../../components/RightPanel';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { FileText, DollarSign, XCircle, Edit3 } from 'lucide-react';
+import LoadingSpinner from '../../components/LoadingSpinner';
+import { createAlvacioPDF } from '../../lib/pdfHelper';
 
 const STATUS_COLORS: Record<string, string> = {
   FACTURADO: '#f59e0b',
@@ -31,32 +33,24 @@ export default function Ventas() {
   const [searchTerm, setSearchTerm] = useState('');
 
   const generateRemitoPDF = (sale: Sale) => {
-    const doc = new jsPDF();
+    const doc = createAlvacioPDF('REMITO COMERCIAL');
     const customer = customers.find(c => c.id === sale.customerId);
     
-    // Header
-    doc.setFontSize(26);
-    doc.setFont("helvetica", "bold");
-    doc.text('ALVACÍO', 105, 20, { align: 'center' });
-    doc.setFontSize(14);
-    doc.setFont("helvetica", "normal");
-    doc.text('REMITO COMERCIAL', 105, 28, { align: 'center' });
-    
     doc.setFontSize(10);
-    doc.text(`Fecha: ${new Date(sale.date).toLocaleDateString()}`, 15, 38);
-    doc.text(`Comprobante N°: ${sale.id.slice(-6).toUpperCase()}`, 15, 43);
+    doc.text(`Fecha: ${new Date(sale.date).toLocaleDateString()}`, 15, 42);
+    doc.text(`Comprobante N°: ${sale.id.slice(-6).toUpperCase()}`, 15, 47);
     
     // Customer Info
-    doc.rect(15, 48, 180, 30);
+    doc.rect(15, 52, 180, 30);
     doc.setFontSize(12);
     doc.setFont("helvetica", "bold");
-    doc.text('Datos del Cliente', 20, 55);
+    doc.text('Datos del Cliente', 20, 59);
     doc.setFont("helvetica", "normal");
     doc.setFontSize(10);
-    doc.text(`Nombre: ${customer?.nombre || 'Consumidor Final'}`, 20, 63);
-    doc.text(`Dirección: ${customer?.direccion || '-'}`, 20, 69);
-    doc.text(`Teléfono: ${customer?.telefono || '-'}`, 20, 75);
-
+    doc.text(`Nombre: ${customer?.nombre || 'Consumidor Final'}`, 20, 67);
+    doc.text(`Dirección: ${customer?.direccion || '-'}`, 20, 73);
+    doc.text(`Teléfono: ${customer?.telefono || '-'}`, 20, 79);
+    
     // Items table
     const tableData = sale.items.map(item => {
       const prod = products.find(p => p.id === item.productId);
@@ -69,7 +63,7 @@ export default function Ventas() {
     });
 
     autoTable(doc, {
-      startY: 85,
+      startY: 87,
       head: [['Producto', 'Cantidad', 'Precio Unit.', 'Subtotal']],
       body: tableData,
       theme: 'grid',
@@ -199,7 +193,7 @@ export default function Ventas() {
     return orders.filter(o => o.status === 'ENTREGADO' || o.status === 'PRODUCIDO');
   }, [orders]);
 
-  if (loading) return <div className="loading-container"><div className="spinner"></div><p>Cargando módulo de ventas...</p></div>;
+  if (loading) return <LoadingSpinner message="Cargando módulo de ventas..." />;
 
   return (
     <div>

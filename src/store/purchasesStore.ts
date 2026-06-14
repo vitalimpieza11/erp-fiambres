@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { purchasesRepository } from '../repositories/purchasesRepository';
+import { purchasesRepository } from '../repositories/compras/purchasesRepository';
 import type { Purchase } from '../types/domain';
 
 interface PurchasesState {

@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { stockRepository } from '../repositories/stockRepository';
+import { stockRepository } from '../repositories/stock/stockRepository';
 import type { Product, StockMovement, Equivalencia } from '../types/domain';
 
 interface StockState {

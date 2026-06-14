@@ -1,6 +1,6 @@
 import { getDocs, addDoc, updateDoc, doc, query, where, collection, runTransaction } from 'firebase/firestore';
-import { db, COLLECTIONS } from '../lib/firebase';
-import type { Customer, CustomerMovement, PriceList, Order, Sale } from '../types/domain';
+import { db, COLLECTIONS } from '../../lib/firebase';
+import type { Customer, CustomerMovement, PriceList, Order, Sale } from '../../types/domain';
 
 export const clientesRepository = {
   async fetchClientesData(): Promise<{

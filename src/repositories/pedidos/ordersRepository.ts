@@ -1,6 +1,6 @@
 import { getDocs, addDoc, updateDoc, doc, query, where } from 'firebase/firestore';
-import { db, COLLECTIONS } from '../lib/firebase';
-import type { Order, Customer, Product, PriceList } from '../types/domain';
+import { db, COLLECTIONS } from '../../lib/firebase';
+import type { Order, Customer, Product, PriceList } from '../../types/domain';
 
 export const ordersRepository = {
   async fetchOrdersData(): Promise<{

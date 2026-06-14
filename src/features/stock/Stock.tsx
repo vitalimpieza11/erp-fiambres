@@ -4,6 +4,8 @@ import ExpandableCard from '../../components/ExpandableCard';
 import RightPanel from '../../components/RightPanel';
 import { Package, Activity, AlertCircle, AlertTriangle, TrendingUp } from 'lucide-react';
 
+import LoadingSpinner from '../../components/LoadingSpinner';
+
 export default function Stock() {
   const { products, movements, loading, getCapacityData, registerAdjustment } = useStock();
 
@@ -69,7 +71,7 @@ export default function Stock() {
     }
   };
 
-  if (loading) return <div className="loading-container"><div className="spinner"></div><p>Cargando módulo de stock...</p></div>;
+  if (loading) return <LoadingSpinner message="Cargando módulo de stock..." />;
 
   return (
     <div>

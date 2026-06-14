@@ -1,6 +1,6 @@
 import { collection, onSnapshot, query, where, doc, setDoc, orderBy, limit } from 'firebase/firestore';
-import { db, COLLECTIONS } from '../lib/firebase';
-import type { Purchase, StockMovement, CajaMovement, SupplierMovement } from '../types/domain';
+import { db, COLLECTIONS } from '../../lib/firebase';
+import type { Purchase, StockMovement, CajaMovement, SupplierMovement } from '../../types/domain';
 
 export const purchasesRepository = {
   subscribePurchases(onData: (purchases: Purchase[]) => void): () => void {

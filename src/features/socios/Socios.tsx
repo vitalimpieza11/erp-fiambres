@@ -1,193 +1,55 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { useSocios } from './useSocios';
-import type { Shareholder, ShareholderMovement } from '../../types/domain';
+import type { MovFormType } from './useSocios';
+import type { Shareholder } from '../../types/domain';
 import ExpandableCard from '../../components/ExpandableCard';
 import RightPanel from '../../components/RightPanel';
-import { Users, TrendingUp, TrendingDown, RotateCcw, Plus, Edit, User, BarChart2, Check, X } from 'lucide-react';
-
-const formatCurrency = (val: number) => 
-  new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(val);
-
-const formatDate = (dateStr: any) => {
-  if (!dateStr) return 'S/D';
-  const d = new Date(dateStr);
-  return isNaN(d.getTime()) ? 'S/D' : d.toLocaleDateString();
-};
-
-const formatTime = (dateStr: any) => {
-  if (!dateStr) return '';
-  const d = new Date(dateStr);
-  return isNaN(d.getTime()) ? '' : d.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' });
-};
+import { TrendingUp, TrendingDown, Plus, Edit } from 'lucide-react';
+import { formatCurrency, formatDate, formatTime } from '../../lib/formatters';
+import LoadingSpinner from '../../components/LoadingSpinner';
+import FilterBar from '../../components/FilterBar';
 
 export default function Socios() {
   const { 
     shareholders, 
     movements, 
     loading, 
-    addMovement, 
-    annulMovement, 
     getBalance,
-    saveShareholder,
-    toggleShareholderStatus 
+    searchTerm,
+    setSearchTerm,
+    statusFilter,
+    setStatusFilter,
+    panelMode,
+    selectedShareholderId,
+    socioName,
+    setSocioName,
+    socioType,
+    setSocioType,
+    socioPercentage,
+    setSocioPercentage,
+    socioActivo,
+    setSocioActivo,
+    movType,
+    amount,
+    setAmount,
+    description,
+    setDescription,
+    impactCaja,
+    setImpactCaja,
+    handleOpenNewSocio,
+    handleOpenEditSocio,
+    handleOpenMovementPanel,
+    handleMovTypeChange,
+    handleClosePanel,
+    handleSubmit,
+    handleToggleStatus,
+    handleAnnul,
+    filteredShareholders
   } = useSocios();
-  
-  // Search and status filters
-  const [searchTerm, setSearchTerm] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('active');
-
-  // RightPanel state
-  const [panelMode, setPanelMode] = useState<'NEW_SOCIO' | 'EDIT_SOCIO' | 'MOVEMENT' | null>(null);
-  const [selectedShareholderId, setSelectedShareholderId] = useState<string>('');
-  
-  // Partner Form State
-  const [socioName, setSocioName] = useState('');
-  const [socioType, setSocioType] = useState<'ACTIVO' | 'INVERSOR' | 'OPERATIVO'>('ACTIVO');
-  const [socioPercentage, setSocioPercentage] = useState<number | ''>('');
-  const [socioActivo, setSocioActivo] = useState(true);
-
-  // Movement Form State
-  type MovFormType = 'APORTE_INICIAL' | 'APORTE_OPERATIVO' | 'RETIRO' | 'AJUSTE';
-  const [movType, setMovType] = useState<MovFormType>('APORTE_INICIAL');
-  const [amount, setAmount] = useState<number | ''>('');
-  const [description, setDescription] = useState('');
-  const [impactCaja, setImpactCaja] = useState<boolean>(true);
 
   if (loading && shareholders.length === 0) {
-    return (
-      <div className="loading-container">
-        <div className="spinner"></div>
-        <p>Cargando socios...</p>
-      </div>
-    );
+    return <LoadingSpinner message="Cargando socios..." />;
   }
-
-  const handleOpenNewSocio = () => {
-    setPanelMode('NEW_SOCIO');
-    setSelectedShareholderId('');
-    setSocioName('');
-    setSocioType('ACTIVO');
-    setSocioPercentage('');
-    setSocioActivo(true);
-  };
-
-  const handleOpenEditSocio = (e: React.MouseEvent, socio: Shareholder) => {
-    e.stopPropagation();
-    setPanelMode('EDIT_SOCIO');
-    setSelectedShareholderId(socio.id);
-    setSocioName(socio.nombre);
-    setSocioType(socio.type);
-    setSocioPercentage(socio.participacionPorcentaje);
-    setSocioActivo(socio.activo);
-  };
-
-  const handleOpenMovementPanel = (socioId: string, defaultType: MovFormType) => {
-    setSelectedShareholderId(socioId);
-    setMovType(defaultType);
-    setAmount('');
-    setDescription('');
-    
-    if (defaultType === 'APORTE_INICIAL') setImpactCaja(true);
-    if (defaultType === 'APORTE_OPERATIVO') setImpactCaja(false);
-    if (defaultType === 'RETIRO') setImpactCaja(true);
-    if (defaultType === 'AJUSTE') setImpactCaja(false);
-    
-    setPanelMode('MOVEMENT');
-  };
-
-  const handleMovTypeChange = (type: MovFormType) => {
-    setMovType(type);
-    if (type === 'APORTE_INICIAL') setImpactCaja(true);
-    if (type === 'RETIRO') setImpactCaja(true);
-    if (type === 'AJUSTE') setImpactCaja(false);
-  };
-
-  const handleClosePanel = () => {
-    setPanelMode(null);
-    setSelectedShareholderId('');
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-
-    if (panelMode === 'NEW_SOCIO' || panelMode === 'EDIT_SOCIO') {
-      if (!socioName.trim()) {
-        alert("El nombre del socio es obligatorio.");
-        return;
-      }
-      try {
-        const socioData: Partial<Shareholder> = {
-          nombre: socioName,
-          type: socioType,
-          participacionPorcentaje: Number(socioPercentage || 0),
-          activo: socioActivo
-        };
-        if (selectedShareholderId) {
-          socioData.id = selectedShareholderId;
-        }
-        await saveShareholder(socioData);
-        handleClosePanel();
-      } catch (error) {
-        console.error("Error al guardar socio:", error);
-        alert("No se pudo guardar el socio.");
-      }
-      return;
-    }
-
-    if (!amount || amount <= 0 || !selectedShareholderId) return;
-
-    let sourceType: 'APORTE' | 'RETIRO' | 'AJUSTE' = 'APORTE';
-    if (movType === 'RETIRO') sourceType = 'RETIRO';
-    if (movType === 'AJUSTE') sourceType = 'AJUSTE';
-
-    let cajaCategory = 'SOCIOS';
-    if (movType === 'APORTE_INICIAL') cajaCategory = 'Aporte Inicial de Socio';
-    if (movType === 'APORTE_OPERATIVO') cajaCategory = 'Aporte Operativo de Socio';
-    if (movType === 'RETIRO') cajaCategory = 'Distribución / Retiro de Socio';
-
-    try {
-      await addMovement({
-        shareholderId: selectedShareholderId,
-        sourceType,
-        amount: Number(amount),
-        description: description || movType.replace('_', ' '),
-        impactCaja,
-        cajaCategory
-      });
-      handleClosePanel();
-    } catch (error) {
-      console.error("Error al registrar movimiento:", error);
-      alert("Error al registrar movimiento.");
-    }
-  };
-
-  const handleToggleStatus = async (e: React.MouseEvent, socio: Shareholder) => {
-    e.stopPropagation();
-    try {
-      await toggleShareholderStatus(socio.id, socio.activo);
-    } catch (error) {
-      console.error("Error al cambiar estado de socio:", error);
-    }
-  };
-
-  const handleAnnul = async (id: string) => {
-    const reason = window.prompt("Motivo de anulación:");
-    if (!reason || !reason.trim()) return;
-    try {
-      await annulMovement(id, reason);
-    } catch (error) {
-      console.error("Error al anular movimiento:", error);
-      alert("No se pudo anular el movimiento.");
-    }
-  };
-
-  // Filter partners
-  const filteredShareholders = shareholders.filter(s => {
-    const matchesSearch = s.nombre.toLowerCase().includes(searchTerm.toLowerCase());
-    if (statusFilter === 'active') return matchesSearch && s.activo;
-    if (statusFilter === 'inactive') return matchesSearch && !s.activo;
-    return matchesSearch;
-  });
 
   return (
     <div>
@@ -201,55 +63,13 @@ export default function Socios() {
         </button>
       </div>
 
-      {/* Top filters */}
-      <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', marginBottom: '24px' }}>
-        <input 
-          type="text" 
-          placeholder="Buscar socio por nombre..." 
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-          style={{ flex: 1, minWidth: '280px', maxWidth: '400px' }}
-        />
-
-        <div style={{ display: 'flex', gap: '4px', background: '#e5e7eb', padding: '4px', borderRadius: '12px' }}>
-          <button 
-            type="button" 
-            onClick={() => setStatusFilter('active')}
-            style={{
-              padding: '8px 16px', fontSize: '13px', borderRadius: '10px',
-              backgroundColor: statusFilter === 'active' ? '#fff' : 'transparent',
-              color: statusFilter === 'active' ? 'var(--text-primary)' : 'var(--text-secondary)',
-              boxShadow: statusFilter === 'active' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none'
-            }}
-          >
-            Activos
-          </button>
-          <button 
-            type="button" 
-            onClick={() => setStatusFilter('inactive')}
-            style={{
-              padding: '8px 16px', fontSize: '13px', borderRadius: '10px',
-              backgroundColor: statusFilter === 'inactive' ? '#fff' : 'transparent',
-              color: statusFilter === 'inactive' ? 'var(--text-primary)' : 'var(--text-secondary)',
-              boxShadow: statusFilter === 'inactive' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none'
-            }}
-          >
-            Inactivos
-          </button>
-          <button 
-            type="button" 
-            onClick={() => setStatusFilter('all')}
-            style={{
-              padding: '8px 16px', fontSize: '13px', borderRadius: '10px',
-              backgroundColor: statusFilter === 'all' ? '#fff' : 'transparent',
-              color: statusFilter === 'all' ? 'var(--text-primary)' : 'var(--text-secondary)',
-              boxShadow: statusFilter === 'all' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none'
-            }}
-          >
-            Todos
-          </button>
-        </div>
-      </div>
+      <FilterBar
+        searchTerm={searchTerm}
+        onSearchChange={setSearchTerm}
+        searchPlaceholder="Buscar socio por nombre..."
+        statusFilter={statusFilter}
+        onStatusFilterChange={setStatusFilter}
+      />
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(350px, 1fr))', gap: '24px' }}>
         {filteredShareholders.length === 0 ? (

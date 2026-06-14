@@ -5,6 +5,8 @@ import ExpandableCard from '../../components/ExpandableCard';
 import RightPanel from '../../components/RightPanel';
 import { Package, Clock, Activity, CheckCircle, RotateCcw } from 'lucide-react';
 
+import LoadingSpinner from '../../components/LoadingSpinner';
+
 export default function Produccion() {
   const { orders, products, movements, loading, getCapacity, produce, revertMovement } = useProduccion();
 
@@ -88,7 +90,7 @@ export default function Produccion() {
     setShowPanel(true);
   };
 
-  if (loading) return <div className="loading-container"><div className="spinner"></div><p>Cargando módulo de producción...</p></div>;
+  if (loading) return <LoadingSpinner message="Cargando módulo de producción..." />;
 
   return (
     <div>

@@ -1,6 +1,6 @@
 import { getDocs, addDoc, updateDoc, doc } from 'firebase/firestore';
-import { db, COLLECTIONS } from '../lib/firebase';
-import type { Product, UnitType } from '../types/domain';
+import { db, COLLECTIONS } from '../../lib/firebase';
+import type { Product, UnitType } from '../../types/domain';
 
 export interface DomainError {
   code: string;

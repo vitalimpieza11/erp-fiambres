@@ -22,10 +22,10 @@ El sistema sigue una arquitectura desacoplada de 4 capas bien definidas:
 ```
 
 ### 1.1. Capa de Datos (Repositories)
-- **Ubicación**: `src/repositories/`
+- **Ubicación**: `src/repositories/[modulo]/` (organizados en subcarpetas por módulo funcional, ej. `src/repositories/clientes/`, `src/repositories/stock/`).
 - **Responsabilidad**: Interacción directa con Firebase Firestore y llamadas de red.
 - **Regla**: Ningún repositorio debe importar React, hooks o usar estados locales de componentes. Deben ser funciones asíncronas puras que devuelvan promesas o expongan suscripciones en tiempo real.
-- **Ejemplo**: `productsRepository.ts`, `clientesRepository.ts`.
+- **Ejemplo**: `src/repositories/stock/productsRepository.ts`, `src/repositories/clientes/clientesRepository.ts`.
 
 ### 1.2. Capa de Estado (Zustand Stores)
 - **Ubicación**: `src/store/`

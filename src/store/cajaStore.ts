@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { cajaRepository } from '../repositories/cajaRepository';
+import { cajaRepository } from '../repositories/caja/cajaRepository';
 import type { CajaMovement } from '../types/domain';
 
 interface CajaState {

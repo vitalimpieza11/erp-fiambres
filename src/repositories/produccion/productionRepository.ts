@@ -1,7 +1,7 @@
 import { getDocs, query, where, doc, runTransaction, collection } from 'firebase/firestore';
-import { db, COLLECTIONS } from '../lib/firebase';
-import type { Order, Product, Equivalencia, StockMovement } from '../types/domain';
-import { convertUnit } from '../lib/unitConverter';
+import { db, COLLECTIONS } from '../../lib/firebase';
+import type { Order, Product, Equivalencia, StockMovement } from '../../types/domain';
+import { convertUnit } from '../../lib/unitConverter';
 
 
 export const productionRepository = {

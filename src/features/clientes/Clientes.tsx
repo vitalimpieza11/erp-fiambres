@@ -8,14 +8,10 @@ import { User, Phone, MapPin, Mail, DollarSign, Plus, Eye, FileText, Check, X, B
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
-const formatCurrency = (val: number) => 
-  new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(val);
-
-const formatDate = (dateStr: any) => {
-  if (!dateStr) return 'S/D';
-  const d = new Date(dateStr);
-  return isNaN(d.getTime()) ? 'S/D' : d.toLocaleDateString();
-};
+import { formatCurrency, formatDate } from '../../lib/formatters';
+import LoadingSpinner from '../../components/LoadingSpinner';
+import FilterBar from '../../components/FilterBar';
+import { createAlvacioPDF } from '../../lib/pdfHelper';
 
 
 export default function Clientes() {
@@ -189,19 +185,7 @@ export default function Clientes() {
   };
 
   const generatePDFList = (customer: Customer) => {
-    const doc = new jsPDF();
-    
-    // Brand header
-    doc.setFillColor(196, 49, 38); // Red brand color
-    doc.rect(0, 0, 210, 8, 'F');
-
-    doc.setFontSize(26);
-    doc.setFont("helvetica", "bold");
-    doc.text('ALVACÍO', 105, 25, { align: 'center' });
-    
-    doc.setFontSize(13);
-    doc.setFont("helvetica", "normal");
-    doc.text('LISTA DE PRECIOS EXCLUSIVA', 105, 32, { align: 'center' });
+    const doc = createAlvacioPDF('LISTA DE PRECIOS EXCLUSIVA');
 
     doc.setFontSize(9);
     doc.text(`Emisión: ${new Date().toLocaleDateString()}`, 15, 42);
@@ -271,12 +255,7 @@ export default function Clientes() {
   const isGlobalLoading = loadingClientes || loadingProducts;
 
   if (isGlobalLoading && customers.length === 0) {
-    return (
-      <div className="loading-container">
-        <div className="spinner"></div>
-        <p>Cargando información de clientes...</p>
-      </div>
-    );
+    return <LoadingSpinner message="Cargando información de clientes..." />;
   }
 
   return (
@@ -288,55 +267,13 @@ export default function Clientes() {
         </button>
       </div>
 
-      {/* Top filters */}
-      <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', marginBottom: '24px' }}>
-        <input 
-          type="text" 
-          placeholder="Buscar por nombre, razón social o CUIT..." 
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-          style={{ flex: 1, minWidth: '280px', maxWidth: '400px' }}
-        />
-        
-        <div style={{ display: 'flex', gap: '4px', background: '#e5e7eb', padding: '4px', borderRadius: '12px' }}>
-          <button 
-            type="button" 
-            onClick={() => setStatusFilter('active')}
-            style={{
-              padding: '8px 16px', fontSize: '13px', borderRadius: '10px',
-              backgroundColor: statusFilter === 'active' ? '#fff' : 'transparent',
-              color: statusFilter === 'active' ? 'var(--text-primary)' : 'var(--text-secondary)',
-              boxShadow: statusFilter === 'active' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none'
-            }}
-          >
-            Activos
-          </button>
-          <button 
-            type="button" 
-            onClick={() => setStatusFilter('inactive')}
-            style={{
-              padding: '8px 16px', fontSize: '13px', borderRadius: '10px',
-              backgroundColor: statusFilter === 'inactive' ? '#fff' : 'transparent',
-              color: statusFilter === 'inactive' ? 'var(--text-primary)' : 'var(--text-secondary)',
-              boxShadow: statusFilter === 'inactive' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none'
-            }}
-          >
-            Inactivos
-          </button>
-          <button 
-            type="button" 
-            onClick={() => setStatusFilter('all')}
-            style={{
-              padding: '8px 16px', fontSize: '13px', borderRadius: '10px',
-              backgroundColor: statusFilter === 'all' ? '#fff' : 'transparent',
-              color: statusFilter === 'all' ? 'var(--text-primary)' : 'var(--text-secondary)',
-              boxShadow: statusFilter === 'all' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none'
-            }}
-          >
-            Todos
-          </button>
-        </div>
-      </div>
+      <FilterBar
+        searchTerm={searchTerm}
+        onSearchChange={setSearchTerm}
+        searchPlaceholder="Buscar por nombre, razón social o CUIT..."
+        statusFilter={statusFilter}
+        onStatusFilterChange={setStatusFilter}
+      />
 
       {/* Grid containing customers */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(400px, 1fr))', gap: '24px' }}>

@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { sociosRepository } from '../repositories/sociosRepository';
+import { sociosRepository } from '../repositories/socios/sociosRepository';
 import type { Shareholder, ShareholderMovement } from '../types/domain';
 
 interface SociosState {

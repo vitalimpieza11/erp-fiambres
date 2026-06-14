@@ -4,6 +4,8 @@ import ExpandableCard from '../../components/ExpandableCard';
 import RightPanel from '../../components/RightPanel';
 import { TrendingUp, TrendingDown, DollarSign, RotateCcw, Info } from 'lucide-react';
 
+import LoadingSpinner from '../../components/LoadingSpinner';
+
 export default function Caja() {
   const { movements, loading, currentBalance, ingresosHoy, egresosHoy, ingresosMes, egresosMes, addMovement, annulMovement } = useCaja();
   const [showAddPanel, setShowAddPanel] = useState(false);
@@ -31,7 +33,7 @@ export default function Caja() {
     await annulMovement(id, reason);
   };
 
-  if (loading) return <div className="loading-container"><div className="spinner"></div><p>Cargando caja...</p></div>;
+  if (loading) return <LoadingSpinner message="Cargando caja..." />;
 
   const formatMoney = (val: number) => 
     new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(val);

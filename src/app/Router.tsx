@@ -1,6 +1,8 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import Layout from '../components/Layout';
 import { Suspense, lazy } from 'react';
+import { useAuthStore } from '../store/authStore';
+import LoadingSpinner from '../components/LoadingSpinner';
 
 const Dashboard = lazy(() => import('../features/dashboard/Dashboard'));
 const Clientes = lazy(() => import('../features/clientes/Clientes'));
@@ -13,13 +15,52 @@ const Caja = lazy(() => import('../features/caja/Caja'));
 const Socios = lazy(() => import('../features/socios/Socios'));
 const Configuracion = lazy(() => import('../features/configuracion/Configuracion'));
 const Compras = lazy(() => import('../features/compras/Compras'));
+const Login = lazy(() => import('../features/auth/Login'));
+
+// Guard for authenticated users
+function AuthGuard({ children }: { children: React.ReactNode }) {
+  const { user, loading } = useAuthStore();
+
+  if (loading) {
+    return <LoadingSpinner message="Verificando sesión..." />;
+  }
+
+  if (!user) {
+    return <Navigate to="/login" replace />;
+  }
+
+  return <>{children}</>;
+}
+
+// Guard for guest users (login page)
+function GuestGuard({ children }: { children: React.ReactNode }) {
+  const { user, loading } = useAuthStore();
+
+  if (loading) {
+    return <LoadingSpinner message="Verificando sesión..." />;
+  }
+
+  if (user) {
+    return <Navigate to="/" replace />;
+  }
+
+  return <>{children}</>;
+}
 
 export default function Router() {
+  const { loading } = useAuthStore();
+
+  if (loading) {
+    return <LoadingSpinner message="Inicializando ERP..." />;
+  }
+
   return (
     <BrowserRouter>
-      <Suspense fallback={<div style={{ padding: '20px', textAlign: 'center', color: '#86868b' }}>Cargando módulo...</div>}>
+      <Suspense fallback={<LoadingSpinner message="Cargando módulo..." />}>
         <Routes>
-          <Route path="/" element={<Layout />}>
+          <Route path="/login" element={<GuestGuard><Login /></GuestGuard>} />
+          
+          <Route path="/" element={<AuthGuard><Layout /></AuthGuard>}>
             <Route index element={<Navigate to="/dashboard" replace />} />
             <Route path="dashboard" element={<Dashboard />} />
             <Route path="clientes" element={<Clientes />} />
@@ -32,6 +73,7 @@ export default function Router() {
             <Route path="caja" element={<Caja />} />
             <Route path="socios" element={<Socios />} />
             <Route path="configuracion" element={<Configuracion />} />
+            <Route path="*" element={<Navigate to="/dashboard" replace />} />
           </Route>
         </Routes>
       </Suspense>
