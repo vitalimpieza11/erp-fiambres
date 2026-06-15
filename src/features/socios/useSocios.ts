@@ -1,129 +1,25 @@
-import { useState, useEffect } from 'react';
-import { collection, onSnapshot, query, where, doc, setDoc } from 'firebase/firestore';
-import { db } from '../../lib/firebase';
-import type { Shareholder, ShareholderMovement, CajaMovement } from '../../types/domain';
+import React, { useEffect, useCallback, useState } from 'react';
+import { useSociosStore } from '../../store/sociosStore';
+import type { Shareholder } from '../../types/domain';
+
+export type MovFormType = 'APORTE_INICIAL' | 'APORTE_OPERATIVO' | 'RETIRO' | 'AJUSTE';
 
 export function useSocios() {
-  const [shareholders, setShareholders] = useState<Shareholder[]>([]);
-  const [movements, setMovements] = useState<ShareholderMovement[]>([]);
-  const [loading, setLoading] = useState(true);
+  const shareholders = useSociosStore((state) => state.shareholders);
+  const movements = useSociosStore((state) => state.movements);
+  const loading = useSociosStore((state) => state.loading);
+  const subscribeAll = useSociosStore((state) => state.subscribeAll);
+  const addMovement = useSociosStore((state) => state.addMovement);
+  const annulMovement = useSociosStore((state) => state.annulMovement);
+  const saveShareholder = useSociosStore((state) => state.saveShareholder);
+  const toggleShareholderStatus = useSociosStore((state) => state.toggleShareholderStatus);
 
   useEffect(() => {
-    // Escuchar socios
-    const qSocios = query(collection(db, 'shareholders'), where('activo', '==', true));
-    const unsubSocios = onSnapshot(qSocios, (snap) => {
-      const data: Shareholder[] = [];
-      snap.forEach(doc => data.push(doc.data() as Shareholder));
-      setShareholders(data.sort((a, b) => a.nombre.localeCompare(b.nombre)));
-    });
+    const unsubscribe = subscribeAll();
+    return () => unsubscribe();
+  }, [subscribeAll]);
 
-    // Escuchar movimientos
-    const qMovs = query(collection(db, 'shareholder_movements'), where('isDeleted', '==', false));
-    const unsubMovs = onSnapshot(qMovs, (snap) => {
-      const data: ShareholderMovement[] = [];
-      snap.forEach(doc => data.push(doc.data() as ShareholderMovement));
-      setMovements(data.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()));
-      setLoading(false);
-    });
-
-    return () => {
-      unsubSocios();
-      unsubMovs();
-    };
-  }, []);
-
-  const addMovement = async (data: {
-    shareholderId: string;
-    sourceType: 'APORTE' | 'RETIRO' | 'AJUSTE';
-    amount: number;
-    description: string;
-    impactCaja: boolean;
-    cajaCategory?: string; // e.g. "Aporte Inicial de Socio"
-  }) => {
-    const movId = doc(collection(db, 'shareholder_movements')).id;
-    const date = new Date().toISOString();
-
-    const newMov: ShareholderMovement = {
-      id: movId,
-      shareholderId: data.shareholderId,
-      date,
-      sourceType: data.sourceType,
-      sourceId: movId, // El origen es él mismo
-      reversalOf: null,
-      amount: data.amount,
-      description: data.description,
-      isDeleted: false
-    };
-
-    // Si impacta caja
-    if (data.impactCaja) {
-      const cajaMovId = doc(collection(db, 'caja_movements')).id;
-      newMov.linkedCajaMovementId = cajaMovId; // Guardamos enlace inmutable
-      
-      const type = data.sourceType === 'RETIRO' ? 'EXPENSE' : 'INCOME';
-      const cajaMov: CajaMovement = {
-        id: cajaMovId,
-        type,
-        amount: data.amount,
-        date,
-        category: data.cajaCategory || 'SOCIOS',
-        description: `Ref: ${movId} - ${data.description}`,
-        operation: 'MOVEMENT',
-        reasonType: `SOCIOS_${data.sourceType}`,
-        sourceId: movId,
-        isDeleted: false
-      };
-      await setDoc(doc(db, 'caja_movements', cajaMovId), cajaMov);
-    }
-
-    await setDoc(doc(db, 'shareholder_movements', movId), newMov);
-  };
-
-  const annulMovement = async (originalId: string, reason: string) => {
-    const original = movements.find(m => m.id === originalId);
-    if (!original) throw new Error("Movimiento no encontrado");
-
-    const movId = doc(collection(db, 'shareholder_movements')).id;
-    const date = new Date().toISOString();
-
-    const compensatory: ShareholderMovement = {
-      id: movId,
-      shareholderId: original.shareholderId,
-      date,
-      sourceType: 'ANULACION',
-      sourceId: original.id,
-      reversalOf: original.id,
-      amount: original.sourceType === 'RETIRO' ? original.amount : -original.amount, // Invierte el efecto
-      description: `Anulación: ${reason}`,
-      isDeleted: false
-    };
-
-    // Si hubo impacto original en caja, emitimos el evento inverso sin consultar a la caja
-    if (original.linkedCajaMovementId) {
-      const cajaMovId = doc(collection(db, 'caja_movements')).id;
-      const originalCajaType = original.sourceType === 'RETIRO' ? 'EXPENSE' : 'INCOME';
-      
-      const cajaCompensatory: CajaMovement = {
-        id: cajaMovId,
-        type: originalCajaType === 'INCOME' ? 'EXPENSE' : 'INCOME',
-        amount: original.amount,
-        date,
-        category: 'ANULACION',
-        description: `Anulación de SOCIOS (Ref: ${original.id}). Motivo: ${reason}`,
-        operation: 'REVERSAL',
-        reasonType: `SOCIOS_ANULACION_${original.sourceType}`,
-        sourceId: movId,
-        reversalOf: original.linkedCajaMovementId, // Apuntamos directo al ID vinculado original
-        isDeleted: false
-      };
-      await setDoc(doc(db, 'caja_movements', cajaMovId), cajaCompensatory);
-      compensatory.linkedCajaMovementId = cajaMovId; // Enlazamos la anulación con el reverso en caja
-    }
-    
-    await setDoc(doc(db, 'shareholder_movements', movId), compensatory);
-  };
-
-  const getBalance = (shareholderId: string) => {
+  const getBalance = useCallback((shareholderId: string) => {
     const movs = movements.filter(m => m.shareholderId === shareholderId);
     return movs.reduce((acc, mov) => {
       if (mov.sourceType === 'APORTE') return acc + mov.amount;
@@ -132,7 +28,167 @@ export function useSocios() {
       if (mov.sourceType === 'ANULACION') return acc + mov.amount; 
       return acc;
     }, 0);
-  };
+  }, [movements]);
+
+  // Search and status filters
+  const [searchTerm, setSearchTerm] = useState('');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('active');
+
+  // RightPanel state
+  const [panelMode, setPanelMode] = useState<'NEW_SOCIO' | 'EDIT_SOCIO' | 'MOVEMENT' | null>(null);
+  const [selectedShareholderId, setSelectedShareholderId] = useState<string>('');
+  
+  // Partner Form State
+  const [socioName, setSocioName] = useState('');
+  const [socioType, setSocioType] = useState<'ACTIVO' | 'INVERSOR' | 'OPERATIVO'>('ACTIVO');
+  const [socioPercentage, setSocioPercentage] = useState<number | ''>('');
+  const [socioActivo, setSocioActivo] = useState(true);
+
+  // Movement Form State
+  const [movType, setMovType] = useState<MovFormType>('APORTE_INICIAL');
+  const [amount, setAmount] = useState<number | ''>('');
+  const [description, setDescription] = useState('');
+  const [impactCaja, setImpactCaja] = useState<boolean>(true);
+
+  const handleOpenNewSocio = useCallback(() => {
+    setPanelMode('NEW_SOCIO');
+    setSelectedShareholderId('');
+    setSocioName('');
+    setSocioType('ACTIVO');
+    setSocioPercentage('');
+    setSocioActivo(true);
+  }, []);
+
+  const handleOpenEditSocio = useCallback((e: React.MouseEvent, socio: Shareholder) => {
+    e.stopPropagation();
+    setPanelMode('EDIT_SOCIO');
+    setSelectedShareholderId(socio.id);
+    setSocioName(socio.nombre);
+    setSocioType(socio.type);
+    setSocioPercentage(socio.participacionPorcentaje);
+    setSocioActivo(socio.activo);
+  }, []);
+
+  const handleOpenMovementPanel = useCallback((socioId: string, defaultType: MovFormType) => {
+    setSelectedShareholderId(socioId);
+    setMovType(defaultType);
+    setAmount('');
+    setDescription('');
+    
+    if (defaultType === 'APORTE_INICIAL') setImpactCaja(true);
+    if (defaultType === 'APORTE_OPERATIVO') setImpactCaja(false);
+    if (defaultType === 'RETIRO') setImpactCaja(true);
+    if (defaultType === 'AJUSTE') setImpactCaja(false);
+    
+    setPanelMode('MOVEMENT');
+  }, []);
+
+  const handleMovTypeChange = useCallback((type: MovFormType) => {
+    setMovType(type);
+    if (type === 'APORTE_INICIAL') setImpactCaja(true);
+    if (type === 'RETIRO') setImpactCaja(true);
+    if (type === 'AJUSTE') setImpactCaja(false);
+  }, []);
+
+  const handleClosePanel = useCallback(() => {
+    setPanelMode(null);
+    setSelectedShareholderId('');
+  }, []);
+
+  const handleSubmit = useCallback(async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (panelMode === 'NEW_SOCIO' || panelMode === 'EDIT_SOCIO') {
+      if (!socioName.trim()) {
+        alert("El nombre del socio es obligatorio.");
+        return;
+      }
+      try {
+        const socioData: Partial<Shareholder> = {
+          nombre: socioName,
+          type: socioType,
+          participacionPorcentaje: Number(socioPercentage || 0),
+          activo: socioActivo
+        };
+        if (selectedShareholderId) {
+          socioData.id = selectedShareholderId;
+        }
+        await saveShareholder(socioData);
+        handleClosePanel();
+      } catch (error) {
+        console.error("Error al guardar socio:", error);
+        alert("No se pudo guardar el socio.");
+      }
+      return;
+    }
+
+    if (!amount || amount <= 0 || !selectedShareholderId) return;
+
+    let sourceType: 'APORTE' | 'RETIRO' | 'AJUSTE' = 'APORTE';
+    if (movType === 'RETIRO') sourceType = 'RETIRO';
+    if (movType === 'AJUSTE') sourceType = 'AJUSTE';
+
+    let cajaCategory = 'SOCIOS';
+    if (movType === 'APORTE_INICIAL') cajaCategory = 'Aporte Inicial de Socio';
+    if (movType === 'APORTE_OPERATIVO') cajaCategory = 'Aporte Operativo de Socio';
+    if (movType === 'RETIRO') cajaCategory = 'Distribución / Retiro de Socio';
+
+    try {
+      await addMovement({
+        shareholderId: selectedShareholderId,
+        sourceType,
+        amount: Number(amount),
+        description: description || movType.replace('_', ' '),
+        impactCaja,
+        cajaCategory
+      });
+      handleClosePanel();
+    } catch (error) {
+      console.error("Error al registrar movimiento:", error);
+      alert("Error al registrar movimiento.");
+    }
+  }, [
+    panelMode,
+    socioName,
+    socioType,
+    socioPercentage,
+    socioActivo,
+    selectedShareholderId,
+    amount,
+    movType,
+    description,
+    impactCaja,
+    saveShareholder,
+    addMovement,
+    handleClosePanel
+  ]);
+
+  const handleToggleStatus = useCallback(async (e: React.MouseEvent, socio: Shareholder) => {
+    e.stopPropagation();
+    try {
+      await toggleShareholderStatus(socio.id, socio.activo);
+    } catch (error) {
+      console.error("Error al cambiar estado de socio:", error);
+    }
+  }, [toggleShareholderStatus]);
+
+  const handleAnnul = useCallback(async (id: string) => {
+    const reason = window.prompt("Motivo de anulación:");
+    if (!reason || !reason.trim()) return;
+    try {
+      await annulMovement(id, reason);
+    } catch (error) {
+      console.error("Error al anular movimiento:", error);
+      alert("No se pudo anular el movimiento.");
+    }
+  }, [annulMovement]);
+
+  const filteredShareholders = shareholders.filter(s => {
+    const matchesSearch = s.nombre.toLowerCase().includes(searchTerm.toLowerCase());
+    if (statusFilter === 'active') return matchesSearch && s.activo;
+    if (statusFilter === 'inactive') return matchesSearch && !s.activo;
+    return matchesSearch;
+  });
 
   return {
     shareholders,
@@ -140,6 +196,41 @@ export function useSocios() {
     loading,
     addMovement,
     annulMovement,
-    getBalance
+    getBalance,
+    saveShareholder,
+    toggleShareholderStatus,
+    
+    // UI state & actions
+    searchTerm,
+    setSearchTerm,
+    statusFilter,
+    setStatusFilter,
+    panelMode,
+    selectedShareholderId,
+    socioName,
+    setSocioName,
+    socioType,
+    setSocioType,
+    socioPercentage,
+    setSocioPercentage,
+    socioActivo,
+    setSocioActivo,
+    movType,
+    amount,
+    setAmount,
+    description,
+    setDescription,
+    impactCaja,
+    setImpactCaja,
+    
+    handleOpenNewSocio,
+    handleOpenEditSocio,
+    handleOpenMovementPanel,
+    handleMovTypeChange,
+    handleClosePanel,
+    handleSubmit,
+    handleToggleStatus,
+    handleAnnul,
+    filteredShareholders
   };
 }

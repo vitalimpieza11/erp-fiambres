@@ -6,6 +6,9 @@ import RightPanel from '../../components/RightPanel';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { FileText, DollarSign, XCircle, Edit3 } from 'lucide-react';
+import LoadingSpinner from '../../components/LoadingSpinner';
+import { createAlvacioPDF } from '../../lib/pdfHelper';
+import { calculateWeightInKg, convertQuantityToBaseUnit } from '../../lib/unitConverter';
 
 const STATUS_COLORS: Record<string, string> = {
   FACTURADO: '#f59e0b',
@@ -20,7 +23,7 @@ export default function Ventas() {
   const [showQuickSale, setShowQuickSale] = useState(false);
   const [showFacturarPedido, setShowFacturarPedido] = useState(false);
   const [orderToFacturar, setOrderToFacturar] = useState<Order | null>(null);
-  const [partialSaleItems, setPartialSaleItems] = useState<Omit<SaleItem, 'subtotal'>[]>([]);
+  const [partialSaleItems, setPartialSaleItems] = useState<SaleItem[]>([]);
   
   // Quick Sale State
   const [quickSale, setQuickSale] = useState<{ customerId: string; items: SaleItem[]; totalAmount: number; observaciones: string }>({
@@ -31,32 +34,24 @@ export default function Ventas() {
   const [searchTerm, setSearchTerm] = useState('');
 
   const generateRemitoPDF = (sale: Sale) => {
-    const doc = new jsPDF();
+    const doc = createAlvacioPDF('REMITO COMERCIAL');
     const customer = customers.find(c => c.id === sale.customerId);
     
-    // Header
-    doc.setFontSize(26);
-    doc.setFont("helvetica", "bold");
-    doc.text('ALVACÍO', 105, 20, { align: 'center' });
-    doc.setFontSize(14);
-    doc.setFont("helvetica", "normal");
-    doc.text('REMITO COMERCIAL', 105, 28, { align: 'center' });
-    
     doc.setFontSize(10);
-    doc.text(`Fecha: ${new Date(sale.date).toLocaleDateString()}`, 15, 38);
-    doc.text(`Comprobante N°: ${sale.id.slice(-6).toUpperCase()}`, 15, 43);
+    doc.text(`Fecha: ${new Date(sale.date).toLocaleDateString()}`, 15, 42);
+    doc.text(`Comprobante N°: ${sale.id.slice(-6).toUpperCase()}`, 15, 47);
     
     // Customer Info
-    doc.rect(15, 48, 180, 30);
+    doc.rect(15, 52, 180, 30);
     doc.setFontSize(12);
     doc.setFont("helvetica", "bold");
-    doc.text('Datos del Cliente', 20, 55);
+    doc.text('Datos del Cliente', 20, 59);
     doc.setFont("helvetica", "normal");
     doc.setFontSize(10);
-    doc.text(`Nombre: ${customer?.nombre || 'Consumidor Final'}`, 20, 63);
-    doc.text(`Dirección: ${customer?.direccion || '-'}`, 20, 69);
-    doc.text(`Teléfono: ${customer?.telefono || '-'}`, 20, 75);
-
+    doc.text(`Nombre: ${customer?.nombre || 'Consumidor Final'}`, 20, 67);
+    doc.text(`Dirección: ${customer?.direccion || '-'}`, 20, 73);
+    doc.text(`Teléfono: ${customer?.telefono || '-'}`, 20, 79);
+    
     // Items table
     const tableData = sale.items.map(item => {
       const prod = products.find(p => p.id === item.productId);
@@ -69,7 +64,7 @@ export default function Ventas() {
     });
 
     autoTable(doc, {
-      startY: 85,
+      startY: 87,
       head: [['Producto', 'Cantidad', 'Precio Unit.', 'Subtotal']],
       body: tableData,
       theme: 'grid',
@@ -117,11 +112,13 @@ export default function Ventas() {
       const prod = products.find(p => p.id === val);
       if (prod) {
         item.unidad = prod.unitType;
-        item.precioUnitario = prod.precioSugerido || 0;
+        item.precioUnitario = prod.precioComercial || prod.precioSugerido || 0;
       }
     }
     
-    item.subtotal = item.cantidad * item.precioUnitario;
+    const prod = products.find(p => p.id === item.productId);
+    const baseQty = convertQuantityToBaseUnit(item.cantidad, item.unidad, prod);
+    item.subtotal = baseQty * item.precioUnitario;
     newItems[idx] = item as SaleItem;
     
     setQuickSale(prev => ({
@@ -143,23 +140,37 @@ export default function Ventas() {
 
   const handleSelectOrderForFacturar = (order: Order) => {
     setOrderToFacturar(order);
-    setPartialSaleItems(order.items.map(it => ({
-      productId: it.productId,
-      cantidad: it.cantidad,
-      unidad: it.unidad,
-      precioUnitario: it.precioEstimado,
-    })));
+    setPartialSaleItems(order.items.map(it => {
+      const prod = products.find(p => p.id === it.productId);
+      const isWeightBased = prod?.unitType === 'KG';
+      
+      const saleQty = (isWeightBased && it.pesoReal !== undefined) ? it.pesoReal : it.cantidad;
+      const saleUnit = ((isWeightBased && it.pesoReal !== undefined) ? 'KG' : it.unidad) as any;
+      const baseQty = convertQuantityToBaseUnit(saleQty, saleUnit, prod);
+      
+      return {
+        productId: it.productId,
+        cantidad: saleQty,
+        unidad: saleUnit,
+        precioUnitario: it.precioEstimado,
+        subtotal: isWeightBased && it.pesoReal !== undefined ? it.pesoReal * it.precioEstimado : baseQty * it.precioEstimado
+      };
+    }));
   };
 
-  const handleUpdatePartialItem = (idx: number, field: string, val: number) => {
+  const handleUpdatePartialItem = (idx: number, field: keyof SaleItem, val: any) => {
     const newItems = [...partialSaleItems];
-    newItems[idx] = { ...newItems[idx], [field]: val };
+    const item = { ...newItems[idx], [field]: val };
+    const prod = products.find(p => p.id === item.productId);
+    const baseQty = convertQuantityToBaseUnit(item.cantidad, item.unidad, prod);
+    item.subtotal = baseQty * item.precioUnitario;
+    newItems[idx] = item as SaleItem;
     setPartialSaleItems(newItems);
   };
 
   const handleSubmitPartialSale = async () => {
     if (!orderToFacturar) return;
-    const finalTotal = partialSaleItems.reduce((acc, it) => acc + (it.cantidad * it.precioUnitario), 0);
+    const finalTotal = partialSaleItems.reduce((acc, it) => acc + it.subtotal, 0);
     if (confirm(`¿Facturar pedido por $${finalTotal.toFixed(2)}?`)) {
       await createSaleFromOrder(orderToFacturar, partialSaleItems, finalTotal);
       setOrderToFacturar(null);
@@ -199,7 +210,7 @@ export default function Ventas() {
     return orders.filter(o => o.status === 'ENTREGADO' || o.status === 'PRODUCIDO');
   }, [orders]);
 
-  if (loading) return <div className="loading-container"><div className="spinner"></div><p>Cargando módulo de ventas...</p></div>;
+  if (loading) return <LoadingSpinner message="Cargando módulo de ventas..." />;
 
   return (
     <div>
@@ -443,7 +454,7 @@ export default function Ventas() {
                         </div>
                       </div>
                       <div style={{ textAlign: 'right', marginTop: '8px', fontSize: '14px', fontWeight: 600 }}>
-                        Subtotal: ${(item.cantidad * item.precioUnitario).toFixed(2)}
+                        Subtotal: ${item.subtotal.toFixed(2)}
                       </div>
                     </div>
                   );
@@ -451,7 +462,7 @@ export default function Ventas() {
               </div>
               
               <div style={{ textAlign: 'right', marginTop: '16px', borderTop: '1px solid var(--border-color)', paddingTop: '16px' }}>
-                <strong style={{ fontSize: '18px' }}>Total a Facturar: <span style={{ color: 'var(--alvacio-red)' }}>${partialSaleItems.reduce((acc, it) => acc + (it.cantidad * it.precioUnitario), 0).toFixed(2)}</span></strong>
+                <strong style={{ fontSize: '18px' }}>Total a Facturar: <span style={{ color: 'var(--alvacio-red)' }}>${partialSaleItems.reduce((acc, it) => acc + it.subtotal, 0).toFixed(2)}</span></strong>
               </div>
               
               <button className="btn-primary" onClick={handleSubmitPartialSale} style={{ marginTop: '16px', width: '100%' }}>

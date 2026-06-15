@@ -7,6 +7,8 @@ import ExpandableCard from '../../components/ExpandableCard';
 import RightPanel from '../../components/RightPanel';
 import { ShoppingCart, RotateCcw } from 'lucide-react';
 
+import LoadingSpinner from '../../components/LoadingSpinner';
+
 export default function Compras() {
   const { purchases, loading: purchasesLoading, addPurchase, annulPurchase } = usePurchases();
   const { suppliers, loading: suppliersLoading } = useProveedores();
@@ -110,7 +112,7 @@ export default function Compras() {
     return groups;
   }, [purchases]);
 
-  if (loading) return <div className="loading-container"><div className="spinner"></div><p>Cargando módulo de compras...</p></div>;
+  if (loading) return <LoadingSpinner message="Cargando módulo de compras..." />;
 
   return (
     <div>

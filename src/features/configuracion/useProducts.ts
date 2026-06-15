@@ -1,7 +1,4 @@
-import { useState, useEffect } from 'react';
-import { getDocs, addDoc, updateDoc, doc } from 'firebase/firestore';
-import { db, COLLECTIONS } from '../../lib/firebase';
-import type { Product, ProductType, UnitType } from '../../types/domain';
+import type { Product, UnitType } from '../../types/domain';
 
 export interface DomainError {
   code: string;
@@ -65,56 +62,19 @@ export function validateProduct(product: Partial<Product>, catalog: Product[]): 
   }
 }
 
+import { useEffect } from 'react';
+import { useProductsStore } from '../../store/productsStore';
+
 export function useProducts() {
-  const [productos, setProductos] = useState<Product[]>([]);
-  const [loading, setLoading] = useState(true);
+  const productos = useProductsStore((state) => state.productos);
+  const loading = useProductsStore((state) => state.loading);
+  const fetchProductos = useProductsStore((state) => state.fetchProductos);
+  const saveProduct = useProductsStore((state) => state.saveProduct);
+  const toggleStatus = useProductsStore((state) => state.toggleStatus);
 
   useEffect(() => {
     fetchProductos();
-  }, []);
-
-  const fetchProductos = async () => {
-    setLoading(true);
-    try {
-      const snapshot = await getDocs(COLLECTIONS.PRODUCTS);
-      const data = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Product));
-      setProductos(data);
-    } catch (error) {
-      console.error("Error fetching productos:", error);
-    }
-    setLoading(false);
-  };
-
-  const saveProduct = async (currentProduct: Partial<Product>) => {
-    // 1. Validar dominio (pura, sin efectos secundarios)
-    validateProduct(currentProduct, productos);
-
-    // 2. Persistencia (solo si validación es exitosa)
-    const dataToSave = {
-      ...currentProduct,
-      precioSugerido: Number(currentProduct.precioSugerido || 0),
-      precioComercial: Number(currentProduct.precioComercial || 0),
-      costoActual: currentProduct.costoActual || 0,
-      stockActual: currentProduct.stockActual || 0,
-    };
-
-    if (currentProduct.type !== 'PRESENTACION') {
-      delete dataToSave.recipeItems;
-    }
-
-    if (currentProduct.id) {
-      await updateDoc(doc(db, 'products', currentProduct.id), dataToSave);
-    } else {
-      await addDoc(COLLECTIONS.PRODUCTS, dataToSave);
-    }
-    
-    await fetchProductos();
-  };
-
-  const toggleStatus = async (id: string, currentStatus: boolean) => {
-    await updateDoc(doc(db, 'products', id), { activo: !currentStatus });
-    await fetchProductos();
-  };
+  }, [fetchProductos]);
 
   return {
     productos,

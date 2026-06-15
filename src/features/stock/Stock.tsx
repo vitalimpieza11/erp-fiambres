@@ -4,6 +4,8 @@ import ExpandableCard from '../../components/ExpandableCard';
 import RightPanel from '../../components/RightPanel';
 import { Package, Activity, AlertCircle, AlertTriangle, TrendingUp } from 'lucide-react';
 
+import LoadingSpinner from '../../components/LoadingSpinner';
+
 export default function Stock() {
   const { products, movements, loading, getCapacityData, registerAdjustment } = useStock();
 
@@ -69,7 +71,7 @@ export default function Stock() {
     }
   };
 
-  if (loading) return <div className="loading-container"><div className="spinner"></div><p>Cargando módulo de stock...</p></div>;
+  if (loading) return <LoadingSpinner message="Cargando módulo de stock..." />;
 
   return (
     <div>
@@ -153,9 +155,9 @@ export default function Stock() {
             />
             <select value={filterType} onChange={e => setFilterType(e.target.value)}>
               <option value="">Todos los tipos</option>
-              <option value="RAW_MATERIAL">Materia Prima</option>
-              <option value="PRESENTACION">Terminado</option>
-              <option value="PACKAGING">Packaging</option>
+              <option value="MERCADERIA">Mercadería</option>
+              <option value="INSUMO">Insumo</option>
+              <option value="PRESENTACION">Terminado / Presentación</option>
             </select>
           </div>
           

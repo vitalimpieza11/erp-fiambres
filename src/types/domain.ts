@@ -2,6 +2,7 @@
 export type Customer = { 
   id: string; 
   nombre: string; 
+  name?: string;
   razonSocial: string;
   cuit: string;
   telefono: string;
@@ -14,6 +15,7 @@ export type Customer = {
 export type Supplier = { 
   id: string; 
   nombre: string; 
+  name?: string;
   razonSocial: string;
   cuit: string;
   telefono: string;
@@ -60,6 +62,10 @@ export type Product = {
   precioSugerido?: number;
   precioComercial?: number;
   recipeItems?: RecipeItem[];
+  recipeId?: string;
+  recetaId?: string;
+  pesoFeta?: number;
+  pesoObjetivoGramos?: number;
   // Legacy fields for other modules (to be deprecated)
   costoActual?: number;
   stockActual?: number;
@@ -106,6 +112,8 @@ export type OrderItem = {
   unidad: 'KG' | 'GRAMOS' | 'UNIDADES' | 'FETAS';
   precioEstimado: number;
   subtotal: number;
+  pesoReal?: number;
+  observaciones?: string;
 };
 
 export type Order = { 
@@ -211,6 +219,7 @@ export type CajaMovement = {
   reasonType?: string;
   sourceType?: string;
   sourceId?: string;
+  shareholderId?: string;
   reversalOf?: string | null;
   isDeleted: boolean;
   deletedAt?: number;

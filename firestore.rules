@@ -3,10 +3,59 @@ service cloud.firestore {
   match /databases/{database}/documents {
 
     function signedIn() {
-      return request.auth != null;
+      return request.auth != null && request.auth.token.email != null;
     }
 
-    match /{document=**} {
+    // Reglas específicas por colección para cerrar el acceso global del comodín
+    match /customers/{id} {
+      allow read, write: if signedIn();
+    }
+    match /suppliers/{id} {
+      allow read, write: if signedIn();
+    }
+    match /products/{id} {
+      allow read, write: if signedIn();
+    }
+    match /recipes/{id} {
+      allow read, write: if signedIn();
+    }
+    match /shareholders/{id} {
+      allow read, write: if signedIn();
+    }
+    match /orders/{id} {
+      allow read, write: if signedIn();
+    }
+    match /stock_movements/{id} {
+      allow read, write: if signedIn();
+    }
+    match /sales/{id} {
+      allow read, write: if signedIn();
+    }
+    match /caja_movements/{id} {
+      allow read, write: if signedIn();
+    }
+    match /shareholder_movements/{id} {
+      allow read, write: if signedIn();
+    }
+    match /users/{id} {
+      allow read, write: if signedIn();
+    }
+    match /customer_movements/{id} {
+      allow read, write: if signedIn();
+    }
+    match /settings/{id} {
+      allow read, write: if signedIn();
+    }
+    match /price_lists/{id} {
+      allow read, write: if signedIn();
+    }
+    match /equivalences/{id} {
+      allow read, write: if signedIn();
+    }
+    match /supplier_movements/{id} {
+      allow read, write: if signedIn();
+    }
+    match /purchases/{id} {
       allow read, write: if signedIn();
     }
   }

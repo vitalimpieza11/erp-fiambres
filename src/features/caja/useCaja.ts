@@ -1,60 +1,22 @@
-import { useState, useEffect, useMemo } from 'react';
-import { collection, onSnapshot, query, where, doc, setDoc, orderBy, limit } from 'firebase/firestore';
-import { db } from '../../lib/firebase';
-import type { CajaMovement } from '../../types/domain';
+import { useEffect, useMemo } from 'react';
+import { useCajaStore } from '../../store/cajaStore';
 
 export function useCaja() {
-  const [movements, setMovements] = useState<CajaMovement[]>([]);
-  const [loading, setLoading] = useState(true);
+  const movements = useCajaStore((state) => state.movements);
+  const loading = useCajaStore((state) => state.loading);
+  const subscribeMovements = useCajaStore((state) => state.subscribeMovements);
+  const addMovement = useCajaStore((state) => state.addMovement);
+  const annulMovement = useCajaStore((state) => state.annulMovement);
 
   useEffect(() => {
-    const q = query(
-      collection(db, 'caja_movements'),
-      where('isDeleted', '==', false),
-      orderBy('date', 'desc'),
-      limit(100)
-    );
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const data: CajaMovement[] = [];
-      snapshot.forEach((d) => {
-        data.push(d.data() as CajaMovement);
-      });
-      setMovements(data.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()));
-      setLoading(false);
-    });
+    const unsubscribe = subscribeMovements();
     return () => unsubscribe();
-  }, []);
+  }, [subscribeMovements]);
 
-  const addMovement = async (mov: Omit<CajaMovement, 'id' | 'isDeleted' | 'date'> & { date?: string }) => {
-    const docRef = doc(collection(db, 'caja_movements'));
-    const newMovement: CajaMovement = {
-      ...mov,
-      id: docRef.id,
-      date: mov.date || new Date().toISOString(),
-      isDeleted: false
-    };
-    await setDoc(docRef, newMovement);
-  };
-
-  const annulMovement = async (originalId: string, reason: string) => {
-    const original = movements.find(m => m.id === originalId);
-    if (!original) throw new Error("Movimiento no encontrado");
-
-    const docRef = doc(collection(db, 'caja_movements'));
-    const compensatoryMovement: CajaMovement = {
-      id: docRef.id,
-      type: original.type === 'INCOME' ? 'EXPENSE' : 'INCOME',
-      amount: original.amount,
-      date: new Date().toISOString(),
-      category: 'ANULACION',
-      description: `Anulación de ${original.category} (Ref: ${originalId}). Motivo: ${reason}`,
-      referenceId: original.id,
-      isDeleted: false
-    };
-    await setDoc(docRef, compensatoryMovement);
-  };
-
-  const currentBalance = useMemo(() => movements.reduce((acc, mov) => acc + (mov.type === 'INCOME' ? mov.amount : -mov.amount), 0), [movements]);
+  const currentBalance = useMemo(() => 
+    movements.reduce((acc, mov) => acc + (mov.type === 'INCOME' ? mov.amount : -mov.amount), 0),
+    [movements]
+  );
   
   const { ingresosHoy, egresosHoy, ingresosMes, egresosMes } = useMemo(() => {
     const today = new Date();

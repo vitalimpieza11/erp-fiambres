@@ -1,0 +1,83 @@
+# Rules for erp-fiambres (Al Vacío ERP V2)
+
+Este archivo define las directrices y estándares de desarrollo para el repositorio `erp-fiambres`. Todos los agentes de IA, copilotos y desarrolladores deben seguir estas reglas estrictamente.
+
+---
+
+## 1. Arquitectura de Capas (SOLID y Desacoplamiento)
+
+El sistema sigue una arquitectura desacoplada de 4 capas bien definidas:
+
+```
+[ Vista (React Component) ]
+          │
+          ▼
+[ Controlador (Custom React Hook) ]
+          │
+          ▼
+[ Estado (Zustand Store) ]
+          │
+          ▼
+[ Datos (Repository) ] ──► [ Firestore / External API ]
+```
+
+### 1.1. Capa de Datos (Repositories)
+- **Ubicación**: `src/repositories/[modulo]/` (organizados en subcarpetas por módulo funcional, ej. `src/repositories/clientes/`, `src/repositories/stock/`).
+- **Responsabilidad**: Interacción directa con Firebase Firestore y llamadas de red.
+- **Regla**: Ningún repositorio debe importar React, hooks o usar estados locales de componentes. Deben ser funciones asíncronas puras que devuelvan promesas o expongan suscripciones en tiempo real.
+- **Ejemplo**: `src/repositories/stock/productsRepository.ts`, `src/repositories/clientes/clientesRepository.ts`.
+
+### 1.2. Capa de Estado (Zustand Stores)
+- **Ubicación**: `src/store/`
+- **Responsabilidad**: Mantener y actualizar el estado reactivo global en memoria.
+- **Regla**: Orquestan las llamadas a los repositorios. Implementan estrategias de optimización como:
+  - **Suscripciones Singleton**: Suscribirse una única vez en tiempo real (`onSnapshot`) y compartir el estado reactivamente para evitar descargas redundantes.
+  - **Background Fetch (Stale-While-Revalidate)**: Servir la caché instantáneamente y refrescar en segundo plano de manera silenciosa.
+- **Ejemplo**: `salesStore.ts`, `clientesStore.ts`.
+
+### 1.3. Capa de Lógica y Control (Hooks)
+- **Ubicación**: `src/features/[modulo]/use[Modulo].ts`
+- **Responsabilidad**: Actuar como puente entre la UI y el Store de Zustand.
+- **Regla**: Toda la lógica de negocio, cálculo complejo (ej. saldo de cuenta corriente, cálculo de capacidad, rendimientos de stock) debe residir en el Hook y nunca en el componente visual.
+- **Ejemplo**: `useClientes.ts`, `useProduccion.ts`.
+
+### 1.4. Capa de UI (Views/Components)
+- **Ubicación**: `src/features/[modulo]/[Modulo].tsx`
+- **Responsabilidad**: Presentación y renderizado.
+- **Regla**: Los componentes deben ser limpios y declarativos. Consumen datos y funciones exclusivamente del Custom Hook. No pueden importar colecciones de Firebase ni hacer consultas directas a la base de datos.
+
+---
+
+## 2. Principios de Código Limpio y SOLID
+
+### 2.1. Single Responsibility Principle (SRP)
+- Un archivo hace una sola cosa. No mezclar renderizado visual con lógica de bases de datos o conversiones matemáticas.
+- Extraer sub-componentes (como inputs de formularios o detalles de filas) si la vista principal supera las 500 líneas.
+
+### 2.2. Inmutabilidad y Registro Compensatorio
+- **Regla del Negocio**: Los movimientos de Caja, Proveedores, Clientes y Socios son inmutables.
+- No se borran ni modifican transacciones pasadas. Cualquier cambio o corrección debe generar un movimiento compensatorio (ej. movimiento de tipo `ANULACION` o `AJUSTE` inverso) y registrar el motivo de anulación.
+
+---
+
+## 3. Helpers y Utilidades (src/lib/)
+
+- **Regla**: Todo cálculo matemático reutilizable o conversión debe delegarse a una función pura en `src/lib/`.
+- **Conversión de Unidades**: Se debe usar exclusivamente [unitConverter.ts](file:///c:/Users/gonoj/OneDrive/Documentos/GitHub/erp-fiambres/src/lib/unitConverter.ts) para operaciones de conversión entre `KG`, `GRAMOS`, `UNIDADES` y `FETAS`.
+- **Fechas Seguras**: Para prevenir caídas de renderizado (`RangeError: Invalid time value`), todo formateo de fechas a strings legibles en la UI debe ser envuelto en funciones seguras como `formatDate(dateStr)` y `formatTime(dateStr)` que validan si la fecha es correcta o nula y retornan un fallback (`S/D`).
+
+---
+
+## 4. Unificación de Cadenas e IDs (Strings)
+
+- **Colecciones de Firestore**: Usar la constante unificada `COLLECTIONS` de [firebase.ts](file:///c:/Users/gonoj/OneDrive/Documentos/GitHub/erp-fiambres/src/lib/firebase.ts) para hacer referencia a las colecciones (`COLLECTIONS.CUSTOMERS`, `COLLECTIONS.PRODUCTS`, etc.), previniendo errores tipográficos.
+- **Tipos de Producto**: Los tipos permitidos son estrictamente `MERCADERIA`, `INSUMO` y `PRESENTACION` (evitar usar tipos obsoletos como `RAW_MATERIAL` o `PACKAGING`).
+- **Estados de Pedido**: Se deben usar de forma consistente los estados oficiales del dominio comercial: `PENDIENTE`, `EN_PRODUCCION`, `PRODUCIDO`, `ENTREGADO`, `FACTURADO`, `ANULADO`.
+
+---
+
+## 5. Diseño Visual y UX (Apple Style)
+
+- **Modo Claro / Minimalismo**: El ERP debe ser claro, minimalista, con amplia separación visual.
+- **Sin Modales tradicionales**: Para creación o edición, usar exclusivamente el panel deslizante derecho (`RightPanel`), manteniendo el contexto de la pantalla principal intacto.
+- **Expandibles**: Priorizar el uso de tarjetas interactivas (`ExpandableCard`) para agrupar información compacta y desplegar detalles solo a demanda del usuario.
