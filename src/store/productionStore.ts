@@ -18,6 +18,18 @@ interface ProductionState {
     orderId?: string;
     newOrderStatus?: 'EN_PRODUCCION' | 'PRODUCIDO';
   }) => Promise<void>;
+  produceMultiple: (data: {
+    orderId?: string;
+    items: {
+      productId: string;
+      cantidad: number;
+      unidad: string;
+      pesoReal?: number;
+      merma?: number;
+      observaciones: string;
+    }[];
+    newOrderStatus?: 'EN_PRODUCCION' | 'PRODUCIDO';
+  }) => Promise<void>;
   revertMovement: (movementId: string) => Promise<void>;
 }
 
@@ -70,6 +82,24 @@ export const useProductionStore = create<ProductionState>((set, get) => ({
       });
     } catch (error) {
       console.error("Error performing production in store:", error);
+      throw error;
+    } finally {
+      set({ loading: false });
+    }
+  },
+  produceMultiple: async (data) => {
+    set({ loading: true });
+    try {
+      await productionRepository.produceMultiple(data, get().equivalences);
+      const freshData = await productionRepository.fetchProductionData();
+      set({
+        orders: freshData.orders,
+        products: freshData.products,
+        equivalences: freshData.equivalences,
+        movements: freshData.movements
+      });
+    } catch (error) {
+      console.error("Error performing produceMultiple in store:", error);
       throw error;
     } finally {
       set({ loading: false });

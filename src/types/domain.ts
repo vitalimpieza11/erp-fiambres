@@ -60,6 +60,8 @@ export type Product = {
   precioSugerido?: number;
   precioComercial?: number;
   recipeItems?: RecipeItem[];
+  pesoFeta?: number;
+  pesoObjetivoGramos?: number;
   // Legacy fields for other modules (to be deprecated)
   costoActual?: number;
   stockActual?: number;
@@ -106,6 +108,8 @@ export type OrderItem = {
   unidad: 'KG' | 'GRAMOS' | 'UNIDADES' | 'FETAS';
   precioEstimado: number;
   subtotal: number;
+  pesoReal?: number;
+  observaciones?: string;
 };
 
 export type Order = { 

@@ -8,6 +8,7 @@ import autoTable from 'jspdf-autotable';
 import { FileText, DollarSign, XCircle, Edit3 } from 'lucide-react';
 import LoadingSpinner from '../../components/LoadingSpinner';
 import { createAlvacioPDF } from '../../lib/pdfHelper';
+import { calculateWeightInKg, convertQuantityToBaseUnit } from '../../lib/unitConverter';
 
 const STATUS_COLORS: Record<string, string> = {
   FACTURADO: '#f59e0b',
@@ -22,7 +23,7 @@ export default function Ventas() {
   const [showQuickSale, setShowQuickSale] = useState(false);
   const [showFacturarPedido, setShowFacturarPedido] = useState(false);
   const [orderToFacturar, setOrderToFacturar] = useState<Order | null>(null);
-  const [partialSaleItems, setPartialSaleItems] = useState<Omit<SaleItem, 'subtotal'>[]>([]);
+  const [partialSaleItems, setPartialSaleItems] = useState<SaleItem[]>([]);
   
   // Quick Sale State
   const [quickSale, setQuickSale] = useState<{ customerId: string; items: SaleItem[]; totalAmount: number; observaciones: string }>({
@@ -111,11 +112,13 @@ export default function Ventas() {
       const prod = products.find(p => p.id === val);
       if (prod) {
         item.unidad = prod.unitType;
-        item.precioUnitario = prod.precioSugerido || 0;
+        item.precioUnitario = prod.precioComercial || prod.precioSugerido || 0;
       }
     }
     
-    item.subtotal = item.cantidad * item.precioUnitario;
+    const prod = products.find(p => p.id === item.productId);
+    const baseQty = convertQuantityToBaseUnit(item.cantidad, item.unidad, prod);
+    item.subtotal = baseQty * item.precioUnitario;
     newItems[idx] = item as SaleItem;
     
     setQuickSale(prev => ({
@@ -137,23 +140,37 @@ export default function Ventas() {
 
   const handleSelectOrderForFacturar = (order: Order) => {
     setOrderToFacturar(order);
-    setPartialSaleItems(order.items.map(it => ({
-      productId: it.productId,
-      cantidad: it.cantidad,
-      unidad: it.unidad,
-      precioUnitario: it.precioEstimado,
-    })));
+    setPartialSaleItems(order.items.map(it => {
+      const prod = products.find(p => p.id === it.productId);
+      const isWeightBased = prod?.unitType === 'KG';
+      
+      const saleQty = (isWeightBased && it.pesoReal !== undefined) ? it.pesoReal : it.cantidad;
+      const saleUnit = ((isWeightBased && it.pesoReal !== undefined) ? 'KG' : it.unidad) as any;
+      const baseQty = convertQuantityToBaseUnit(saleQty, saleUnit, prod);
+      
+      return {
+        productId: it.productId,
+        cantidad: saleQty,
+        unidad: saleUnit,
+        precioUnitario: it.precioEstimado,
+        subtotal: isWeightBased && it.pesoReal !== undefined ? it.pesoReal * it.precioEstimado : baseQty * it.precioEstimado
+      };
+    }));
   };
 
-  const handleUpdatePartialItem = (idx: number, field: string, val: number) => {
+  const handleUpdatePartialItem = (idx: number, field: keyof SaleItem, val: any) => {
     const newItems = [...partialSaleItems];
-    newItems[idx] = { ...newItems[idx], [field]: val };
+    const item = { ...newItems[idx], [field]: val };
+    const prod = products.find(p => p.id === item.productId);
+    const baseQty = convertQuantityToBaseUnit(item.cantidad, item.unidad, prod);
+    item.subtotal = baseQty * item.precioUnitario;
+    newItems[idx] = item as SaleItem;
     setPartialSaleItems(newItems);
   };
 
   const handleSubmitPartialSale = async () => {
     if (!orderToFacturar) return;
-    const finalTotal = partialSaleItems.reduce((acc, it) => acc + (it.cantidad * it.precioUnitario), 0);
+    const finalTotal = partialSaleItems.reduce((acc, it) => acc + it.subtotal, 0);
     if (confirm(`¿Facturar pedido por $${finalTotal.toFixed(2)}?`)) {
       await createSaleFromOrder(orderToFacturar, partialSaleItems, finalTotal);
       setOrderToFacturar(null);
@@ -437,7 +454,7 @@ export default function Ventas() {
                         </div>
                       </div>
                       <div style={{ textAlign: 'right', marginTop: '8px', fontSize: '14px', fontWeight: 600 }}>
-                        Subtotal: ${(item.cantidad * item.precioUnitario).toFixed(2)}
+                        Subtotal: ${item.subtotal.toFixed(2)}
                       </div>
                     </div>
                   );
@@ -445,7 +462,7 @@ export default function Ventas() {
               </div>
               
               <div style={{ textAlign: 'right', marginTop: '16px', borderTop: '1px solid var(--border-color)', paddingTop: '16px' }}>
-                <strong style={{ fontSize: '18px' }}>Total a Facturar: <span style={{ color: 'var(--alvacio-red)' }}>${partialSaleItems.reduce((acc, it) => acc + (it.cantidad * it.precioUnitario), 0).toFixed(2)}</span></strong>
+                <strong style={{ fontSize: '18px' }}>Total a Facturar: <span style={{ color: 'var(--alvacio-red)' }}>${partialSaleItems.reduce((acc, it) => acc + it.subtotal, 0).toFixed(2)}</span></strong>
               </div>
               
               <button className="btn-primary" onClick={handleSubmitPartialSale} style={{ marginTop: '16px', width: '100%' }}>

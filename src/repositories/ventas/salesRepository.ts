@@ -1,6 +1,7 @@
 import { getDocs, query, where, doc, updateDoc, runTransaction, collection, orderBy, limit } from 'firebase/firestore';
 import { db, COLLECTIONS } from '../../lib/firebase';
 import type { Sale, Order, Customer, Product, SaleItem } from '../../types/domain';
+import { convertQuantityToBaseUnit } from '../../lib/unitConverter';
 
 export const salesRepository = {
   async fetchSalesData(): Promise<{
@@ -29,7 +30,7 @@ export const salesRepository = {
     await updateDoc(orderRef, { status: 'ENTREGADO' });
   },
 
-  async createSaleFromOrder(order: Order, itemsToSell: Omit<SaleItem, 'subtotal'>[], finalTotal: number): Promise<void> {
+  async createSaleFromOrder(order: Order, itemsToSell: SaleItem[], finalTotal: number): Promise<void> {
     if (order.status !== 'ENTREGADO' && order.status !== 'PRODUCIDO') {
       throw new Error("El pedido debe estar entregado o producido para facturar.");
     }
@@ -46,7 +47,7 @@ export const salesRepository = {
           cantidad: i.cantidad,
           unidad: i.unidad,
           precioUnitario: i.precioUnitario,
-          subtotal: i.cantidad * i.precioUnitario
+          subtotal: i.subtotal
         })),
         totalAmount: finalTotal,
         status: 'FACTURADO',
@@ -63,6 +64,19 @@ export const salesRepository = {
 
   async createQuickSale(data: Omit<Sale, 'id' | 'status' | 'paymentMethod' | 'isDeleted' | 'orderId'>): Promise<void> {
     await runTransaction(db, async (transaction) => {
+      // 1. READS first
+      const productDocs: { ref: any, data: Product }[] = [];
+      for (const item of data.items) {
+        const prodRef = doc(db, 'products', item.productId);
+        const prodDoc = await transaction.get(prodRef);
+        if (!prodDoc.exists()) throw new Error(`Producto ${item.productId} no encontrado`);
+        productDocs.push({
+          ref: prodRef,
+          data: { id: prodDoc.id, ...prodDoc.data() } as Product
+        });
+      }
+
+      // 2. WRITES second
       // Create Sale
       const newSaleRef = doc(collection(db, 'sales'));
       const saleData: Omit<Sale, 'id'> = {
@@ -75,27 +89,26 @@ export const salesRepository = {
 
       // Deduct stock for quick sale
       for (const item of data.items) {
-        const prodRef = doc(db, 'products', item.productId);
-        const prodDoc = await transaction.get(prodRef);
-        if (!prodDoc.exists()) throw new Error(`Producto ${item.productId} no encontrado`);
-        
-        const currentStock = prodDoc.data().stockActual || 0;
-        
-        transaction.update(prodRef, {
-          stockActual: currentStock - item.cantidad
-        });
+        const pDoc = productDocs.find(x => x.data.id === item.productId);
+        if (pDoc) {
+          const currentStock = pDoc.data.stockActual || 0;
+          const baseQty = convertQuantityToBaseUnit(item.cantidad, item.unidad, pDoc.data);
+          transaction.update(pDoc.ref, {
+            stockActual: currentStock - baseQty
+          });
 
-        // Register movement
-        const movRef = doc(collection(db, 'stock_movements'));
-        transaction.set(movRef, {
-          productId: item.productId,
-          qty: -item.cantidad,
-          type: 'VENTA',
-          date: new Date().toISOString(),
-          referenceId: newSaleRef.id,
-          observaciones: 'Venta rápida',
-          isDeleted: false
-        });
+          // Register movement
+          const movRef = doc(collection(db, 'stock_movements'));
+          transaction.set(movRef, {
+            productId: item.productId,
+            qty: -baseQty,
+            type: 'VENTA',
+            date: new Date().toISOString(),
+            referenceId: newSaleRef.id,
+            observaciones: 'Venta rápida',
+            isDeleted: false
+          });
+        }
       }
     });
   },
@@ -140,6 +153,22 @@ export const salesRepository = {
 
   async anularSale(sale: Sale): Promise<void> {
     await runTransaction(db, async (transaction) => {
+      // 1. READS first (if quick sale)
+      const productDocs: { ref: any, data: Product }[] = [];
+      if (!sale.orderId) {
+        for (const item of sale.items || []) {
+          const prodRef = doc(db, 'products', item.productId);
+          const prodDoc = await transaction.get(prodRef);
+          if (prodDoc.exists()) {
+            productDocs.push({
+              ref: prodRef,
+              data: { id: prodDoc.id, ...prodDoc.data() } as Product
+            });
+          }
+        }
+      }
+
+      // 2. WRITES second
       // Mark Sale as canceled
       const saleRef = doc(db, 'sales', sale.id);
       transaction.update(saleRef, {
@@ -153,27 +182,27 @@ export const salesRepository = {
         transaction.update(orderRef, { status: 'ENTREGADO' });
       } else {
         // Quick Sale: Revert Stock via compensatory movement
-        for (const item of sale.items) {
-          const prodRef = doc(db, 'products', item.productId);
-          const prodDoc = await transaction.get(prodRef);
-          if (!prodDoc.exists()) throw new Error(`Producto ${item.productId} no encontrado`);
-          
-          const currentStock = prodDoc.data().stockActual || 0;
-          transaction.update(prodRef, {
-            stockActual: currentStock + item.cantidad
-          });
+        for (const item of sale.items || []) {
+          const pDoc = productDocs.find(x => x.data.id === item.productId);
+          if (pDoc) {
+            const currentStock = pDoc.data.stockActual || 0;
+            const baseQty = convertQuantityToBaseUnit(item.cantidad, item.unidad, pDoc.data);
+            transaction.update(pDoc.ref, {
+              stockActual: currentStock + baseQty
+            });
 
-          // Register positive movement
-          const movRef = doc(collection(db, 'stock_movements'));
-          transaction.set(movRef, {
-            productId: item.productId,
-            qty: item.cantidad,
-            type: 'AJUSTE',
-            date: new Date().toISOString(),
-            referenceId: sale.id,
-            observaciones: 'Reversión por venta rápida anulada',
-            isDeleted: false
-          });
+            // Register positive movement
+            const movRef = doc(collection(db, 'stock_movements'));
+            transaction.set(movRef, {
+              productId: item.productId,
+              qty: baseQty,
+              type: 'AJUSTE',
+              date: new Date().toISOString(),
+              referenceId: sale.id,
+              observaciones: 'Reversión por venta rápida anulada',
+              isDeleted: false
+            });
+          }
         }
       }
 

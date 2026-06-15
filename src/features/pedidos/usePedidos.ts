@@ -33,11 +33,10 @@ export function usePedidos() {
       if (item && item.price > 0) return item.price;
     }
 
-    // 3. Fallback al precio sugerido por kg o unidad del producto base
+    // 3. Fallback al precio comercial o sugerido del producto base
     const product = productos.find(p => p.id === productId);
     if (product) {
-      if (product.unitType === 'KG' && product.precioSugerido) return product.precioSugerido;
-      if (product.unitType === 'UNIDADES' && product.precioSugerido) return product.precioSugerido;
+      return product.precioComercial || product.precioSugerido || 0;
     }
 
     return 0; // Sin precio

@@ -3,6 +3,7 @@ import { usePedidos } from './usePedidos';
 import type { Order, OrderItem, OrderStatus } from '../../types/domain';
 import RightPanel from '../../components/RightPanel';
 import ExpandableCard from '../../components/ExpandableCard';
+import { calculateWeightInKg, convertQuantityToBaseUnit } from '../../lib/unitConverter';
 
 const STATUS_COLORS: Record<OrderStatus, string> = {
   PENDIENTE: '#f59e0b',
@@ -88,7 +89,8 @@ export default function Pedidos() {
         
         const price = getProductPrice(pId, currentPedido.customerId || '');
         items[index].precioEstimado = price;
-        items[index].subtotal = price * cant;
+        const baseQty = convertQuantityToBaseUnit(cant, items[index].unidad, prod);
+        items[index].subtotal = price * baseQty;
       }
     }
     
@@ -116,9 +118,11 @@ export default function Pedidos() {
     
     items.forEach(item => {
       if (item.productId) {
+        const prod = productos.find(p => p.id === item.productId);
         const price = getProductPrice(item.productId, customerId);
         item.precioEstimado = price;
-        item.subtotal = price * item.cantidad;
+        const baseQty = convertQuantityToBaseUnit(item.cantidad, item.unidad, prod);
+        item.subtotal = price * baseQty;
         total += item.subtotal;
       }
     });

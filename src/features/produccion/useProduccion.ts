@@ -10,6 +10,7 @@ export function useProduccion() {
   const loading = useProductionStore((state) => state.loading);
   const fetchData = useProductionStore((state) => state.fetchData);
   const produce = useProductionStore((state) => state.produce);
+  const produceMultiple = useProductionStore((state) => state.produceMultiple);
   const revertMovement = useProductionStore((state) => state.revertMovement);
 
   useEffect(() => {
@@ -59,6 +60,7 @@ export function useProduccion() {
     loading,
     getCapacity,
     produce,
+    produceMultiple,
     revertMovement
   };
 }

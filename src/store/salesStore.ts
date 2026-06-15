@@ -10,7 +10,7 @@ interface SalesState {
   loading: boolean;
   fetchData: () => Promise<void>;
   markOrderAsDelivered: (orderId: string) => Promise<void>;
-  createSaleFromOrder: (order: Order, itemsToSell: Omit<SaleItem, 'subtotal'>[], finalTotal: number) => Promise<void>;
+  createSaleFromOrder: (order: Order, itemsToSell: SaleItem[], finalTotal: number) => Promise<void>;
   createQuickSale: (data: Omit<Sale, 'id' | 'status' | 'paymentMethod' | 'isDeleted' | 'orderId'>) => Promise<void>;
   cobrarSale: (sale: Sale, method: 'EFECTIVO_TRANSFERENCIA' | 'CUENTA_CORRIENTE') => Promise<void>;
   anularSale: (sale: Sale) => Promise<void>;
