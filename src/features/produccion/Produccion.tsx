@@ -1,16 +1,16 @@
 import { useState, useMemo, useEffect } from 'react';
 import { useProduccion } from './useProduccion';
-import type { Order } from '../../types/domain';
+import type { Order, RecipeItem } from '../../types/domain';
 import ExpandableCard from '../../components/ExpandableCard';
 import RightPanel from '../../components/RightPanel';
 import { Package, Clock, Activity, CheckCircle, RotateCcw } from 'lucide-react';
 
 import LoadingSpinner from '../../components/LoadingSpinner';
-import { convertQuantityToBaseUnit } from '../../lib/unitConverter';
+import { convertQuantityToBaseUnit, convertUnit } from '../../lib/unitConverter';
 import ProductionFields from './ProductionFields';
 
 export default function Produccion() {
-  const { orders, products, movements, loading, getCapacity, produce, produceMultiple, revertMovement } = useProduccion();
+  const { orders, products, recipes, equivalences, movements, customers, loading, getCapacity, produce, produceMultiple, revertMovement } = useProduccion();
 
   const [activeTab, setActiveTab] = useState<'PENDING' | 'STOCK' | 'CAPACITY'>('PENDING');
   
@@ -41,6 +41,84 @@ export default function Produccion() {
     return (products || []).find(p => p && p.id === selectedProduct);
   }, [products, selectedProduct]);
 
+  const resolvedRecipeItems = useMemo(() => {
+    if (!selectedProdObj) return [];
+    let items = selectedProdObj.recipeItems || [];
+    if (items.length === 0) {
+      const recipeId = selectedProdObj.recipeId || (selectedProdObj as any).recetaId;
+      if (recipeId) {
+        const recipe = (recipes || []).find(r => r.id === recipeId);
+        if (recipe) {
+          const ingredients = recipe.ingredients || [];
+          items = ingredients.map((ing: any) => ({
+            productId: ing.productId,
+            quantity: ing.quantity,
+            unit: ing.unit || 'GRAMOS'
+          }));
+        }
+      }
+    }
+    return items;
+  }, [selectedProdObj, recipes]);
+
+  // Local state for editable recipe items (custom ingredients)
+  const [customIngredients, setCustomIngredients] = useState<RecipeItem[]>([]);
+
+  useEffect(() => {
+    setCustomIngredients(resolvedRecipeItems);
+  }, [resolvedRecipeItems]);
+
+  const sortedProducts = useMemo(() => {
+    return [...(products || [])]
+      .filter(p => p && p.activo)
+      .sort((a, b) => (a.nombre || '').localeCompare(b.nombre || ''));
+  }, [products]);
+
+  const handleIngredientProductChange = (index: number, newProductId: string) => {
+    const updated = [...customIngredients];
+    const prodObj = products.find(p => p.id === newProductId);
+    updated[index] = {
+      ...updated[index],
+      productId: newProductId,
+      unit: prodObj ? prodObj.unitType : 'GRAMOS'
+    };
+    setCustomIngredients(updated);
+  };
+
+  const handleIngredientQuantityChange = (index: number, qty: number) => {
+    const updated = [...customIngredients];
+    updated[index] = {
+      ...updated[index],
+      quantity: qty
+    };
+    setCustomIngredients(updated);
+  };
+
+  const handleIngredientUnitChange = (index: number, unit: any) => {
+    const updated = [...customIngredients];
+    updated[index] = {
+      ...updated[index],
+      unit: unit
+    };
+    setCustomIngredients(updated);
+  };
+
+  const handleRemoveIngredient = (index: number) => {
+    const updated = customIngredients.filter((_, idx) => idx !== index);
+    setCustomIngredients(updated);
+  };
+
+  const handleAddIngredient = () => {
+    setCustomIngredients([
+      ...customIngredients,
+      {
+        productId: '',
+        quantity: 0,
+        unit: 'GRAMOS'
+      }
+    ]);
+  };
+
   const handleOrderChange = (orderId: string) => {
     setSelectedOrder(orderId);
     if (!orderId) {
@@ -49,6 +127,10 @@ export default function Produccion() {
     }
     const order = orders.find(o => o.id === orderId);
     if (order) {
+      const client = (customers || []).find(c => c.id === order.customerId);
+      const clientName = client ? (client.name || client.nombre) : '';
+      const clientSuffix = clientName ? ` - ${clientName}` : '';
+
       setOrderProdItems((order.items || []).map(item => {
         const p = products.find(prod => prod.id === item.productId);
         let initialPesoReal = item.pesoReal !== undefined ? Number(item.pesoReal) : undefined;
@@ -65,7 +147,7 @@ export default function Produccion() {
           unidad: item.unidad || p?.unitType || 'KG',
           pesoReal: initialPesoReal,
           merma: undefined,
-          observaciones: `Producción de Pedido ${(orderId || '').slice(0, 6)} - ${p?.nombre || ''}`,
+          observaciones: `Producción de Pedido ${(orderId || '').slice(0, 6)}${clientSuffix} - ${p?.nombre || ''}`,
           elaborado: true
         };
       }));
@@ -146,12 +228,14 @@ export default function Produccion() {
       }
       
       try {
+        const validOverride = customIngredients.filter(ing => ing.productId && ing.quantity > 0);
         await produce({
           productId: selectedProduct,
           cantidad: prodQty,
           pesoReal: prodWeight > 0 ? prodWeight : undefined,
           merma: prodMerma > 0 ? prodMerma : undefined,
-          observaciones: prodObs
+          observaciones: prodObs,
+          recipeItemsOverride: validOverride
         });
         setShowPanel(false);
         resetPanel();
@@ -171,6 +255,7 @@ export default function Produccion() {
     setProdObs('');
     setNewStatus('EN_PRODUCCION');
     setOrderProdItems([]);
+    setCustomIngredients([]);
   };
 
   const openProducePanel = (mode: 'FREE' | 'ORDER', orderId?: string, productId?: string) => {
@@ -284,18 +369,21 @@ export default function Produccion() {
           <div>
             <h3 style={{ fontSize: '20px', marginBottom: '20px', color: 'var(--text-primary)' }}>Pedidos Pendientes</h3>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(350px, 1fr))', gap: '20px' }}>
-              {pendingOrders.map(order => (
-                <ExpandableCard
-                  key={order.id}
-                  title={`Pedido ${(order.id || '').slice(0, 6)}`}
-                  statusBadge={
-                    <span style={{ 
-                      backgroundColor: order.status === 'PENDIENTE' ? '#fef3c7' : '#dbeafe',
-                      color: order.status === 'PENDIENTE' ? '#d97706' : '#2563eb'
-                    }}>
-                      {order.status}
-                    </span>
-                  }
+              {pendingOrders.map(order => {
+                const client = (customers || []).find(c => c.id === order.customerId);
+                const clientName = client ? (client.name || client.nombre) : 'Cliente Desconocido';
+                return (
+                  <ExpandableCard
+                    key={order.id}
+                    title={`${clientName} - Pedido ${(order.id || '').slice(0, 6)}`}
+                    statusBadge={
+                      <span style={{ 
+                        backgroundColor: order.status === 'PENDIENTE' ? '#fef3c7' : '#dbeafe',
+                        color: order.status === 'PENDIENTE' ? '#d97706' : '#2563eb'
+                      }}>
+                        {order.status}
+                      </span>
+                    }
                   collapsedContent={
                     <div style={{ color: 'var(--text-secondary)', marginTop: '8px' }}>
                       {(order.items || []).length} ítems
@@ -321,7 +409,8 @@ export default function Produccion() {
                     </button>
                   }
                 />
-              ))}
+              );
+            })}
               {pendingOrders.length === 0 && (
                 <p style={{ color: 'var(--text-secondary)' }}>No hay pedidos pendientes de producción.</p>
               )}
@@ -464,9 +553,15 @@ export default function Produccion() {
                 <label>Seleccionar Pedido</label>
                 <select required value={selectedOrder} onChange={e => handleOrderChange(e.target.value)}>
                   <option value="">-- Seleccione --</option>
-                  {pendingOrders.map(o => (
-                    <option key={o.id} value={o.id}>Pedido {(o.id || '').slice(0,6)} - {o.status}</option>
-                  ))}
+                  {pendingOrders.map(o => {
+                    const client = (customers || []).find(c => c.id === o.customerId);
+                    const clientName = client ? (client.name || client.nombre) : 'Cliente Desconocido';
+                    return (
+                      <option key={o.id} value={o.id}>
+                        {clientName} - Pedido {(o.id || '').slice(0,6)} ({o.status})
+                      </option>
+                    );
+                  })}
                 </select>
               </div>
 
@@ -564,6 +659,116 @@ export default function Produccion() {
                     }}
                     isOrder={false}
                   />
+
+                    <div style={{ background: '#f8fafc', padding: '16px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                        <label style={{ fontWeight: 600, fontSize: '13px', color: 'var(--text-primary)', margin: 0 }}>
+                          Ingredientes / Receta Personalizada:
+                        </label>
+                        <button
+                          type="button"
+                          className="btn-secondary"
+                          style={{ padding: '4px 10px', fontSize: '12px' }}
+                          onClick={handleAddIngredient}
+                        >
+                          + Agregar Insumo
+                        </button>
+                      </div>
+
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                        {customIngredients.map((ing, idx) => {
+                          const ingProduct = products.find(p => p.id === ing.productId);
+                          
+                          let convertedQty = 0;
+                          if (ingProduct) {
+                            try {
+                              convertedQty = convertUnit(
+                                Number(ing.quantity || 0),
+                                ing.unit as any,
+                                ingProduct.unitType,
+                                ingProduct.nombre || '',
+                                '',
+                                equivalences || []
+                              );
+                            } catch (err) {
+                              console.error("Error converting unit", err);
+                            }
+                          }
+                          const totalNeeded = convertedQty * (prodQty || 0);
+                          const currentStock = ingProduct ? (ingProduct.stockActual || 0) : 0;
+                          const hasEnough = currentStock >= totalNeeded;
+
+                          return (
+                            <div key={idx} style={{ display: 'flex', flexDirection: 'column', gap: '6px', paddingBottom: '12px', borderBottom: idx < customIngredients.length - 1 ? '1px solid #e2e8f0' : 'none' }}>
+                              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                                <select
+                                  style={{ flex: 2, padding: '6px', fontSize: '13px', border: '1px solid var(--border-color)', borderRadius: '6px', backgroundColor: '#fff' }}
+                                  value={ing.productId}
+                                  required
+                                  onChange={(e) => handleIngredientProductChange(idx, e.target.value)}
+                                >
+                                  <option value="">-- Seleccione Insumo --</option>
+                                  {sortedProducts.map(p => (
+                                    <option key={p.id} value={p.id}>{p.nombre}</option>
+                                  ))}
+                                </select>
+                                <input
+                                  type="number"
+                                  step="any"
+                                  placeholder="Cant"
+                                  style={{ width: '80px', padding: '6px', fontSize: '13px', border: '1px solid var(--border-color)', borderRadius: '6px' }}
+                                  value={ing.quantity || ''}
+                                  required
+                                  onChange={(e) => handleIngredientQuantityChange(idx, Number(e.target.value))}
+                                />
+                                <select
+                                  style={{ width: '100px', padding: '6px', fontSize: '13px', border: '1px solid var(--border-color)', borderRadius: '6px', backgroundColor: '#fff' }}
+                                  value={ing.unit}
+                                  required
+                                  onChange={(e) => handleIngredientUnitChange(idx, e.target.value as any)}
+                                >
+                                  <option value="GRAMOS">GRAMOS</option>
+                                  <option value="KG">KG</option>
+                                  <option value="UNIDADES">UNIDADES</option>
+                                  <option value="FETAS">FETAS</option>
+                                </select>
+                                <button
+                                  type="button"
+                                  style={{
+                                    background: 'none',
+                                    border: 'none',
+                                    color: '#ef4444',
+                                    cursor: 'pointer',
+                                    padding: '4px',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    fontSize: '16px'
+                                  }}
+                                  onClick={() => handleRemoveIngredient(idx)}
+                                >
+                                  ✕
+                                </button>
+                              </div>
+                              {ing.productId && (
+                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: 'var(--text-secondary)', paddingLeft: '4px' }}>
+                                  <span>
+                                    Necesario: <strong style={{ color: 'var(--text-primary)' }}>{Number(totalNeeded.toFixed(3))} {ingProduct?.unitType || ''}</strong>
+                                  </span>
+                                  <span style={{ color: hasEnough ? '#16a34a' : '#ef4444', fontWeight: 600 }}>
+                                    Stock: {Number(currentStock.toFixed(3))} {ingProduct?.unitType || ''} ({hasEnough ? 'OK' : 'FALTA'})
+                                  </span>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                        {customIngredients.length === 0 && (
+                          <div style={{ textAlign: 'center', color: 'var(--text-secondary)', fontSize: '13px', padding: '12px 0' }}>
+                            Sin ingredientes. Presione "+ Agregar Insumo" para añadir uno.
+                          </div>
+                        )}
+                      </div>
+                    </div>
                 </div>
               )}
             </>

@@ -2,6 +2,7 @@
 export type Customer = { 
   id: string; 
   nombre: string; 
+  name?: string;
   razonSocial: string;
   cuit: string;
   telefono: string;
@@ -14,6 +15,7 @@ export type Customer = {
 export type Supplier = { 
   id: string; 
   nombre: string; 
+  name?: string;
   razonSocial: string;
   cuit: string;
   telefono: string;
@@ -60,6 +62,8 @@ export type Product = {
   precioSugerido?: number;
   precioComercial?: number;
   recipeItems?: RecipeItem[];
+  recipeId?: string;
+  recetaId?: string;
   pesoFeta?: number;
   pesoObjetivoGramos?: number;
   // Legacy fields for other modules (to be deprecated)

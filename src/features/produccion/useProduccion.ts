@@ -5,8 +5,10 @@ import { convertUnit } from '../../lib/unitConverter';
 export function useProduccion() {
   const orders = useProductionStore((state) => state.orders);
   const products = useProductionStore((state) => state.products);
+  const recipes = useProductionStore((state) => state.recipes);
   const equivalences = useProductionStore((state) => state.equivalences);
   const movements = useProductionStore((state) => state.movements);
+  const customers = useProductionStore((state) => state.customers);
   const loading = useProductionStore((state) => state.loading);
   const fetchData = useProductionStore((state) => state.fetchData);
   const produce = useProductionStore((state) => state.produce);
@@ -21,7 +23,22 @@ export function useProduccion() {
     const product = products.find(p => p.id === productId);
     if (!product || product.type !== 'PRESENTACION') return 0;
 
-    const recipeItems = product.recipeItems || [];
+    let recipeItems = product.recipeItems || [];
+    if (recipeItems.length === 0) {
+      const recipeId = product.recipeId || (product as any).recetaId;
+      if (recipeId) {
+        const recipe = recipes.find(r => r.id === recipeId);
+        if (recipe) {
+          const ingredients = recipe.ingredients || [];
+          recipeItems = ingredients.map((ing: any) => ({
+            productId: ing.productId,
+            quantity: ing.quantity,
+            unit: ing.unit || 'GRAMOS'
+          }));
+        }
+      }
+    }
+
     if (recipeItems.length === 0) return 0;
 
     let maxProducible = Infinity;
@@ -50,13 +67,15 @@ export function useProduccion() {
     }
 
     return maxProducible === Infinity ? 0 : Math.floor(maxProducible);
-  }, [products, equivalences]);
+  }, [products, recipes, equivalences]);
 
   return {
     orders,
     products,
+    recipes,
     equivalences,
     movements,
+    customers,
     loading,
     getCapacity,
     produce,

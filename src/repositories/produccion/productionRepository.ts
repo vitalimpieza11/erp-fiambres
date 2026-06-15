@@ -1,6 +1,6 @@
 import { getDocs, query, where, doc, runTransaction, collection } from 'firebase/firestore';
 import { db, COLLECTIONS } from '../../lib/firebase';
-import type { Order, Product, Equivalencia, StockMovement } from '../../types/domain';
+import type { Order, Product, Equivalencia, StockMovement, RecipeItem, Customer } from '../../types/domain';
 import { convertUnit, convertQuantityToBaseUnit } from '../../lib/unitConverter';
 
 
@@ -8,21 +8,27 @@ export const productionRepository = {
   async fetchProductionData(): Promise<{
     orders: Order[];
     products: Product[];
+    recipes: any[];
     equivalences: Equivalencia[];
     movements: StockMovement[];
+    customers: Customer[];
   }> {
-    const [ordersSnap, productsSnap, equivSnap, moveSnap] = await Promise.all([
+    const [ordersSnap, productsSnap, recipesSnap, equivSnap, moveSnap, customersSnap] = await Promise.all([
       getDocs(query(COLLECTIONS.ORDERS, where('isDeleted', '==', false))),
       getDocs(query(COLLECTIONS.PRODUCTS, where('activo', '==', true))),
+      getDocs(COLLECTIONS.RECIPES),
       getDocs(COLLECTIONS.EQUIVALENCES),
-      getDocs(query(COLLECTIONS.STOCK_MOVEMENTS, where('isDeleted', '==', false)))
+      getDocs(query(COLLECTIONS.STOCK_MOVEMENTS, where('isDeleted', '==', false))),
+      getDocs(COLLECTIONS.CUSTOMERS)
     ]);
 
     return {
-      orders: ordersSnap.docs.map(d => ({ id: d.id, ...d.data() } as Order)),
-      products: productsSnap.docs.map(d => ({ id: d.id, ...d.data() } as Product)),
-      equivalences: equivSnap.docs.map(d => ({ id: d.id, ...d.data() } as Equivalencia)),
-      movements: moveSnap.docs.map(d => ({ id: d.id, ...d.data() } as StockMovement))
+      orders: ordersSnap.docs.map(d => ({ id: d.id, ...d.data() } as any as Order)),
+      products: productsSnap.docs.map(d => ({ id: d.id, ...d.data() } as any as Product)),
+      recipes: recipesSnap.docs.map(d => ({ id: d.id, ...d.data() })),
+      equivalences: equivSnap.docs.map(d => ({ id: d.id, ...d.data() } as any as Equivalencia)),
+      movements: moveSnap.docs.map(d => ({ id: d.id, ...d.data() } as any as StockMovement)),
+      customers: customersSnap.docs.map(d => ({ id: d.id, ...d.data() } as any as Customer))
     };
   },
 
@@ -35,6 +41,7 @@ export const productionRepository = {
       observaciones: string;
       orderId?: string;
       newOrderStatus?: 'EN_PRODUCCION' | 'PRODUCIDO';
+      recipeItemsOverride?: RecipeItem[];
     },
     equivalences: Equivalencia[]
   ): Promise<void> {
@@ -46,7 +53,29 @@ export const productionRepository = {
       
       const productData = productDoc.data() as Product;
       const currentStock = productData.stockActual || 0;
-      const recipeItems = productData.recipeItems || [];
+      
+      let recipeItems: RecipeItem[] = [];
+
+      if (data.recipeItemsOverride !== undefined) {
+        recipeItems = data.recipeItemsOverride;
+      } else {
+        recipeItems = productData.recipeItems || [];
+        const recipeId = productData.recipeId || (productData as any).recetaId;
+
+        if (recipeItems.length === 0 && recipeId) {
+          const recipeRef = doc(db, 'recipes', recipeId);
+          const recipeDoc = await transaction.get(recipeRef);
+          if (recipeDoc.exists()) {
+            const recipeData = recipeDoc.data();
+            const ingredients = recipeData.ingredients || [];
+            recipeItems = ingredients.map((ing: any) => ({
+              productId: ing.productId,
+              quantity: ing.quantity,
+              unit: ing.unit || 'GRAMOS'
+            }));
+          }
+        }
+      }
 
       // 2. Get all ingredient docs (READ PHASE)
       const ingredientDocs: Record<string, { ref: any, data: Product }> = {};
@@ -56,7 +85,7 @@ export const productionRepository = {
         if (ingDoc.exists()) {
           ingredientDocs[ing.productId] = {
             ref: ingRef,
-            data: { id: ingDoc.id, ...(ingDoc.data() || {}) } as Product
+            data: { id: ingDoc.id, ...(ingDoc.data() || {}) } as any as Product
           };
         }
       }
@@ -147,7 +176,7 @@ export const productionRepository = {
         orderRef = doc(db, 'orders', data.orderId);
         const orderDoc = await transaction.get(orderRef);
         if (orderDoc.exists()) {
-          orderData = { id: orderDoc.id, ...(orderDoc.data() || {}) } as Order;
+          orderData = { id: orderDoc.id, ...(orderDoc.data() || {}) } as any as Order;
         }
       }
 
@@ -160,7 +189,7 @@ export const productionRepository = {
         mainProductDocs.push({
           ref: productRef,
           doc: productDoc,
-          data: { id: productDoc.id, ...(productDoc.data() || {}) } as Product
+          data: { id: productDoc.id, ...(productDoc.data() || {}) } as any as Product
         });
       }
 

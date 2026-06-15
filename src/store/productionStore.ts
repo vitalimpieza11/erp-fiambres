@@ -1,12 +1,14 @@
 import { create } from 'zustand';
 import { productionRepository } from '../repositories/produccion/productionRepository';
-import type { Order, Product, Equivalencia, StockMovement } from '../types/domain';
+import type { Order, Product, Equivalencia, StockMovement, RecipeItem, Customer } from '../types/domain';
 
 interface ProductionState {
   orders: Order[];
   products: Product[];
+  recipes: any[];
   equivalences: Equivalencia[];
   movements: StockMovement[];
+  customers: Customer[];
   loading: boolean;
   fetchData: () => Promise<void>;
   produce: (data: {
@@ -17,6 +19,7 @@ interface ProductionState {
     observaciones: string;
     orderId?: string;
     newOrderStatus?: 'EN_PRODUCCION' | 'PRODUCIDO';
+    recipeItemsOverride?: RecipeItem[];
   }) => Promise<void>;
   produceMultiple: (data: {
     orderId?: string;
@@ -36,8 +39,10 @@ interface ProductionState {
 export const useProductionStore = create<ProductionState>((set, get) => ({
   orders: [],
   products: [],
+  recipes: [],
   equivalences: [],
   movements: [],
+  customers: [],
   loading: true,
   fetchData: async () => {
     const hasData = get().orders.length > 0;
@@ -46,8 +51,10 @@ export const useProductionStore = create<ProductionState>((set, get) => ({
         set({
           orders: data.orders,
           products: data.products,
+          recipes: data.recipes,
           equivalences: data.equivalences,
-          movements: data.movements
+          movements: data.movements,
+          customers: data.customers
         });
       }).catch(err => console.error("Background fetch production error:", err));
       return;
@@ -59,8 +66,10 @@ export const useProductionStore = create<ProductionState>((set, get) => ({
       set({
         orders: data.orders,
         products: data.products,
+        recipes: data.recipes,
         equivalences: data.equivalences,
-        movements: data.movements
+        movements: data.movements,
+        customers: data.customers
       });
     } catch (error) {
       console.error("Error fetching production data in store:", error);
@@ -77,8 +86,10 @@ export const useProductionStore = create<ProductionState>((set, get) => ({
       set({
         orders: freshData.orders,
         products: freshData.products,
+        recipes: freshData.recipes,
         equivalences: freshData.equivalences,
-        movements: freshData.movements
+        movements: freshData.movements,
+        customers: freshData.customers
       });
     } catch (error) {
       console.error("Error performing production in store:", error);
@@ -95,8 +106,10 @@ export const useProductionStore = create<ProductionState>((set, get) => ({
       set({
         orders: freshData.orders,
         products: freshData.products,
+        recipes: freshData.recipes,
         equivalences: freshData.equivalences,
-        movements: freshData.movements
+        movements: freshData.movements,
+        customers: freshData.customers
       });
     } catch (error) {
       console.error("Error performing produceMultiple in store:", error);
@@ -115,8 +128,10 @@ export const useProductionStore = create<ProductionState>((set, get) => ({
       set({
         orders: freshData.orders,
         products: freshData.products,
+        recipes: freshData.recipes,
         equivalences: freshData.equivalences,
-        movements: freshData.movements
+        movements: freshData.movements,
+        customers: freshData.customers
       });
     } catch (error) {
       console.error("Error reverting production movement in store:", error);
