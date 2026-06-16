@@ -77,8 +77,8 @@ export const productsRepository = {
       ...product,
       precioSugerido: Number(product.precioSugerido || 0),
       precioComercial: Number(product.precioComercial || 0),
-      costoActual: product.costoActual || 0,
-      stockActual: product.stockActual || 0,
+      costoActual: Number(product.costoActual || 0),
+      stockActual: Number(product.stockActual || 0),
     };
 
     if (product.type !== 'PRESENTACION') {

@@ -11,7 +11,8 @@ import {
   Wallet, 
   Briefcase, 
   Settings,
-  LogOut
+  LogOut,
+  Receipt
 } from 'lucide-react';
 import TopLogo from './TopLogo';
 import { useAuthStore } from '../store/authStore';
@@ -25,6 +26,7 @@ export default function Layout() {
     { path: '/produccion', label: 'Producción', icon: <Wrench size={22} /> },
     { path: '/stock', label: 'Stock', icon: <Package size={22} /> },
     { path: '/ventas', label: 'Ventas', icon: <TrendingUp size={22} /> },
+    { path: '/facturacion', label: 'Facturación', icon: <Receipt size={22} /> },
     { path: '/clientes', label: 'Clientes', icon: <Users size={22} /> },
     { path: '/proveedores', label: 'Proveedores', icon: <Truck size={22} /> },
     { path: '/compras', label: 'Compras', icon: <CreditCard size={22} /> },

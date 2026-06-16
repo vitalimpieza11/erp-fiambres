@@ -1,171 +1,41 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo } from 'react';
 import { useProduccion } from './useProduccion';
-import type { Order, RecipeItem } from '../../types/domain';
 import ExpandableCard from '../../components/ExpandableCard';
-import RightPanel from '../../components/RightPanel';
+import FreeProductionPanel from './FreeProductionPanel';
+import OrderProductionModal from './OrderProductionModal';
 import { Package, Clock, Activity, CheckCircle, RotateCcw } from 'lucide-react';
-
 import LoadingSpinner from '../../components/LoadingSpinner';
-import { convertQuantityToBaseUnit, convertUnit } from '../../lib/unitConverter';
-import ProductionFields from './ProductionFields';
+import { formatCurrency } from '../../lib/formatters';
 
 export default function Produccion() {
-  const { orders, products, recipes, equivalences, movements, customers, loading, getCapacity, produce, produceMultiple, revertMovement } = useProduccion();
+  const { 
+    orders, 
+    products, 
+    recipes, 
+    equivalences, 
+    movements, 
+    customers, 
+    loading, 
+    getCapacity, 
+    produce, 
+    produceStep, 
+    revertMovement 
+  } = useProduccion();
 
   const [activeTab, setActiveTab] = useState<'PENDING' | 'STOCK' | 'CAPACITY'>('PENDING');
   
-  // Production RightPanel State
+  // Production UI States
   const [showPanel, setShowPanel] = useState(false);
-  const [prodMode, setProdMode] = useState<'FREE' | 'ORDER'>('FREE');
-  const [selectedOrder, setSelectedOrder] = useState<string>('');
-  const [selectedProduct, setSelectedProduct] = useState<string>('');
-  const [prodQty, setProdQty] = useState<number>(0);
-  const [prodWeight, setProdWeight] = useState<number>(0);
-  const [prodMerma, setProdMerma] = useState<number>(0);
-  const [prodObs, setProdObs] = useState<string>('');
-  const [newStatus, setNewStatus] = useState<'EN_PRODUCCION' | 'PRODUCIDO'>('EN_PRODUCCION');
-  
-  // For production from order, list of items:
-  // { productId, cantidad, unidad, pesoReal, merma, observaciones, elaborado }
-  const [orderProdItems, setOrderProdItems] = useState<{
-    productId: string;
-    cantidad: number;
-    unidad: string;
-    pesoReal?: number;
-    merma?: number;
-    observaciones: string;
-    elaborado: boolean;
-  }[]>([]);
-
-  const selectedProdObj = useMemo(() => {
-    return (products || []).find(p => p && p.id === selectedProduct);
-  }, [products, selectedProduct]);
-
-  const resolvedRecipeItems = useMemo(() => {
-    if (!selectedProdObj) return [];
-    let items = selectedProdObj.recipeItems || [];
-    if (items.length === 0) {
-      const recipeId = selectedProdObj.recipeId || (selectedProdObj as any).recetaId;
-      if (recipeId) {
-        const recipe = (recipes || []).find(r => r.id === recipeId);
-        if (recipe) {
-          const ingredients = recipe.ingredients || [];
-          items = ingredients.map((ing: any) => ({
-            productId: ing.productId,
-            quantity: ing.quantity,
-            unit: ing.unit || 'GRAMOS'
-          }));
-        }
-      }
-    }
-    return items;
-  }, [selectedProdObj, recipes]);
-
-  // Local state for editable recipe items (custom ingredients)
-  const [customIngredients, setCustomIngredients] = useState<RecipeItem[]>([]);
-
-  useEffect(() => {
-    setCustomIngredients(resolvedRecipeItems);
-  }, [resolvedRecipeItems]);
-
-  const sortedProducts = useMemo(() => {
-    return [...(products || [])]
-      .filter(p => p && p.activo)
-      .sort((a, b) => (a.nombre || '').localeCompare(b.nombre || ''));
-  }, [products]);
-
-  const handleIngredientProductChange = (index: number, newProductId: string) => {
-    const updated = [...customIngredients];
-    const prodObj = products.find(p => p.id === newProductId);
-    updated[index] = {
-      ...updated[index],
-      productId: newProductId,
-      unit: prodObj ? prodObj.unitType : 'GRAMOS'
-    };
-    setCustomIngredients(updated);
-  };
-
-  const handleIngredientQuantityChange = (index: number, qty: number) => {
-    const updated = [...customIngredients];
-    updated[index] = {
-      ...updated[index],
-      quantity: qty
-    };
-    setCustomIngredients(updated);
-  };
-
-  const handleIngredientUnitChange = (index: number, unit: any) => {
-    const updated = [...customIngredients];
-    updated[index] = {
-      ...updated[index],
-      unit: unit
-    };
-    setCustomIngredients(updated);
-  };
-
-  const handleRemoveIngredient = (index: number) => {
-    const updated = customIngredients.filter((_, idx) => idx !== index);
-    setCustomIngredients(updated);
-  };
-
-  const handleAddIngredient = () => {
-    setCustomIngredients([
-      ...customIngredients,
-      {
-        productId: '',
-        quantity: 0,
-        unit: 'GRAMOS'
-      }
-    ]);
-  };
-
-  const handleOrderChange = (orderId: string) => {
-    setSelectedOrder(orderId);
-    if (!orderId) {
-      setOrderProdItems([]);
-      return;
-    }
-    const order = orders.find(o => o.id === orderId);
-    if (order) {
-      const client = (customers || []).find(c => c.id === order.customerId);
-      const clientName = client ? (client.name || client.nombre) : '';
-      const clientSuffix = clientName ? ` - ${clientName}` : '';
-
-      setOrderProdItems((order.items || []).map(item => {
-        const p = products.find(prod => prod.id === item.productId);
-        let initialPesoReal = item.pesoReal !== undefined ? Number(item.pesoReal) : undefined;
-        if (initialPesoReal === undefined && p) {
-          const isWeightBased = p.unitType === 'KG' || p.unitType === 'UNIDADES';
-          if (isWeightBased) {
-            const baseQtyInKg = convertQuantityToBaseUnit(Number(item.cantidad || 0), item.unidad || p.unitType || 'KG', { ...p, unitType: 'KG' });
-            initialPesoReal = Number(baseQtyInKg.toFixed(3));
-          }
-        }
-        return {
-          productId: item.productId,
-          cantidad: Number(item.cantidad || 0),
-          unidad: item.unidad || p?.unitType || 'KG',
-          pesoReal: initialPesoReal,
-          merma: undefined,
-          observaciones: `Producción de Pedido ${(orderId || '').slice(0, 6)}${clientSuffix} - ${p?.nombre || ''}`,
-          elaborado: true
-        };
-      }));
-    }
-  };
-
-  const autoOrderStatus = useMemo(() => {
-    if (orderProdItems.length === 0) return 'EN_PRODUCCION';
-    const allElaborados = orderProdItems.every(it => it.elaborado);
-    return allElaborados ? 'PRODUCIDO' : 'EN_PRODUCCION';
-  }, [orderProdItems]);
-
-  useEffect(() => {
-    setNewStatus(autoOrderStatus);
-  }, [autoOrderStatus]);
+  const [showOrderModal, setShowOrderModal] = useState(false);
+  const [selectedOrderId, setSelectedOrderId] = useState<string>('');
+  const [targetProductId, setTargetProductId] = useState<string>('');
 
   const pendingOrders = useMemo(() => {
     return (orders || []).filter(o => o && (o.status === 'PENDIENTE' || o.status === 'EN_PRODUCCION'));
+  }, [orders]);
+
+  const producedOrders = useMemo(() => {
+    return (orders || []).filter(o => o && o.status === 'PRODUCIDO');
   }, [orders]);
 
   const pendingByProduct = useMemo(() => {
@@ -193,100 +63,40 @@ export default function Produccion() {
     return (products || []).filter(p => p && p.type === 'PRESENTACION');
   }, [products]);
 
-  const handleProduce = async (e: React.FormEvent) => {
-    e.preventDefault();
-    
-    if (prodMode === 'ORDER') {
-      const itemsToProduce = orderProdItems.filter(it => it.elaborado);
-      if (itemsToProduce.length === 0) {
-        alert("Debe marcar al menos un ítem como elaborado.");
-        return;
-      }
-      
-      try {
-        await produceMultiple({
-          orderId: selectedOrder,
-          items: itemsToProduce.map(it => ({
-            productId: it.productId,
-            cantidad: it.cantidad,
-            unidad: it.unidad,
-            pesoReal: it.pesoReal,
-            merma: it.merma,
-            observaciones: it.observaciones
-          })),
-          newOrderStatus: newStatus
-        });
-        setShowPanel(false);
-        resetPanel();
-      } catch (error) {
-        alert("Error en producción: " + error);
-      }
-    } else {
-      if (!selectedProduct || prodQty <= 0) {
-        alert("Seleccione un producto y cantidad válida.");
-        return;
-      }
-      
-      try {
-        const validOverride = customIngredients.filter(ing => ing.productId && ing.quantity > 0);
-        await produce({
-          productId: selectedProduct,
-          cantidad: prodQty,
-          pesoReal: prodWeight > 0 ? prodWeight : undefined,
-          merma: prodMerma > 0 ? prodMerma : undefined,
-          observaciones: prodObs,
-          recipeItemsOverride: validOverride
-        });
-        setShowPanel(false);
-        resetPanel();
-      } catch (error) {
-        alert("Error en producción: " + error);
-      }
-    }
-  };
-
-  const resetPanel = () => {
-    setProdMode('FREE');
-    setSelectedOrder('');
-    setSelectedProduct('');
-    setProdQty(0);
-    setProdWeight(0);
-    setProdMerma(0);
-    setProdObs('');
-    setNewStatus('EN_PRODUCCION');
-    setOrderProdItems([]);
-    setCustomIngredients([]);
-  };
-
   const openProducePanel = (mode: 'FREE' | 'ORDER', orderId?: string, productId?: string) => {
-    resetPanel();
-    setProdMode(mode);
-    if (productId) {
-      setSelectedProduct(productId);
-      const totals = pendingByProduct[productId]?.totals || {};
-      const p = products.find(prod => prod.id === productId);
-      if (p) {
-        let baseSum = 0;
-        Object.entries(totals).forEach(([unit, qty]) => {
-          baseSum += convertQuantityToBaseUnit(qty, unit, p);
-        });
-        if (p.unitType === 'UNIDADES') {
-          setProdQty(Math.max(1, Math.round(baseSum)));
-        } else {
-          setProdQty(Number(baseSum.toFixed(3)));
-        }
-      }
+    setTargetProductId(productId || '');
+    setSelectedOrderId(orderId || '');
+    if (mode === 'ORDER') {
+      setShowOrderModal(true);
+    } else {
+      setShowPanel(true);
     }
-    if (orderId) {
-      handleOrderChange(orderId);
-    }
-    setShowPanel(true);
   };
 
-  if (loading) return <LoadingSpinner message="Cargando módulo de producción..." />;
+  const hasData = products && products.length > 0;
+  if (loading && !hasData) return <LoadingSpinner message="Cargando módulo de producción..." />;
+
+  const activePendingTotals = targetProductId ? pendingByProduct[targetProductId]?.totals : undefined;
 
   return (
-    <div>
+    <div style={{ position: 'relative' }}>
+      {loading && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(255, 255, 255, 0.6)',
+          backdropFilter: 'blur(4px)',
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'center',
+          zIndex: 9999
+        }}>
+          <LoadingSpinner message="Procesando..." />
+        </div>
+      )}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
         <h1 className="page-title" style={{ margin: 0 }}>Producción</h1>
         <div style={{ display: 'flex', gap: '12px' }}>
@@ -357,7 +167,7 @@ export default function Produccion() {
                   }
                   expandedContent={<></>}
                   actions={
-                    <button className="btn-secondary" onClick={() => openProducePanel('FREE', undefined, productId)}>
+                    <button className="btn-secondary" onClick={() => openProducePanel('ORDER', undefined, productId)}>
                       Producir esto
                     </button>
                   }
@@ -421,6 +231,69 @@ export default function Produccion() {
 
       {activeTab === 'STOCK' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '40px' }}>
+          <div>
+            <h3 style={{ fontSize: '20px', marginBottom: '20px', color: 'var(--text-primary)' }}>Pedidos Producidos (Listos en Stock)</h3>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '20px', marginBottom: '12px' }}>
+              {producedOrders.map(order => {
+                const client = (customers || []).find(c => c.id === order.customerId);
+                const clientName = client ? (client.name || client.nombre) : 'Cliente Desconocido';
+                const orderShortId = (order.id || '').slice(0, 6).toUpperCase();
+                return (
+                  <ExpandableCard
+                    key={order.id}
+                    title={`Pedido #${orderShortId} - ${clientName}`}
+                    statusBadge={
+                      <span style={{ 
+                        backgroundColor: '#dcfce7',
+                        color: '#15803d',
+                        padding: '4px 12px',
+                        borderRadius: '12px',
+                        fontSize: '11px',
+                        fontWeight: 600
+                      }}>
+                        PRODUCIDO
+                      </span>
+                    }
+                    collapsedContent={
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', marginTop: '8px' }}>
+                        <span style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>
+                          {(order.items || []).length} ítems preparados
+                        </span>
+                        <strong style={{ fontSize: '16px', color: 'var(--alvacio-red-dark)' }}>
+                          {formatCurrency(order.totalEstimado || 0)}
+                        </strong>
+                      </div>
+                    }
+                    expandedContent={
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                        {(order.items || []).map((item, idx) => {
+                          const p = products.find(prod => prod.id === item.productId);
+                          return (
+                            <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', borderBottom: '1px solid var(--border-color)', fontSize: '13px' }}>
+                              <span>{p?.nombre || 'Producto'}</span>
+                              <strong>
+                                {item.cantidad} {item.unidad}
+                                {item.pesoReal !== undefined && ` (${item.pesoReal} KG)`}
+                              </strong>
+                            </div>
+                          );
+                        })}
+                        {order.observaciones && (
+                          <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '8px', fontStyle: 'italic' }}>
+                            Nota: {order.observaciones}
+                          </div>
+                        )}
+                      </div>
+                    }
+                  />
+                );
+              })}
+              {producedOrders.length === 0 && (
+                <p style={{ color: 'var(--text-secondary)' }}>No hay pedidos listos en stock terminado.</p>
+              )}
+            </div>
+          </div>
+
           <div>
             <h3 style={{ fontSize: '20px', marginBottom: '20px', color: 'var(--text-primary)' }}>Stock de Terminados</h3>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '20px' }}>
@@ -538,248 +411,36 @@ export default function Produccion() {
         </div>
       )}
 
-      <RightPanel 
-        isOpen={showPanel} 
-        onClose={() => setShowPanel(false)} 
-        title={prodMode === 'ORDER' ? 'Preparación desde Pedido (Descuenta Stock)' : 'Producción Libre (Stock / Preventa)'}
-      >
-        <form onSubmit={handleProduce} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-          {prodMode === 'ORDER' ? (
-            <>
-              <p style={{ color: 'var(--text-secondary)', fontSize: '13px', marginBottom: '8px', lineHeight: '1.4' }}>
-                Esta acción registra la preparación o feteado de los productos para cumplir con el pedido. Disminuye el stock del producto terminado y no consume insumos de receta.
-              </p>
-              <div className="form-group">
-                <label>Seleccionar Pedido</label>
-                <select required value={selectedOrder} onChange={e => handleOrderChange(e.target.value)}>
-                  <option value="">-- Seleccione --</option>
-                  {pendingOrders.map(o => {
-                    const client = (customers || []).find(c => c.id === o.customerId);
-                    const clientName = client ? (client.name || client.nombre) : 'Cliente Desconocido';
-                    return (
-                      <option key={o.id} value={o.id}>
-                        {clientName} - Pedido {(o.id || '').slice(0,6)} ({o.status})
-                      </option>
-                    );
-                  })}
-                </select>
-              </div>
+      <FreeProductionPanel 
+        isOpen={showPanel}
+        onClose={() => {
+          setShowPanel(false);
+          setTargetProductId('');
+        }}
+        products={products}
+        recipes={recipes}
+        equivalences={equivalences}
+        produce={produce}
+        initialProductId={targetProductId}
+        pendingTotals={activePendingTotals}
+      />
 
-              {selectedOrder && (
-                <div style={{ marginTop: '16px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                  <label style={{ fontWeight: 600 }}>Ítems del Pedido</label>
-                  {orderProdItems.map((item, idx) => {
-                    const prod = products.find(p => p.id === item.productId);
-                    return (
-                      <div key={idx} style={{ background: '#f9f9f9', padding: '16px', borderRadius: '12px', border: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          <input 
-                            type="checkbox" 
-                            checked={item.elaborado} 
-                            onChange={e => {
-                              const newItems = [...orderProdItems];
-                              newItems[idx].elaborado = e.target.checked;
-                              setOrderProdItems(newItems);
-                            }} 
-                            id={`item-elaborado-${idx}`}
-                            style={{ width: 'auto' }}
-                          />
-                          <label htmlFor={`item-elaborado-${idx}`} style={{ fontWeight: 600, margin: 0 }}>
-                            {prod?.nombre || 'Producto Desconocido'}
-                          </label>
-                        </div>
-
-                        {item.elaborado && (
-                          <ProductionFields
-                            cantidad={item.cantidad}
-                            unidad={item.unidad as any}
-                            pesoReal={item.pesoReal}
-                            merma={item.merma}
-                            observaciones={item.observaciones || ''}
-                            pesoObjetivoGramos={prod?.pesoObjetivoGramos}
-                            onChange={(updates) => {
-                              const newItems = [...orderProdItems];
-                              newItems[idx] = { ...newItems[idx], ...updates };
-                              setOrderProdItems(newItems);
-                            }}
-                            isOrder={true}
-                          />
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-
-              {selectedOrder && (
-                <div className="form-group" style={{ marginTop: '16px' }}>
-                  <label>Cambiar Estado del Pedido a:</label>
-                  <select value={newStatus} onChange={e => setNewStatus(e.target.value as any)}>
-                    <option value="EN_PRODUCCION">EN_PRODUCCION</option>
-                    <option value="PRODUCIDO">PRODUCIDO</option>
-                  </select>
-                </div>
-              )}
-            </>
-          ) : (
-            <>
-              <p style={{ color: 'var(--text-secondary)', fontSize: '13px', marginBottom: '8px', lineHeight: '1.4' }}>
-                Esta acción registra la elaboración/producción de producto terminado. Aumenta el stock del producto terminado y consume los insumos correspondientes de la receta.
-              </p>
-              <div className="form-group">
-                <label>Producto a Producir</label>
-                <select required value={selectedProduct} onChange={e => {
-                  setSelectedProduct(e.target.value);
-                  setProdQty(0);
-                  setProdWeight(0);
-                  setProdMerma(0);
-                  setProdObs('');
-                }}>
-                  <option value="">-- Seleccione --</option>
-                  {finishedProducts.map(p => (
-                    <option key={p.id} value={p.id}>{p.nombre} (Stock: {p.stockActual || 0} {p.unitType})</option>
-                  ))}
-                </select>
-              </div>
-
-              {selectedProdObj && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginTop: '16px' }}>
-                  <ProductionFields
-                    cantidad={prodQty}
-                    unidad={selectedProdObj.unitType}
-                    pesoReal={prodWeight > 0 ? prodWeight : undefined}
-                    merma={prodMerma > 0 ? prodMerma : undefined}
-                    observaciones={prodObs}
-                    pesoObjetivoGramos={selectedProdObj.pesoObjetivoGramos}
-                    onChange={(updates) => {
-                      setProdQty(updates.cantidad);
-                      setProdWeight(updates.pesoReal || 0);
-                      setProdMerma(updates.merma || 0);
-                      setProdObs(updates.observaciones);
-                    }}
-                    isOrder={false}
-                  />
-
-                    <div style={{ background: '#f8fafc', padding: '16px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                        <label style={{ fontWeight: 600, fontSize: '13px', color: 'var(--text-primary)', margin: 0 }}>
-                          Ingredientes / Receta Personalizada:
-                        </label>
-                        <button
-                          type="button"
-                          className="btn-secondary"
-                          style={{ padding: '4px 10px', fontSize: '12px' }}
-                          onClick={handleAddIngredient}
-                        >
-                          + Agregar Insumo
-                        </button>
-                      </div>
-
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-                        {customIngredients.map((ing, idx) => {
-                          const ingProduct = products.find(p => p.id === ing.productId);
-                          
-                          let convertedQty = 0;
-                          if (ingProduct) {
-                            try {
-                              convertedQty = convertUnit(
-                                Number(ing.quantity || 0),
-                                ing.unit as any,
-                                ingProduct.unitType,
-                                ingProduct.nombre || '',
-                                '',
-                                equivalences || []
-                              );
-                            } catch (err) {
-                              console.error("Error converting unit", err);
-                            }
-                          }
-                          const totalNeeded = convertedQty * (prodQty || 0);
-                          const currentStock = ingProduct ? (ingProduct.stockActual || 0) : 0;
-                          const hasEnough = currentStock >= totalNeeded;
-
-                          return (
-                            <div key={idx} style={{ display: 'flex', flexDirection: 'column', gap: '6px', paddingBottom: '12px', borderBottom: idx < customIngredients.length - 1 ? '1px solid #e2e8f0' : 'none' }}>
-                              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                                <select
-                                  style={{ flex: 2, padding: '6px', fontSize: '13px', border: '1px solid var(--border-color)', borderRadius: '6px', backgroundColor: '#fff' }}
-                                  value={ing.productId}
-                                  required
-                                  onChange={(e) => handleIngredientProductChange(idx, e.target.value)}
-                                >
-                                  <option value="">-- Seleccione Insumo --</option>
-                                  {sortedProducts.map(p => (
-                                    <option key={p.id} value={p.id}>{p.nombre}</option>
-                                  ))}
-                                </select>
-                                <input
-                                  type="number"
-                                  step="any"
-                                  placeholder="Cant"
-                                  style={{ width: '80px', padding: '6px', fontSize: '13px', border: '1px solid var(--border-color)', borderRadius: '6px' }}
-                                  value={ing.quantity || ''}
-                                  required
-                                  onChange={(e) => handleIngredientQuantityChange(idx, Number(e.target.value))}
-                                />
-                                <select
-                                  style={{ width: '100px', padding: '6px', fontSize: '13px', border: '1px solid var(--border-color)', borderRadius: '6px', backgroundColor: '#fff' }}
-                                  value={ing.unit}
-                                  required
-                                  onChange={(e) => handleIngredientUnitChange(idx, e.target.value as any)}
-                                >
-                                  <option value="GRAMOS">GRAMOS</option>
-                                  <option value="KG">KG</option>
-                                  <option value="UNIDADES">UNIDADES</option>
-                                  <option value="FETAS">FETAS</option>
-                                </select>
-                                <button
-                                  type="button"
-                                  style={{
-                                    background: 'none',
-                                    border: 'none',
-                                    color: '#ef4444',
-                                    cursor: 'pointer',
-                                    padding: '4px',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    fontSize: '16px'
-                                  }}
-                                  onClick={() => handleRemoveIngredient(idx)}
-                                >
-                                  ✕
-                                </button>
-                              </div>
-                              {ing.productId && (
-                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: 'var(--text-secondary)', paddingLeft: '4px' }}>
-                                  <span>
-                                    Necesario: <strong style={{ color: 'var(--text-primary)' }}>{Number(totalNeeded.toFixed(3))} {ingProduct?.unitType || ''}</strong>
-                                  </span>
-                                  <span style={{ color: hasEnough ? '#16a34a' : '#ef4444', fontWeight: 600 }}>
-                                    Stock: {Number(currentStock.toFixed(3))} {ingProduct?.unitType || ''} ({hasEnough ? 'OK' : 'FALTA'})
-                                  </span>
-                                </div>
-                              )}
-                            </div>
-                          );
-                        })}
-                        {customIngredients.length === 0 && (
-                          <div style={{ textAlign: 'center', color: 'var(--text-secondary)', fontSize: '13px', padding: '12px 0' }}>
-                            Sin ingredientes. Presione "+ Agregar Insumo" para añadir uno.
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                </div>
-              )}
-            </>
-          )}
-
-          <div style={{ display: 'flex', gap: '12px', marginTop: '32px' }}>
-            <button type="button" className="btn-secondary" style={{ flex: 1 }} onClick={() => setShowPanel(false)}>Cancelar</button>
-            <button type="submit" className="btn-primary" style={{ flex: 1 }}>Confirmar</button>
-          </div>
-        </form>
-      </RightPanel>
+      <OrderProductionModal 
+        isOpen={showOrderModal}
+        onClose={() => {
+          setShowOrderModal(false);
+          setSelectedOrderId('');
+          setTargetProductId('');
+        }}
+        selectedOrderId={selectedOrderId}
+        targetProductId={targetProductId}
+        orders={orders}
+        products={products}
+        recipes={recipes}
+        equivalences={equivalences}
+        customers={customers}
+        produceStep={produceStep}
+      />
     </div>
   );
 }

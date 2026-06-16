@@ -1,4 +1,4 @@
-import { getDocs, query, where, doc, updateDoc, runTransaction, collection, orderBy, limit } from 'firebase/firestore';
+import { getDocs, query, where, doc, updateDoc, runTransaction, collection, orderBy, limit, addDoc } from 'firebase/firestore';
 import { db, COLLECTIONS } from '../../lib/firebase';
 import type { Sale, Order, Customer, Product, SaleItem } from '../../types/domain';
 import { convertQuantityToBaseUnit } from '../../lib/unitConverter';
@@ -30,7 +30,12 @@ export const salesRepository = {
     await updateDoc(orderRef, { status: 'ENTREGADO' });
   },
 
-  async createSaleFromOrder(order: Order, itemsToSell: SaleItem[], finalTotal: number): Promise<void> {
+  async createSaleFromOrder(
+    order: Order, 
+    itemsToSell: SaleItem[], 
+    finalTotal: number, 
+    tipoComprobante?: 'FACTURA_A' | 'FACTURA_B' | 'FACTURA_C' | 'PRESUPUESTO' | 'REMITO'
+  ): Promise<void> {
     if (order.status !== 'ENTREGADO' && order.status !== 'PRODUCIDO') {
       throw new Error("El pedido debe estar entregado o producido para facturar.");
     }
@@ -52,7 +57,8 @@ export const salesRepository = {
         totalAmount: finalTotal,
         status: 'FACTURADO',
         paymentMethod: 'PENDIENTE',
-        isDeleted: false
+        isDeleted: false,
+        tipoComprobante: tipoComprobante || 'PRESUPUESTO'
       };
       transaction.set(newSaleRef, saleData);
 
@@ -62,55 +68,24 @@ export const salesRepository = {
     });
   },
 
-  async createQuickSale(data: Omit<Sale, 'id' | 'status' | 'paymentMethod' | 'isDeleted' | 'orderId'>): Promise<void> {
-    await runTransaction(db, async (transaction) => {
-      // 1. READS first
-      const productDocs: { ref: any, data: Product }[] = [];
-      for (const item of data.items) {
-        const prodRef = doc(db, 'products', item.productId);
-        const prodDoc = await transaction.get(prodRef);
-        if (!prodDoc.exists()) throw new Error(`Producto ${item.productId} no encontrado`);
-        productDocs.push({
-          ref: prodRef,
-          data: { id: prodDoc.id, ...prodDoc.data() } as Product
-        });
-      }
+  async createQuickSale(data: { customerId: string; date: string; items: SaleItem[]; totalAmount: number; observaciones?: string }): Promise<void> {
+    const orderData = {
+      customerId: data.customerId,
+      fecha: data.date.split('T')[0], // YYYY-MM-DD
+      observaciones: data.observaciones || 'Venta rápida (Pedido)',
+      status: 'PENDIENTE' as const,
+      items: data.items.map(item => ({
+        productId: item.productId,
+        cantidad: item.cantidad,
+        unidad: item.unidad,
+        precioEstimado: item.precioUnitario,
+        subtotal: item.subtotal
+      })),
+      totalEstimado: data.totalAmount,
+      isDeleted: false
+    };
 
-      // 2. WRITES second
-      // Create Sale
-      const newSaleRef = doc(collection(db, 'sales'));
-      const saleData: Omit<Sale, 'id'> = {
-        ...data,
-        status: 'FACTURADO',
-        paymentMethod: 'PENDIENTE',
-        isDeleted: false
-      };
-      transaction.set(newSaleRef, saleData);
-
-      // Deduct stock for quick sale
-      for (const item of data.items) {
-        const pDoc = productDocs.find(x => x.data.id === item.productId);
-        if (pDoc) {
-          const currentStock = pDoc.data.stockActual || 0;
-          const baseQty = convertQuantityToBaseUnit(item.cantidad, item.unidad, pDoc.data);
-          transaction.update(pDoc.ref, {
-            stockActual: currentStock - baseQty
-          });
-
-          // Register movement
-          const movRef = doc(collection(db, 'stock_movements'));
-          transaction.set(movRef, {
-            productId: item.productId,
-            qty: -baseQty,
-            type: 'VENTA',
-            date: new Date().toISOString(),
-            referenceId: newSaleRef.id,
-            observaciones: 'Venta rápida',
-            isDeleted: false
-          });
-        }
-      }
-    });
+    await addDoc(COLLECTIONS.ORDERS, orderData);
   },
 
   async cobrarSale(sale: Sale, method: 'EFECTIVO_TRANSFERENCIA' | 'CUENTA_CORRIENTE'): Promise<void> {
@@ -242,6 +217,9 @@ export const salesRepository = {
   },
 
   async deleteSale(sale: Sale): Promise<void> {
+    if (sale.status !== 'ANULADO') {
+      throw new Error("La venta debe estar ANULADA para poder ser eliminada.");
+    }
     const saleRef = doc(db, 'sales', sale.id);
     await updateDoc(saleRef, {
       isDeleted: true,
