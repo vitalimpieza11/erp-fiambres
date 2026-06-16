@@ -103,17 +103,35 @@ export default function Dashboard() {
       .reduce((acc, s) => acc + s.totalAmount, 0);
   }, [cacheVentas.sales, startOfMonthStr]);
 
-  // 7. Costos del mes (Total purchases)
-  const costosDelMes = useMemo(() => {
+  // 7. Costos del mes (CMV - Costo de Mercadería Vendida basado en costo unitario de producto vendido)
+  const cmvDelMes = useMemo(() => {
+    return cacheVentas.sales
+      .filter(s => s.date >= startOfMonthStr && s.status !== 'ANULADO')
+      .reduce((acc, s) => {
+        const saleCost = (s.items || []).reduce((itemAcc, item) => {
+          const prod = cacheStock.products.find(p => p.id === item.productId);
+          return itemAcc + (item.cantidad * (prod?.costoActual || 0));
+        }, 0);
+        return acc + saleCost;
+      }, 0);
+  }, [cacheVentas.sales, cacheStock.products, startOfMonthStr]);
+
+  // 8. Ganancia del mes (Ventas - CMV)
+  const gananciaDelMes = useMemo(() => {
+    return ventasDelMes - cmvDelMes;
+  }, [ventasDelMes, cmvDelMes]);
+
+  // 9. Margen Comercial porcentual
+  const margenComercial = useMemo(() => {
+    return ventasDelMes > 0 ? ((ventasDelMes - cmvDelMes) / ventasDelMes) * 100 : 0;
+  }, [ventasDelMes, cmvDelMes]);
+
+  // 10. Compras del mes (Inversión en stock de insumos/mercadería)
+  const comprasDelMes = useMemo(() => {
     return cacheCompras.purchases
       .filter(p => p.date >= startOfMonthStr && p.status !== 'VOIDED' && p.type === 'PURCHASE')
       .reduce((acc, p) => acc + p.total, 0);
   }, [cacheCompras.purchases, startOfMonthStr]);
-
-  // 8. Ganancia del mes
-  const gananciaDelMes = useMemo(() => {
-    return ventasDelMes - costosDelMes;
-  }, [ventasDelMes, costosDelMes]);
 
   if (loading) return <LoadingSpinner message="Sincronizando capa operativa del ERP..." />;
 
@@ -167,8 +185,8 @@ export default function Dashboard() {
       isCurrency: true
     },
     {
-      title: 'Costos del Mes',
-      value: formatCurrency(costosDelMes),
+      title: 'Costos del Mes (CMV)',
+      value: formatCurrency(cmvDelMes),
       icon: <ShoppingCart size={20} />,
       bg: '#f3e8ff',
       color: '#9333ea',
@@ -177,9 +195,25 @@ export default function Dashboard() {
     {
       title: 'Ganancia del Mes',
       value: formatCurrency(gananciaDelMes),
-      icon: <Percent size={20} />,
+      icon: <Wallet size={20} />,
       bg: gananciaDelMes >= 0 ? '#dcfce7' : '#fee2e2',
       color: gananciaDelMes >= 0 ? '#15803d' : '#b91c1c',
+      isCurrency: true
+    },
+    {
+      title: 'Margen Comercial',
+      value: `${margenComercial.toFixed(1)}%`,
+      icon: <Percent size={20} />,
+      bg: margenComercial >= 0 ? '#dcfce7' : '#fee2e2',
+      color: margenComercial >= 0 ? '#15803d' : '#b91c1c',
+      isCurrency: false
+    },
+    {
+      title: 'Compras del Mes',
+      value: formatCurrency(comprasDelMes),
+      icon: <ShoppingCart size={20} />,
+      bg: '#f3f4f6',
+      color: '#4b5563',
       isCurrency: true
     }
   ];
