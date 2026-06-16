@@ -162,9 +162,9 @@ export const salesRepository = {
           const pDoc = productDocs.find(x => x.data.id === item.productId);
           if (pDoc) {
             const currentStock = pDoc.data.stockActual || 0;
-            const baseQty = convertQuantityToBaseUnit(item.cantidad, item.unidad, pDoc.data);
+            const baseQty = truncateDecimals(convertQuantityToBaseUnit(item.cantidad, item.unidad, pDoc.data), 3);
             transaction.update(pDoc.ref, {
-              stockActual: currentStock + baseQty
+              stockActual: truncateDecimals(currentStock + baseQty, 3)
             });
 
             // Register positive movement

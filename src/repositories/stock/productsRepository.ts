@@ -1,6 +1,8 @@
 import { getDocs, addDoc, updateDoc, doc } from 'firebase/firestore';
 import { db, COLLECTIONS } from '../../lib/firebase';
 import type { Product, UnitType } from '../../types/domain';
+import { truncateDecimals } from '../../lib/formatters';
+
 
 export interface DomainError {
   code: string;
@@ -78,7 +80,7 @@ export const productsRepository = {
       precioSugerido: Number(product.precioSugerido || 0),
       precioComercial: Number(product.precioComercial || 0),
       costoActual: Number(product.costoActual || 0),
-      stockActual: Number(product.stockActual || 0),
+      stockActual: truncateDecimals(Number(product.stockActual || 0), 3),
     };
 
     if (product.type !== 'PRESENTACION') {
