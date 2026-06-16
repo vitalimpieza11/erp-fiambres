@@ -9,6 +9,7 @@ import { generateInvoicePDF } from './invoicePdfHelper';
 import { createAlvacioPDF } from '../../lib/pdfHelper';
 import autoTable from 'jspdf-autotable';
 import { calculateWeightInKg } from '../../lib/unitConverter';
+import { truncateDecimals } from '../../lib/formatters';
 import { FileText, DollarSign, XCircle, Search, Printer, Check } from 'lucide-react';
 
 const STATUS_COLORS: Record<string, string> = {
@@ -68,14 +69,15 @@ export default function Facturacion() {
         
         const saleQty = hasRealWeight ? (it.pesoReal ?? it.cantidad) : it.cantidad;
         const saleUnit = hasRealWeight ? 'KG' : it.unidad;
-        const weightInKg = hasRealWeight ? (it.pesoReal ?? 0) : calculateWeightInKg(saleQty, saleUnit, prod);
+        let weightInKg = hasRealWeight ? (it.pesoReal ?? 0) : calculateWeightInKg(saleQty, saleUnit, prod);
+        weightInKg = truncateDecimals(weightInKg, 3);
         
         return {
           productId: it.productId,
-          cantidad: saleQty,
+          cantidad: truncateDecimals(saleQty, 3),
           unidad: saleUnit as any,
-          precioUnitario: it.precioEstimado,
-          subtotal: weightInKg * it.precioEstimado
+          precioUnitario: Number(it.precioEstimado.toFixed(2)),
+          subtotal: Number((weightInKg * it.precioEstimado).toFixed(2))
         };
       })
     );
@@ -86,14 +88,18 @@ export default function Facturacion() {
     const newItems = [...saleItems];
     const item = { ...newItems[idx], [field]: val };
     const prod = products.find(p => p.id === item.productId);
-    const weightInKg = calculateWeightInKg(item.cantidad, item.unidad, prod);
-    item.subtotal = weightInKg * item.precioUnitario;
+    let weightInKg = calculateWeightInKg(item.cantidad, item.unidad, prod);
+    weightInKg = truncateDecimals(weightInKg, 3);
+    
+    item.cantidad = truncateDecimals(Number(item.cantidad), 3);
+    item.precioUnitario = Number(Number(item.precioUnitario).toFixed(2));
+    item.subtotal = Number((weightInKg * item.precioUnitario).toFixed(2));
     newItems[idx] = item as SaleItem;
     setSaleItems(newItems);
   };
 
   const totalFacturar = useMemo(() => {
-    return saleItems.reduce((acc, it) => acc + it.subtotal, 0);
+    return Number(saleItems.reduce((acc, it) => acc + it.subtotal, 0).toFixed(2));
   }, [saleItems]);
 
   const handleSubmitSale = async () => {

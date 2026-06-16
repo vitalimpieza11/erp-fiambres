@@ -10,6 +10,7 @@ import { FileText, DollarSign, XCircle, Edit3 } from 'lucide-react';
 import LoadingSpinner from '../../components/LoadingSpinner';
 import { createAlvacioPDF } from '../../lib/pdfHelper';
 import { calculateWeightInKg, convertQuantityToBaseUnit } from '../../lib/unitConverter';
+import { truncateDecimals } from '../../lib/formatters';
 
 const STATUS_COLORS: Record<string, string> = {
   FACTURADO: '#f59e0b',
@@ -117,14 +118,18 @@ export default function Ventas() {
     }
     
     const prod = products.find(p => p.id === item.productId);
-    const weightInKg = calculateWeightInKg(item.cantidad, item.unidad, prod);
-    item.subtotal = weightInKg * item.precioUnitario;
+    let weightInKg = calculateWeightInKg(item.cantidad, item.unidad, prod);
+    weightInKg = truncateDecimals(weightInKg, 3);
+
+    item.cantidad = truncateDecimals(Number(item.cantidad), 3);
+    item.precioUnitario = Number(Number(item.precioUnitario).toFixed(2));
+    item.subtotal = Number((weightInKg * item.precioUnitario).toFixed(2));
     newItems[idx] = item as SaleItem;
     
     setQuickSale(prev => ({
       ...prev,
       items: newItems,
-      totalAmount: newItems.reduce((acc, it) => acc + it.subtotal, 0)
+      totalAmount: Number(newItems.reduce((acc, it) => acc + it.subtotal, 0).toFixed(2))
     }));
   };
 

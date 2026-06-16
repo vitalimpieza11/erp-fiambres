@@ -2,6 +2,7 @@ import { getDocs, query, where, doc, updateDoc, runTransaction, collection, orde
 import { db, COLLECTIONS } from '../../lib/firebase';
 import type { Sale, Order, Customer, Product, SaleItem } from '../../types/domain';
 import { convertQuantityToBaseUnit } from '../../lib/unitConverter';
+import { truncateDecimals } from '../../lib/formatters';
 
 export const salesRepository = {
   async fetchSalesData(): Promise<{
@@ -49,12 +50,12 @@ export const salesRepository = {
         date: new Date().toISOString(),
         items: itemsToSell.map(i => ({
           productId: i.productId,
-          cantidad: i.cantidad,
+          cantidad: truncateDecimals(i.cantidad, 3),
           unidad: i.unidad,
-          precioUnitario: i.precioUnitario,
-          subtotal: i.subtotal
+          precioUnitario: Number(i.precioUnitario.toFixed(2)),
+          subtotal: Number(i.subtotal.toFixed(2))
         })),
-        totalAmount: finalTotal,
+        totalAmount: Number(finalTotal.toFixed(2)),
         status: 'FACTURADO',
         paymentMethod: 'PENDIENTE',
         isDeleted: false,
@@ -76,12 +77,12 @@ export const salesRepository = {
       status: 'PENDIENTE' as const,
       items: data.items.map(item => ({
         productId: item.productId,
-        cantidad: item.cantidad,
+        cantidad: truncateDecimals(item.cantidad, 3),
         unidad: item.unidad,
-        precioEstimado: item.precioUnitario,
-        subtotal: item.subtotal
+        precioEstimado: Number(item.precioUnitario.toFixed(2)),
+        subtotal: Number(item.subtotal.toFixed(2))
       })),
-      totalEstimado: data.totalAmount,
+      totalEstimado: Number(data.totalAmount.toFixed(2)),
       isDeleted: false
     };
 
