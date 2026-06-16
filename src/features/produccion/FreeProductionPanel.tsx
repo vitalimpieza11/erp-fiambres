@@ -4,6 +4,7 @@ import ProductionFields from './ProductionFields';
 import RecipeEditor from './RecipeEditor';
 import { convertQuantityToBaseUnit } from '../../lib/unitConverter';
 import type { Product, RecipeItem, Equivalencia } from '../../types/domain';
+import { truncateDecimals } from '../../lib/formatters';
 
 interface FreeProductionPanelProps {
   isOpen: boolean;
@@ -163,7 +164,7 @@ export default function FreeProductionPanel({
           }}>
             <option value="">-- Seleccione --</option>
             {finishedProducts.map(p => (
-              <option key={p.id} value={p.id}>{p.nombre} (Stock: {p.stockActual || 0} {p.unitType})</option>
+              <option key={p.id} value={p.id}>{p.nombre} (Stock: {truncateDecimals(p.stockActual || 0, 3)} {p.unitType})</option>
             ))}
           </select>
         </div>
