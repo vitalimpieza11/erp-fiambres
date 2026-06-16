@@ -1,6 +1,8 @@
 import { getDocs, query, where, doc, runTransaction, collection, orderBy, limit } from 'firebase/firestore';
 import { db, COLLECTIONS } from '../../lib/firebase';
 import type { Product, StockMovement, Equivalencia } from '../../types/domain';
+import { truncateDecimals } from '../../lib/formatters';
+
 
 export const stockRepository = {
   async fetchStockData(): Promise<{
@@ -35,12 +37,14 @@ export const stockRepository = {
       if (!prodDoc.exists()) throw new Error("Producto no encontrado");
 
       const currentStock = prodDoc.data().stockActual || 0;
+      const truncatedQty = truncateDecimals(data.qty, 3);
+      const newStock = truncateDecimals(currentStock + truncatedQty, 3);
 
       // Create movement
       const movRef = doc(collection(db, 'stock_movements'));
       transaction.set(movRef, {
         productId: data.productId,
-        qty: data.qty,
+        qty: truncatedQty,
         type: 'AJUSTE',
         date: new Date().toISOString(),
         observaciones: data.observaciones,
@@ -49,7 +53,7 @@ export const stockRepository = {
 
       // Update stock
       transaction.update(prodRef, {
-        stockActual: currentStock + data.qty
+        stockActual: newStock
       });
     });
   }

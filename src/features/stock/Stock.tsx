@@ -5,6 +5,7 @@ import RightPanel from '../../components/RightPanel';
 import { Package, Activity, AlertCircle, AlertTriangle, TrendingUp } from 'lucide-react';
 
 import LoadingSpinner from '../../components/LoadingSpinner';
+import { truncateDecimals } from '../../lib/formatters';
 
 export default function Stock() {
   const { products, movements, loading, getCapacityData, registerAdjustment } = useStock();
@@ -175,7 +176,7 @@ export default function Stock() {
                       fontWeight: 'bold',
                       color: (p.stockActual || 0) <= 0 ? '#ef4444' : (p.stockActual || 0) <= 10 ? '#f59e0b' : '#16a34a'
                     }}>
-                      {p.stockActual || 0}
+                      {truncateDecimals(p.stockActual || 0, 3)}
                     </span>
                     <span style={{ color: 'var(--text-secondary)' }}>{p.unitType}</span>
                   </div>
@@ -285,7 +286,7 @@ export default function Stock() {
             <select required value={adjProduct} onChange={e => setAdjProduct(e.target.value)}>
               <option value="">-- Seleccione un producto --</option>
               {products.map(p => (
-                <option key={p.id} value={p.id}>{p.nombre} (Actual: {p.stockActual || 0} {p.unitType})</option>
+                <option key={p.id} value={p.id}>{p.nombre} (Actual: {truncateDecimals(p.stockActual || 0, 3)} {p.unitType})</option>
               ))}
             </select>
           </div>

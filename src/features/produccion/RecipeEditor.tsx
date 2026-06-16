@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import type { Product, RecipeItem, Equivalencia } from '../../types/domain';
 import { convertUnit } from '../../lib/unitConverter';
+import { truncateDecimals } from '../../lib/formatters';
 
 interface RecipeEditorProps {
   ingredients: RecipeItem[];
@@ -180,12 +181,12 @@ export default function RecipeEditor({
                 </button>
               </div>
               {ing.productId && (
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: 'var(--text-secondary)', paddingLeft: '4px' }}>
+                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: 'var(--text-secondary)', paddingLeft: '4px' }}>
                   <span>
-                    Necesario: <strong style={{ color: 'var(--text-primary)' }}>{Number(totalNeeded.toFixed(3))} {ingProduct?.unitType || ''}</strong>
+                    Necesario: <strong style={{ color: 'var(--text-primary)' }}>{truncateDecimals(totalNeeded, 3)} {ingProduct?.unitType || ''}</strong>
                   </span>
                   <span style={{ color: hasEnough ? '#16a34a' : '#ef4444', fontWeight: 600 }}>
-                    Stock: {Number(currentStock.toFixed(3))} {ingProduct?.unitType || ''} ({hasEnough ? 'OK' : 'FALTA'})
+                    Stock: {truncateDecimals(currentStock, 3)} {ingProduct?.unitType || ''} ({hasEnough ? 'OK' : 'FALTA'})
                   </span>
                 </div>
               )}

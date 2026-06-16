@@ -2,6 +2,7 @@ import { getDocs, query, where, doc, runTransaction, collection } from 'firebase
 import { db, COLLECTIONS } from '../../lib/firebase';
 import type { Order, Product, Equivalencia, StockMovement, RecipeItem, Customer } from '../../types/domain';
 import { convertUnit, convertQuantityToBaseUnit, calculateWeightInKg } from '../../lib/unitConverter';
+import { truncateDecimals } from '../../lib/formatters';
 
 
 export const productionRepository = {
@@ -112,9 +113,12 @@ export const productionRepository = {
             );
             stockToDeduct = convertedQty * data.cantidad;
           }
+          
+          stockToDeduct = truncateDecimals(stockToDeduct, 3);
+          const newIngStock = truncateDecimals(currentIngStock - stockToDeduct, 3);
 
           transaction.update(ingEntry.ref, {
-            stockActual: currentIngStock - stockToDeduct
+            stockActual: newIngStock
           });
 
           // Movement for ingredient
@@ -132,15 +136,17 @@ export const productionRepository = {
       }
 
       // 4. Aumentar stock terminado
+      const truncatedProdQty = truncateDecimals(data.cantidad, 3);
+      const newFinishedStock = truncateDecimals(currentStock + truncatedProdQty, 3);
       transaction.update(productRef, {
-        stockActual: currentStock + data.cantidad
+        stockActual: newFinishedStock
       });
 
       // 5. Generar stock_movements para producto terminado
       const movRef = doc(collection(db, 'stock_movements'));
       transaction.set(movRef, {
         productId: data.productId,
-        qty: data.cantidad,
+        qty: truncatedProdQty,
         type: 'PRODUCCION',
         date: new Date().toISOString(),
         referenceId: data.orderId || '',
@@ -258,13 +264,14 @@ export const productionRepository = {
         if (!mp) continue;
 
         const productData = mp.data;
-        const baseQty = convertQuantityToBaseUnit(item.cantidad, item.unidad, productData);
+        let baseQty = convertQuantityToBaseUnit(item.cantidad, item.unidad, productData);
+        baseQty = truncateDecimals(baseQty, 3);
 
         // 1. Discount finished stock (standard behavior for sales orders)
         const currentStock = stockUpdates[item.productId] !== undefined
           ? stockUpdates[item.productId]
           : (productData.stockActual || 0);
-        stockUpdates[item.productId] = currentStock - baseQty;
+        stockUpdates[item.productId] = truncateDecimals(currentStock - baseQty, 3);
 
         // Queue finished product sale movement (negative qty)
         const movRef = doc(collection(db, 'stock_movements'));
@@ -309,7 +316,8 @@ export const productionRepository = {
                 stockToDeduct = convertedQty * item.cantidad;
               }
 
-              stockUpdates[ing.productId] = currentIngStock - stockToDeduct;
+              stockToDeduct = truncateDecimals(stockToDeduct, 3);
+              stockUpdates[ing.productId] = truncateDecimals(currentIngStock - stockToDeduct, 3);
 
               // Queue ingredient consumption movement (negative qty, type PRODUCCION)
               const ingMovRef = doc(collection(db, 'stock_movements'));
@@ -333,7 +341,7 @@ export const productionRepository = {
       // Perform all Stock Updates in transaction
       Object.entries(stockUpdates).forEach(([prodId, newStock]) => {
         const prodRef = doc(db, 'products', prodId);
-        transaction.update(prodRef, { stockActual: newStock });
+        transaction.update(prodRef, { stockActual: truncateDecimals(newStock, 3) });
       });
 
       // Create Movements
@@ -347,8 +355,8 @@ export const productionRepository = {
         for (const item of orderData.items || []) {
           const prodItem = data.items.find(it => it.productId === item.productId);
           if (prodItem) {
-            const newQty = prodItem.cantidad;
-            const newPesoReal = prodItem.pesoReal !== undefined ? prodItem.pesoReal : item.pesoReal;
+            const newQty = truncateDecimals(prodItem.cantidad, 3);
+            const newPesoReal = prodItem.pesoReal !== undefined ? truncateDecimals(prodItem.pesoReal, 3) : item.pesoReal;
 
             const mp = mainProductDocs.find(x => x.data.id === item.productId);
             const product = mp ? mp.data : undefined;
@@ -364,7 +372,7 @@ export const productionRepository = {
               cantidad: newQty,
               unidad: prodItem.unidad as any,
               pesoReal: newPesoReal,
-              subtotal: newSubtotal,
+              subtotal: Number(newSubtotal.toFixed(2)),
               observaciones: prodItem.observaciones || item.observaciones || ''
             });
           } else {
@@ -375,7 +383,7 @@ export const productionRepository = {
         const newTotal = updatedItems.reduce((acc, it) => acc + (it.subtotal || 0), 0);
         transaction.update(orderRef, {
           items: updatedItems,
-          totalEstimado: newTotal,
+          totalEstimado: Number(newTotal.toFixed(2)),
           status: data.newOrderStatus || orderData.status
         });
       }
@@ -446,10 +454,11 @@ export const productionRepository = {
       }
 
       // 2. CALCULATIONS & WRITE PHASE
-      const baseQty = convertQuantityToBaseUnit(data.cantidad, data.unidad, productData);
+      let baseQty = convertQuantityToBaseUnit(data.cantidad, data.unidad, productData);
+      baseQty = truncateDecimals(baseQty, 3);
 
       const currentStock = productData.stockActual || 0;
-      transaction.update(productRef, { stockActual: currentStock - baseQty });
+      transaction.update(productRef, { stockActual: truncateDecimals(currentStock - baseQty, 3) });
 
       const movRef = doc(collection(db, 'stock_movements'));
       transaction.set(movRef, {
@@ -483,7 +492,9 @@ export const productionRepository = {
             stockToDeduct = convertedQty * data.cantidad;
           }
 
-          transaction.update(ingEntry.ref, { stockActual: currentIngStock - stockToDeduct });
+          stockToDeduct = truncateDecimals(stockToDeduct, 3);
+          const newIngStock = truncateDecimals(currentIngStock - stockToDeduct, 3);
+          transaction.update(ingEntry.ref, { stockActual: newIngStock });
 
           const ingMovRef = doc(collection(db, 'stock_movements'));
           transaction.set(ingMovRef, {
@@ -503,7 +514,7 @@ export const productionRepository = {
         if (item.productId === data.productId) {
           const addedPesoReal = data.pesoReal || 0;
           const currentPesoReal = item.pesoReal || 0;
-          const newPesoReal = Number((currentPesoReal + addedPesoReal).toFixed(3));
+          const newPesoReal = truncateDecimals(currentPesoReal + addedPesoReal, 3);
 
           let newObs = item.observaciones || '';
           const cleanStepObs = data.observaciones.replace(/^Preparación de Pedido [a-zA-Z0-9]+ - /, '');
@@ -523,7 +534,7 @@ export const productionRepository = {
           updatedItems.push({
             ...item,
             pesoReal: newPesoReal,
-            subtotal: newSubtotal,
+            subtotal: Number(newSubtotal.toFixed(2)),
             observaciones: newObs
           });
         } else {
@@ -534,7 +545,7 @@ export const productionRepository = {
       const newTotal = updatedItems.reduce((acc, it) => acc + (it.subtotal || 0), 0);
       transaction.update(orderRef, {
         items: updatedItems,
-        totalEstimado: newTotal,
+        totalEstimado: Number(newTotal.toFixed(2)),
         status: data.newOrderStatus || orderData.status
       });
     });
@@ -551,7 +562,7 @@ export const productionRepository = {
       const compRef = doc(collection(db, 'stock_movements'));
       transaction.set(compRef, {
         productId: movData.productId,
-        qty: -movData.qty,
+        qty: truncateDecimals(-movData.qty, 3),
         type: movData.type,
         date: new Date().toISOString(),
         referenceId: movData.referenceId || '',
@@ -561,7 +572,7 @@ export const productionRepository = {
 
       if (prodDoc.exists()) {
         transaction.update(prodRef, {
-          stockActual: currentStock - movData.qty
+          stockActual: truncateDecimals(currentStock - movData.qty, 3)
         });
       }
     });

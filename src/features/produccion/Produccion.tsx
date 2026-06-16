@@ -5,7 +5,7 @@ import FreeProductionPanel from './FreeProductionPanel';
 import OrderProductionModal from './OrderProductionModal';
 import { Package, Clock, Activity, CheckCircle, RotateCcw } from 'lucide-react';
 import LoadingSpinner from '../../components/LoadingSpinner';
-import { formatCurrency } from '../../lib/formatters';
+import { formatCurrency, truncateDecimals } from '../../lib/formatters';
 
 export default function Produccion() {
   const { 
@@ -306,7 +306,7 @@ export default function Produccion() {
                     collapsedContent={
                       <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginTop: '12px' }}>
                         <CheckCircle size={20} color="#16a34a" />
-                        <span style={{ fontSize: '24px', fontWeight: 'bold' }}>{p.stockActual || 0}</span>
+                        <span style={{ fontSize: '24px', fontWeight: 'bold' }}>{truncateDecimals(p.stockActual || 0, 3)}</span>
                         <span style={{ color: 'var(--text-secondary)' }}>{p.unitType || ''}</span>
                       </div>
                     }

@@ -1,6 +1,7 @@
 import { collection, onSnapshot, query, where, doc, setDoc, orderBy, limit } from 'firebase/firestore';
 import { db, COLLECTIONS } from '../../lib/firebase';
 import type { Purchase, StockMovement, CajaMovement, SupplierMovement } from '../../types/domain';
+import { truncateDecimals } from '../../lib/formatters';
 
 export const purchasesRepository = {
   subscribePurchases(onData: (purchases: Purchase[]) => void): () => void {
@@ -39,7 +40,7 @@ export const purchasesRepository = {
       const stockMov: StockMovement = {
         id: stockMovRef.id,
         productId: item.productId,
-        qty: item.quantity,
+        qty: truncateDecimals(item.quantity, 3),
         type: 'COMPRA',
         date: newPurchase.date,
         referenceId: newPurchase.id,
@@ -109,7 +110,7 @@ export const purchasesRepository = {
       const stockMov: StockMovement = {
         id: stockMovRef.id,
         productId: item.productId,
-        qty: -item.quantity, // egreso
+        qty: truncateDecimals(-item.quantity, 3), // egreso
         type: 'AJUSTE', // o REVERSAL
         date: new Date().toISOString(),
         referenceId: original.id,
