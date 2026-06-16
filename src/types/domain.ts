@@ -44,6 +44,7 @@ export type RecipeItem = {
   productId: string;
   quantity: number;
   unit: UnitType;
+  pesoNeto?: number;
 };
 
 export type Recipe = {
@@ -150,6 +151,7 @@ export type Sale = {
   paymentMethod: PaymentMethod;
   isDeleted: boolean;
   deletedAt?: number;
+  tipoComprobante?: 'FACTURA_A' | 'FACTURA_B' | 'FACTURA_C' | 'PRESUPUESTO' | 'REMITO';
 }
 
 export type PurchaseItem = {

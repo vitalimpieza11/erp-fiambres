@@ -10,8 +10,13 @@ interface SalesState {
   loading: boolean;
   fetchData: () => Promise<void>;
   markOrderAsDelivered: (orderId: string) => Promise<void>;
-  createSaleFromOrder: (order: Order, itemsToSell: SaleItem[], finalTotal: number) => Promise<void>;
-  createQuickSale: (data: Omit<Sale, 'id' | 'status' | 'paymentMethod' | 'isDeleted' | 'orderId'>) => Promise<void>;
+  createSaleFromOrder: (
+    order: Order, 
+    itemsToSell: SaleItem[], 
+    finalTotal: number, 
+    tipoComprobante?: 'FACTURA_A' | 'FACTURA_B' | 'FACTURA_C' | 'PRESUPUESTO' | 'REMITO'
+  ) => Promise<void>;
+  createQuickSale: (data: { customerId: string; date: string; items: SaleItem[]; totalAmount: number; observaciones?: string }) => Promise<void>;
   cobrarSale: (sale: Sale, method: 'EFECTIVO_TRANSFERENCIA' | 'CUENTA_CORRIENTE') => Promise<void>;
   anularSale: (sale: Sale) => Promise<void>;
   updateSale: (saleId: string, updatedData: Partial<Sale>) => Promise<void>;
@@ -71,10 +76,10 @@ export const useSalesStore = create<SalesState>((set, get) => ({
       set({ loading: false });
     }
   },
-  createSaleFromOrder: async (order, itemsToSell, finalTotal) => {
+  createSaleFromOrder: async (order, itemsToSell, finalTotal, tipoComprobante) => {
     set({ loading: true });
     try {
-      await salesRepository.createSaleFromOrder(order, itemsToSell, finalTotal);
+      await salesRepository.createSaleFromOrder(order, itemsToSell, finalTotal, tipoComprobante);
       const data = await salesRepository.fetchSalesData();
       set({
         sales: data.sales,

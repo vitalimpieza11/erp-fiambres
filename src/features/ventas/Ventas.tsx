@@ -3,6 +3,7 @@ import { useVentas } from './useVentas';
 import type { Sale, Order, SaleItem } from '../../types/domain';
 import ExpandableCard from '../../components/ExpandableCard';
 import RightPanel from '../../components/RightPanel';
+import Modal from '../../components/Modal';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { FileText, DollarSign, XCircle, Edit3 } from 'lucide-react';
@@ -21,9 +22,7 @@ export default function Ventas() {
   
   // RightPanel states
   const [showQuickSale, setShowQuickSale] = useState(false);
-  const [showFacturarPedido, setShowFacturarPedido] = useState(false);
-  const [orderToFacturar, setOrderToFacturar] = useState<Order | null>(null);
-  const [partialSaleItems, setPartialSaleItems] = useState<SaleItem[]>([]);
+  const [saleToCobrar, setSaleToCobrar] = useState<Sale | null>(null);
   
   // Quick Sale State
   const [quickSale, setQuickSale] = useState<{ customerId: string; items: SaleItem[]; totalAmount: number; observaciones: string }>({
@@ -91,6 +90,7 @@ export default function Ventas() {
       date: new Date().toISOString(),
       items: quickSale.items,
       totalAmount: quickSale.totalAmount,
+      observaciones: quickSale.observaciones,
     });
     
     setShowQuickSale(false);
@@ -117,8 +117,8 @@ export default function Ventas() {
     }
     
     const prod = products.find(p => p.id === item.productId);
-    const baseQty = convertQuantityToBaseUnit(item.cantidad, item.unidad, prod);
-    item.subtotal = baseQty * item.precioUnitario;
+    const weightInKg = calculateWeightInKg(item.cantidad, item.unidad, prod);
+    item.subtotal = weightInKg * item.precioUnitario;
     newItems[idx] = item as SaleItem;
     
     setQuickSale(prev => ({
@@ -138,54 +138,19 @@ export default function Ventas() {
     }));
   };
 
-  const handleSelectOrderForFacturar = (order: Order) => {
-    setOrderToFacturar(order);
-    setPartialSaleItems(order.items.map(it => {
-      const prod = products.find(p => p.id === it.productId);
-      const isWeightBased = prod?.unitType === 'KG';
-      
-      const saleQty = (isWeightBased && it.pesoReal !== undefined) ? it.pesoReal : it.cantidad;
-      const saleUnit = ((isWeightBased && it.pesoReal !== undefined) ? 'KG' : it.unidad) as any;
-      const baseQty = convertQuantityToBaseUnit(saleQty, saleUnit, prod);
-      
-      return {
-        productId: it.productId,
-        cantidad: saleQty,
-        unidad: saleUnit,
-        precioUnitario: it.precioEstimado,
-        subtotal: isWeightBased && it.pesoReal !== undefined ? it.pesoReal * it.precioEstimado : baseQty * it.precioEstimado
-      };
-    }));
+
+
+  const handleCobrar = (sale: Sale) => {
+    setSaleToCobrar(sale);
   };
 
-  const handleUpdatePartialItem = (idx: number, field: keyof SaleItem, val: any) => {
-    const newItems = [...partialSaleItems];
-    const item = { ...newItems[idx], [field]: val };
-    const prod = products.find(p => p.id === item.productId);
-    const baseQty = convertQuantityToBaseUnit(item.cantidad, item.unidad, prod);
-    item.subtotal = baseQty * item.precioUnitario;
-    newItems[idx] = item as SaleItem;
-    setPartialSaleItems(newItems);
-  };
-
-  const handleSubmitPartialSale = async () => {
-    if (!orderToFacturar) return;
-    const finalTotal = partialSaleItems.reduce((acc, it) => acc + it.subtotal, 0);
-    if (confirm(`¿Facturar pedido por $${finalTotal.toFixed(2)}?`)) {
-      await createSaleFromOrder(orderToFacturar, partialSaleItems, finalTotal);
-      setOrderToFacturar(null);
-      setShowFacturarPedido(false);
-    }
-  };
-
-  const handleCobrar = async (sale: Sale) => {
-    const option = prompt("MÉTODO DE COBRO:\n\nEscriba '1' para Efectivo/Transferencia\nEscriba '2' para Cuenta Corriente");
-    if (option === '1') {
-      await cobrarSale(sale, 'EFECTIVO_TRANSFERENCIA');
-    } else if (option === '2') {
-      await cobrarSale(sale, 'CUENTA_CORRIENTE');
-    } else if (option) {
-      alert("Opción no válida");
+  const executeCobrar = async (method: 'EFECTIVO_TRANSFERENCIA' | 'CUENTA_CORRIENTE') => {
+    if (!saleToCobrar) return;
+    try {
+      await cobrarSale(saleToCobrar, method);
+      setSaleToCobrar(null);
+    } catch (err: any) {
+      alert(`Error al registrar cobro: ${err.message || err}`);
     }
   };
 
@@ -206,9 +171,7 @@ export default function Ventas() {
     return groups;
   }, [sales, customers, searchTerm]);
 
-  const pedidosListos = useMemo(() => {
-    return orders.filter(o => o.status === 'ENTREGADO' || o.status === 'PRODUCIDO');
-  }, [orders]);
+
 
   if (loading) return <LoadingSpinner message="Cargando módulo de ventas..." />;
 
@@ -217,7 +180,6 @@ export default function Ventas() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
         <h1 className="page-title" style={{ margin: 0 }}>Ventas</h1>
         <div style={{ display: 'flex', gap: '12px' }}>
-          <button className="btn-secondary" onClick={() => setShowFacturarPedido(true)}>Facturar Pedido</button>
           <button className="btn-primary" onClick={() => setShowQuickSale(true)}>+ Venta Rápida</button>
         </div>
       </div>
@@ -305,12 +267,14 @@ export default function Ventas() {
                               <XCircle size={16} /> Anular
                             </button>
                           )}
-                          <button className="btn-secondary" style={{ flex: 1, padding: '8px', color: '#ef4444', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '4px' }} onClick={(e) => { 
-                            e.stopPropagation();
-                            if(confirm('¿Eliminar esta venta del sistema (Baja Lógica)?')) deleteSale(sale);
-                          }}>
-                            <XCircle size={16} /> Eliminar
-                          </button>
+                          {sale.status === 'ANULADO' && (
+                            <button className="btn-secondary" style={{ flex: 1, padding: '8px', color: '#ef4444', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '4px' }} onClick={(e) => { 
+                              e.stopPropagation();
+                              if(confirm('¿Eliminar esta venta del sistema (Baja Lógica)?')) deleteSale(sale);
+                            }}>
+                              <XCircle size={16} /> Eliminar
+                            </button>
+                          )}
                         </div>
                       }
                     />
@@ -323,7 +287,7 @@ export default function Ventas() {
       </div>
 
       {/* Right Panels */}
-      <RightPanel isOpen={showQuickSale} onClose={() => setShowQuickSale(false)} title="Nueva Venta Rápida">
+      <RightPanel isOpen={showQuickSale} onClose={() => setShowQuickSale(false)} title="Nueva Venta Rápida (Pedido)">
         <form onSubmit={handleCreateQuickSale} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
           <div className="form-group">
             <label>Cliente</label>
@@ -331,6 +295,16 @@ export default function Ventas() {
               <option value="">Seleccione Cliente</option>
               {customers.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
             </select>
+          </div>
+
+          <div className="form-group">
+            <label>Observaciones (Opcional)</label>
+            <textarea 
+              value={quickSale.observaciones || ''} 
+              onChange={e => setQuickSale({...quickSale, observaciones: e.target.value})} 
+              placeholder="Ej: Entrega por la tarde, prioridad alta..."
+              rows={2}
+            />
           </div>
           
           <div>
@@ -378,100 +352,86 @@ export default function Ventas() {
 
           <div style={{ display: 'flex', gap: '12px', marginTop: '32px' }}>
             <button type="button" className="btn-secondary" style={{ flex: 1 }} onClick={() => setShowQuickSale(false)}>Cancelar</button>
-            <button type="submit" className="btn-primary" style={{ flex: 1 }}>Generar Venta</button>
+            <button type="submit" className="btn-primary" style={{ flex: 1 }}>Generar Pedido</button>
           </div>
         </form>
       </RightPanel>
 
-      <RightPanel isOpen={showFacturarPedido} onClose={() => setShowFacturarPedido(false)} title="Facturar Pedido">
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-          {!orderToFacturar ? (
-            <>
-              <p style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>Pedidos listos para ser facturados (Producidos o Entregados):</p>
-              {pedidosListos.map(order => {
-                const c = customers.find(x => x.id === order.customerId);
-                return (
-                  <ExpandableCard
-                    key={order.id}
-                    title={c?.nombre}
-                    subtitle={`Pedido ${order.id.slice(0,6)} • ${order.fecha} • Estado: ${order.status}`}
-                    collapsedContent={
-                      <div style={{ fontSize: '18px', fontWeight: 'bold', marginTop: '8px' }}>
-                        ${order.totalEstimado.toFixed(2)}
-                      </div>
-                    }
-                    expandedContent={
-                      <div style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
-                        Ítems: {order.items.length}
-                      </div>
-                    }
-                    actions={
-                      <div style={{ display: 'flex', gap: '8px', width: '100%' }}>
-                        {order.status === 'PRODUCIDO' && (
-                          <button className="btn-secondary" style={{ flex: 1 }} onClick={() => markOrderAsDelivered(order.id)}>
-                            Marcar Entregado
-                          </button>
-                        )}
-                        <button 
-                          className="btn-primary" 
-                          style={{ flex: 1 }} 
-                          onClick={() => handleSelectOrderForFacturar(order)}
-                          disabled={order.status === 'PRODUCIDO'}
-                        >
-                          Generar Venta
-                        </button>
-                      </div>
-                    }
-                  />
-                );
-              })}
-              {pedidosListos.length === 0 && (
-                <p style={{ textAlign: 'center', color: 'var(--text-secondary)', marginTop: '20px' }}>No hay pedidos listos.</p>
-              )}
-            </>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <h3 style={{ margin: 0, fontSize: '16px' }}>Entrega Parcial / Total</h3>
-                <button className="btn-secondary" onClick={() => setOrderToFacturar(null)} style={{ padding: '4px 8px', fontSize: '12px' }}>Volver</button>
-              </div>
-              <p style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>Ajuste las cantidades o precios antes de generar la venta.</p>
-              
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                {partialSaleItems.map((item, idx) => {
-                  const prod = products.find(p => p.id === item.productId);
-                  return (
-                    <div key={idx} style={{ background: '#fff', padding: '12px', borderRadius: '8px', border: '1px solid var(--border-color)' }}>
-                      <div style={{ fontWeight: 600, fontSize: '14px', marginBottom: '8px' }}>{prod?.nombre || 'Producto'} ({item.unidad})</div>
-                      <div style={{ display: 'flex', gap: '12px' }}>
-                        <div style={{ flex: 1 }}>
-                          <label style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Cantidad</label>
-                          <input type="number" step="0.1" value={item.cantidad} onChange={e => handleUpdatePartialItem(idx, 'cantidad', parseFloat(e.target.value) || 0)} />
-                        </div>
-                        <div style={{ flex: 1 }}>
-                          <label style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Precio U.</label>
-                          <input type="number" step="0.01" value={item.precioUnitario} onChange={e => handleUpdatePartialItem(idx, 'precioUnitario', parseFloat(e.target.value) || 0)} />
-                        </div>
-                      </div>
-                      <div style={{ textAlign: 'right', marginTop: '8px', fontSize: '14px', fontWeight: 600 }}>
-                        Subtotal: ${item.subtotal.toFixed(2)}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-              
-              <div style={{ textAlign: 'right', marginTop: '16px', borderTop: '1px solid var(--border-color)', paddingTop: '16px' }}>
-                <strong style={{ fontSize: '18px' }}>Total a Facturar: <span style={{ color: 'var(--alvacio-red)' }}>${partialSaleItems.reduce((acc, it) => acc + it.subtotal, 0).toFixed(2)}</span></strong>
-              </div>
-              
-              <button className="btn-primary" onClick={handleSubmitPartialSale} style={{ marginTop: '16px', width: '100%' }}>
-                Confirmar Venta
+      {/* Custom Premium Option Modal for Cobro */}
+      <Modal 
+        isOpen={saleToCobrar !== null} 
+        onClose={() => setSaleToCobrar(null)} 
+        title="Registrar Cobro de Venta"
+      >
+        {saleToCobrar && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <p style={{ fontSize: '14px', color: 'var(--text-secondary)', margin: 0, lineHeight: 1.5 }}>
+              Seleccione el método de cobro para la venta de{' '}
+              <strong>
+                {customers.find(c => c.id === saleToCobrar.customerId)?.nombre || 'Cliente Desconocido'}
+              </strong>{' '}
+              por un total de{' '}
+              <strong style={{ color: 'var(--alvacio-red)' }}>
+                ${saleToCobrar.totalAmount.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+              </strong>:
+            </p>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginTop: '8px' }}>
+              <button
+                type="button"
+                className="btn-primary"
+                onClick={() => executeCobrar('EFECTIVO_TRANSFERENCIA')}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '10px',
+                  padding: '14px',
+                  fontSize: '14px',
+                  fontWeight: 600
+                }}
+              >
+                💵 Efectivo / Transferencia (Ingreso a Caja)
+              </button>
+
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => executeCobrar('CUENTA_CORRIENTE')}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '10px',
+                  padding: '14px',
+                  fontSize: '14px',
+                  fontWeight: 600,
+                  border: '1px solid var(--border-color)'
+                }}
+              >
+                📋 Cuenta Corriente (Registrar como Deuda)
               </button>
             </div>
-          )}
-        </div>
-      </RightPanel>
+
+            <button
+              type="button"
+              className="btn-secondary"
+              onClick={() => setSaleToCobrar(null)}
+              style={{
+                marginTop: '8px',
+                padding: '10px',
+                fontSize: '13px',
+                backgroundColor: 'transparent',
+                border: 'none',
+                color: 'var(--text-secondary)',
+                cursor: 'pointer'
+              }}
+            >
+              Cancelar
+            </button>
+          </div>
+        )}
+      </Modal>
     </div>
   );
 }

@@ -211,10 +211,26 @@ export default function Pedidos() {
                   <h4 style={{ marginBottom: '12px', fontSize: '14px', color: 'var(--text-secondary)' }}>Detalle de ítems:</h4>
                   {pedido.items?.map((it, idx) => {
                     const prod = productos.find(p => p.id === it.productId);
+                    const weight = calculateWeightInKg(it.cantidad, it.unidad, prod);
+                    const showWeightEstimation = prod?.unitType === 'KG' && it.unidad === 'UNIDADES' && prod.pesoObjetivoGramos;
                     return (
                       <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid var(--border-color)', fontSize: '14px' }}>
-                        <span>{prod?.nombre} x {it.cantidad} {it.unidad}</span>
-                        <strong>${it.subtotal?.toFixed(2)}</strong>
+                        <div>
+                          <span>{prod?.nombre} x {it.cantidad} {it.unidad}</span>
+                          {showWeightEstimation && (
+                            <span style={{ fontSize: '12px', color: 'var(--text-secondary)', marginLeft: '8px' }}>
+                              (~{weight.toFixed(3)} kg)
+                            </span>
+                          )}
+                        </div>
+                        <div style={{ textAlign: 'right' }}>
+                          {it.precioEstimado !== undefined && (
+                            <span style={{ fontSize: '12px', color: 'var(--text-secondary)', marginRight: '8px' }}>
+                              ${it.precioEstimado.toFixed(2)} / {prod?.unitType}
+                            </span>
+                          )}
+                          <strong>${it.subtotal?.toFixed(2)}</strong>
+                        </div>
                       </div>
                     );
                   })}
@@ -301,46 +317,60 @@ export default function Pedidos() {
             </div>
             
             <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-              {(currentPedido.items || []).map((item, idx) => (
-                <div key={idx} style={{ background: '#ffffff', padding: '16px', borderRadius: '12px', border: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                  <select 
-                    required 
-                    value={item.productId} 
-                    onChange={e => updateItem(idx, 'productId', e.target.value)}
-                  >
-                    <option value="">Seleccione Producto</option>
-                    {productos.map(p => <option key={p.id} value={p.id}>{p.nombre}</option>)}
-                  </select>
-                  
-                  <div style={{ display: 'flex', gap: '12px' }}>
-                    <input 
-                      type="number" 
-                      required 
-                      min="0.1" 
-                      step="0.1"
-                      value={item.cantidad || ''} 
-                      onChange={e => updateItem(idx, 'cantidad', e.target.value)} 
-                      placeholder="Cant."
-                    />
+              {(currentPedido.items || []).map((item, idx) => {
+                const prod = productos.find(p => p.id === item.productId);
+                return (
+                  <div key={idx} style={{ background: '#ffffff', padding: '16px', borderRadius: '12px', border: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', gap: '12px' }}>
                     <select 
-                      value={item.unidad} 
-                      onChange={e => updateItem(idx, 'unidad', e.target.value)}
+                      required 
+                      value={item.productId} 
+                      onChange={e => updateItem(idx, 'productId', e.target.value)}
                     >
-                      <option value="KG">KG</option>
-                      <option value="GRAMOS">GRAMOS</option>
-                      <option value="UNIDADES">UNIDADES</option>
-                      <option value="FETAS">FETAS</option>
+                      <option value="">Seleccione Producto</option>
+                      {productos.map(p => <option key={p.id} value={p.id}>{p.nombre}</option>)}
                     </select>
-                  </div>
-                  
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <div style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>
-                      Subtotal: <strong style={{ color: 'var(--text-primary)' }}>${item.subtotal?.toFixed(2)}</strong>
+                    
+                    <div style={{ display: 'flex', gap: '12px' }}>
+                      <input 
+                        type="number" 
+                        required 
+                        min="0.1" 
+                        step="0.1"
+                        value={item.cantidad || ''} 
+                        onChange={e => updateItem(idx, 'cantidad', e.target.value)} 
+                        placeholder="Cant."
+                      />
+                      <select 
+                        value={item.unidad} 
+                        onChange={e => updateItem(idx, 'unidad', e.target.value)}
+                      >
+                        <option value="KG">KG</option>
+                        <option value="GRAMOS">GRAMOS</option>
+                        <option value="UNIDADES">UNIDADES</option>
+                        <option value="FETAS">FETAS</option>
+                      </select>
                     </div>
-                    <button type="button" onClick={() => removeItem(idx)} style={{ color: '#ef4444', background: 'transparent', fontSize: '13px', textDecoration: 'underline' }}>Eliminar</button>
+                    
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
+                        {item.precioEstimado !== undefined && item.precioEstimado > 0 && (
+                          <span>
+                            Precio: ${item.precioEstimado.toFixed(2)} / {prod?.unitType}
+                            {prod?.unitType === 'KG' && item.unidad === 'UNIDADES' && prod.pesoObjetivoGramos && (
+                              <span> (~{calculateWeightInKg(item.cantidad, item.unidad, prod).toFixed(3)} kg total)</span>
+                            )}
+                          </span>
+                        )}
+                      </div>
+                      <div style={{ fontSize: '14px', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span>Subtotal:</span>
+                        <strong style={{ color: 'var(--text-primary)', fontSize: '15px' }}>${item.subtotal?.toFixed(2)}</strong>
+                      </div>
+                      <button type="button" onClick={() => removeItem(idx)} style={{ color: '#ef4444', background: 'transparent', fontSize: '13px', textDecoration: 'underline' }}>Eliminar</button>
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
               {(!currentPedido.items || currentPedido.items.length === 0) && (
                 <p style={{ textAlign: 'center', color: 'var(--text-secondary)', fontSize: '14px' }}>No hay ítems agregados.</p>
               )}

@@ -29,6 +29,8 @@ export default function ProductionFields({
 }: ProductionFieldsProps) {
   const isUnitBased = unidad === 'UNIDADES';
 
+
+
   return (
     <>
       <div style={{ display: 'flex', gap: '12px' }}>
@@ -55,7 +57,7 @@ export default function ProductionFields({
               />
             </div>
             <div style={{ flex: 1 }}>
-              <label style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Peso Real (KG)</label>
+              <label style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Peso Real Total (KG)</label>
               <input 
                 type="number" 
                 step="0.001" 
@@ -97,6 +99,9 @@ export default function ProductionFields({
           </div>
         )}
       </div>
+
+
+
       <div style={{ display: 'flex', gap: '12px' }}>
         <div style={{ flex: 1 }}>
           <label style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Merma (Opc.)</label>

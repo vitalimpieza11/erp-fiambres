@@ -126,6 +126,7 @@ export default function ProductosConfig() {
                           <tr style={{ borderBottom: '2px solid #eee', textAlign: 'left' }}>
                             <th style={{ padding: '10px' }}>Nombre</th>
                             <th style={{ padding: '10px' }}>Unidad Base</th>
+                            <th style={{ padding: '10px' }}>Costo</th>
                             <th style={{ padding: '10px' }}>Precios (Sug / Com)</th>
                             {type === 'PRESENTACION' && <th style={{ padding: '10px' }}>Receta</th>}
                             <th style={{ padding: '10px' }}>Estado</th>
@@ -137,6 +138,9 @@ export default function ProductosConfig() {
                             <tr key={prod.id} style={{ borderBottom: '1px solid #eee' }}>
                               <td style={{ padding: '10px' }}><strong>{prod.nombre}</strong></td>
                               <td style={{ padding: '10px' }}>{prod.unitType}</td>
+                              <td style={{ padding: '10px' }}>
+                                ${prod.costoActual?.toFixed(2) || '0.00'}
+                              </td>
                               <td style={{ padding: '10px' }}>
                                 ${prod.precioSugerido || 0} / ${prod.precioComercial || 0}
                               </td>
@@ -226,7 +230,17 @@ export default function ProductosConfig() {
               </div>
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px', marginBottom: '20px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '15px', marginBottom: '20px' }}>
+              <div className="form-group">
+                <label>Costo Actual (Opcional)</label>
+                <input 
+                  type="number" 
+                  step="0.01" 
+                  value={currentProduct.costoActual || ''} 
+                  onChange={e => setCurrentProduct({...currentProduct, costoActual: Number(e.target.value)})} 
+                  style={{ width: '100%' }}
+                />
+              </div>
               <div className="form-group">
                 <label>Precio Sugerido (Opcional)</label>
                 <input 

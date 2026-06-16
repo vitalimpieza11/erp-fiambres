@@ -10,6 +10,7 @@ const Proveedores = lazy(() => import('../features/proveedores/Proveedores'));
 const Pedidos = lazy(() => import('../features/pedidos/Pedidos'));
 const Produccion = lazy(() => import('../features/produccion/Produccion'));
 const Ventas = lazy(() => import('../features/ventas/Ventas'));
+const Facturacion = lazy(() => import('../features/facturacion/Facturacion'));
 const Stock = lazy(() => import('../features/stock/Stock'));
 const Caja = lazy(() => import('../features/caja/Caja'));
 const Socios = lazy(() => import('../features/socios/Socios'));
@@ -69,6 +70,7 @@ export default function Router() {
             <Route path="pedidos" element={<Pedidos />} />
             <Route path="produccion" element={<Produccion />} />
             <Route path="ventas" element={<Ventas />} />
+            <Route path="facturacion" element={<Facturacion />} />
             <Route path="stock" element={<Stock />} />
             <Route path="caja" element={<Caja />} />
             <Route path="socios" element={<Socios />} />
