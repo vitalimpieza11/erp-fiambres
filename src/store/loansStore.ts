@@ -1,0 +1,40 @@
+import { create } from 'zustand';
+import { loansRepository } from '../repositories/socios/loansRepository';
+import type { ShareholderLoan } from '../types/domain';
+
+interface LoansState {
+  loans: ShareholderLoan[];
+  loading: boolean;
+  isSubscribed: boolean;
+  unsubscribeRef: (() => void) | null;
+  subscribeLoans: () => () => void;
+  registerPayment: (loanId: string, amount: number, description: string, accountId: string) => Promise<void>;
+  annulPayment: (loanId: string, paymentId: string, reason: string) => Promise<void>;
+}
+
+export const useLoansStore = create<LoansState>((set, get) => ({
+  loans: [],
+  loading: true,
+  isSubscribed: false,
+  unsubscribeRef: null,
+  subscribeLoans: () => {
+    if (get().isSubscribed) {
+      return () => {};
+    }
+
+    set({ isSubscribed: true, loading: get().loans.length === 0 });
+
+    const unsub = loansRepository.subscribeLoans((loans) => {
+      set({ loans, loading: false });
+    });
+
+    set({ unsubscribeRef: unsub });
+    return () => {};
+  },
+  registerPayment: async (loanId, amount, description, accountId) => {
+    await loansRepository.registerPayment(loanId, amount, description, accountId);
+  },
+  annulPayment: async (loanId, paymentId, reason) => {
+    await loansRepository.annulPayment(loanId, paymentId, reason);
+  }
+}));

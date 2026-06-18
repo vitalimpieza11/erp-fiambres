@@ -221,6 +221,7 @@ export type Sale = {
   isDeleted: boolean;
   deletedAt?: number;
   tipoComprobante?: 'FACTURA_A' | 'FACTURA_B' | 'FACTURA_C' | 'PRESUPUESTO' | 'REMITO';
+  isHistorical?: boolean;
 }
 
 export type PurchaseItem = {
@@ -248,6 +249,7 @@ export type Purchase = {
   reversalOf?: string | null;
   isDeleted: boolean;
   deletedAt?: number;
+  isHistorical?: boolean;
 };
 
 export type CustomerMovement = {
@@ -326,3 +328,25 @@ export type FinancialAccount = {
   activa: boolean;
   createdAt: number;
 };
+
+export type ShareholderLoanPayment = {
+  id: string;
+  amount: number;
+  date: string;
+  description: string;
+  linkedCajaMovementId?: string;
+};
+
+export type ShareholderLoan = {
+  id: string;
+  shareholderId: string;
+  shareholderName: string;
+  amount: number;
+  date: string;
+  description: string;
+  remainingAmount: number;
+  status: 'PENDIENTE' | 'PAGADO';
+  payments: ShareholderLoanPayment[];
+  isDeleted: boolean;
+};
+
