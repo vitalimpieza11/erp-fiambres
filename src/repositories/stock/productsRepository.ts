@@ -38,6 +38,12 @@ export const productsRepository = {
     if (product.type === 'PRESENTACION') {
       // Cost of presentations is dynamic, do not store in DB
       delete dataToSave.costoActual;
+      if (product.utilidadObjetivo !== undefined) {
+        dataToSave.utilidadObjetivo = Number(product.utilidadObjetivo);
+      }
+      if (product.mermaObjetivo !== undefined) {
+        dataToSave.mermaObjetivo = Number(product.mermaObjetivo);
+      }
     } else {
       dataToSave.costoActual = Number(product.costoActual || 0);
     }

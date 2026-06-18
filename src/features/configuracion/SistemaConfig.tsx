@@ -7,21 +7,19 @@ export default function SistemaConfig() {
   const { settings, loading, fetchSettings, updateSettings } = useSettingsStore();
   const [usePackages, setUsePackages] = useState(false);
   const [allowNegativeStock, setAllowNegativeStock] = useState(true);
-  const [margenObjetivo, setMargenObjetivo] = useState(35);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     fetchSettings().then((res) => {
       setUsePackages(res.usePackages);
       setAllowNegativeStock(res.allowNegativeStock ?? true);
-      setMargenObjetivo(res.margenObjetivo ?? 35);
     });
   }, [fetchSettings]);
 
   const handleSave = async () => {
     setSaving(true);
     try {
-      await updateSettings({ usePackages, allowNegativeStock, margenObjetivo });
+      await updateSettings({ usePackages, allowNegativeStock });
       alert("Configuración del sistema guardada con éxito.");
     } catch (e) {
       alert("Error al guardar la configuración.");
@@ -93,28 +91,6 @@ export default function SistemaConfig() {
         </div>
 
         {/* Margen Objetivo Global */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '24px', backgroundColor: 'var(--bg-color)', padding: '20px', borderRadius: '16px' }}>
-          <div style={{ flex: 1 }}>
-            <h4 style={{ fontSize: '16px', fontWeight: 600, margin: '0 0 6px 0', color: 'var(--text-primary)' }}>
-              Margen Objetivo Global (%)
-            </h4>
-            <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: 0, lineHeight: 1.5 }}>
-              Define el margen de ganancia esperado sobre el costo total de la receta. Este valor se utiliza para calcular dinámicamente el <strong>Precio Sugerido por Kg</strong> de las presentaciones.
-            </p>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <input 
-              type="number" 
-              min="0"
-              max="99"
-              step="0.1"
-              value={margenObjetivo || ''} 
-              onChange={e => setMargenObjetivo(Number(e.target.value))}
-              style={{ width: '80px', padding: '10px 12px', borderRadius: '8px', border: '1px solid var(--border-color)', fontSize: '16px', fontWeight: 600, textAlign: 'center' }}
-            />
-            <span style={{ fontSize: '16px', fontWeight: 600, color: 'var(--text-secondary)' }}>%</span>
-          </div>
-        </div>
 
         {/* Info panel based on selection */}
         <div style={{ display: 'flex', gap: '12px', padding: '16px', borderRadius: '12px', border: '1px solid var(--border-color)', backgroundColor: 'rgba(239, 68, 68, 0.03)' }}>

@@ -97,6 +97,8 @@ export type Product = {
   costoUltimaCompra?: number;
   fechaUltimaCompra?: string;
   mermaPorDefecto?: number;
+  utilidadObjetivo?: number;
+  mermaObjetivo?: number;
 }
 
 export type Equivalencia = {
@@ -204,7 +206,6 @@ export type SystemSettings = {
   id?: string;
   usePackages: boolean;
   allowNegativeStock: boolean;
-  margenObjetivo: number;
 };
 
 

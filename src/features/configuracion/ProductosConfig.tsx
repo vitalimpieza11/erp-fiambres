@@ -7,10 +7,11 @@ import { useRecipes } from './useRecipes';
 import { useClientesStore } from '../../store/clientesStore';
 import { useSettingsStore } from '../../store/settingsStore';
 import { groupPresentacionesByCustomer } from '../../lib/groupByCustomer';
+import { convertUnit } from '../../lib/unitConverter';
 
 export default function ProductosConfig() {
   const { productos, loading: loadingProd, saveProduct, toggleStatus } = useProducts();
-  const { recipes, loading: loadingRec, saveRecipe, getRecipeCost, getProductRecipeCost } = useRecipes();
+  const { recipes, loading: loadingRec, saveRecipe, getRecipeCost, getProductRecipeCost, equivalences } = useRecipes();
   const { customers, fetchClientesData } = useClientesStore();
   const { settings, fetchSettings } = useSettingsStore();
 
@@ -19,7 +20,36 @@ export default function ProductosConfig() {
     fetchSettings();
   }, [fetchClientesData, fetchSettings]);
 
+  const getDefaultUtility = (name: string): number => {
+    const n = String(name || '').toLowerCase();
+    if (n.includes('trecer') && n.includes('cocido')) return 30;
+    if (n.includes('crudo')) return 20;
+    if (n.includes('panceta')) return 35;
+    if (n.includes('combinado')) return 35;
+    if (n.includes('paulina')) return 20;
+    if (n.includes('cheddar')) return 25;
+    if (n.includes('natural') && n.includes('cocido')) return 23;
+    return 30; // Default
+  };
+
+  const getPesoRealKg = (prod: Product): number => {
+    const peso = prod.pesoObjetivoKg || 1;
+    if (peso > 10) {
+      return peso / 1000;
+    }
+    return peso <= 0 ? 1 : peso;
+  };
+
+  const getFolexQty = (name: string): number => {
+    const n = String(name || '').toLowerCase();
+    if (n.includes('cheddar')) return 12;
+    if (n.includes('combinado')) return 2;
+    return 1;
+  };
+
   const [activeTab, setActiveTab] = useState<'CATALOGO' | 'PRECIOS_SUGERIDOS'>('CATALOGO');
+  const [activeSubTab, setActiveSubTab] = useState<'PRESENTACIONES' | 'COSTOS' | 'PRECIOS'>('PRESENTACIONES');
+  const [expandedCostoRows, setExpandedCostoRows] = useState<Record<string, boolean>>({});
   const [sortBy, setSortBy] = useState<string>('default');
   const loading = loadingProd || loadingRec;
 
@@ -400,82 +430,427 @@ export default function ProductosConfig() {
 
       {activeTab === 'PRECIOS_SUGERIDOS' && !isEditing && (
         <div style={{ background: 'white', borderRadius: '16px', border: '1px solid var(--border-color)', overflow: 'hidden', boxShadow: '0 4px 20px rgba(0,0,0,0.06)' }}>
-          <div style={{ padding: '24px', borderBottom: '1px solid #edf2f7', background: '#f8fafc' }}>
-            <h3 style={{ margin: 0, fontSize: '20px', fontWeight: 700, color: 'var(--text-primary)' }}>Precios Sugeridos por Kg</h3>
-            <p style={{ margin: '4px 0 0 0', fontSize: '13px', color: 'var(--text-secondary)' }}>
-              Cálculo dinámico basado en costos de receta, peso objetivo y margen global del {settings?.margenObjetivo || 35}%.
-            </p>
+          {/* Subtabs Navigation */}
+          <div style={{ display: 'flex', gap: '8px', padding: '16px 24px', borderBottom: '1px solid #edf2f7', background: '#f8fafc' }}>
+            <button
+              type="button"
+              onClick={() => setActiveSubTab('PRESENTACIONES')}
+              style={{
+                background: 'none', border: 'none', padding: '8px 16px', borderRadius: '24px',
+                fontWeight: 600, fontSize: '14px', cursor: 'pointer', transition: 'all 0.2s',
+                backgroundColor: activeSubTab === 'PRESENTACIONES' ? 'var(--alvacio-red)' : 'transparent',
+                color: activeSubTab === 'PRESENTACIONES' ? '#fff' : 'var(--text-secondary)'
+              }}
+            >
+              Presentaciones
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveSubTab('COSTOS')}
+              style={{
+                background: 'none', border: 'none', padding: '8px 16px', borderRadius: '24px',
+                fontWeight: 600, fontSize: '14px', cursor: 'pointer', transition: 'all 0.2s',
+                backgroundColor: activeSubTab === 'COSTOS' ? 'var(--alvacio-red)' : 'transparent',
+                color: activeSubTab === 'COSTOS' ? '#fff' : 'var(--text-secondary)'
+              }}
+            >
+              Costos
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveSubTab('PRECIOS')}
+              style={{
+                background: 'none', border: 'none', padding: '8px 16px', borderRadius: '24px',
+                fontWeight: 600, fontSize: '14px', cursor: 'pointer', transition: 'all 0.2s',
+                backgroundColor: activeSubTab === 'PRECIOS' ? 'var(--alvacio-red)' : 'transparent',
+                color: activeSubTab === 'PRECIOS' ? '#fff' : 'var(--text-secondary)'
+              }}
+            >
+              Precios y Margen
+            </button>
           </div>
-          <div style={{ overflowX: 'auto' }}>
-            <table className="apple-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
-              <thead>
-                <tr style={{ borderBottom: '2px solid #edf2f7', textAlign: 'left', color: 'var(--text-secondary)', fontSize: '12px' }}>
-                  <th style={{ padding: '12px 16px', fontWeight: 600 }}>Presentación</th>
-                  <th style={{ padding: '12px 16px', fontWeight: 600 }}>Peso Objetivo</th>
-                  <th style={{ padding: '12px 16px', fontWeight: 600 }}>Costo Receta</th>
-                  <th style={{ padding: '12px 16px', fontWeight: 600 }}>Costo / Kg</th>
-                  <th style={{ padding: '12px 16px', fontWeight: 600 }}>P. Comercial Act.</th>
-                  <th style={{ padding: '12px 16px', fontWeight: 600 }}>Ganancia / Kg</th>
-                  <th style={{ padding: '12px 16px', fontWeight: 600 }}>Margen Act. %</th>
-                  <th style={{ padding: '12px 16px', fontWeight: 600 }}>Precio Sug. / Kg</th>
-                  <th style={{ padding: '12px 16px', fontWeight: 600 }}>Diferencia</th>
-                  <th style={{ padding: '12px 16px', fontWeight: 600, textAlign: 'center' }}>Estado</th>
-                </tr>
-              </thead>
-              <tbody>
-                {groupedProducts.PRESENTACION.map(prod => {
-                  const costoTotalPresentacion = getProductRecipeCost(prod.id);
-                  const pesoObjetivo = prod.pesoObjetivoKg || 1; // Default to 1kg if not set
-                  const costoPorKg = costoTotalPresentacion / pesoObjetivo;
-                  
-                  const margenDecimal = (settings?.margenObjetivo || 35) / 100;
-                  // Avoid division by zero or negative margin if user puts >= 100
-                  const precioSugeridoKg = margenDecimal >= 1 ? 0 : costoPorKg / (1 - margenDecimal);
-                  
-                  const precioComercial = prod.precioComercial || 0;
-                  const gananciaActualKg = precioComercial - costoPorKg;
-                  const margenActual = precioComercial > 0 ? (gananciaActualKg / precioComercial) * 100 : 0;
-                  
-                  const diferencia = precioComercial - precioSugeridoKg;
-                  const isOk = diferencia >= 0;
 
-                  return (
-                    <tr key={prod.id} style={{ borderBottom: '1px solid #edf2f7', fontSize: '13px' }}>
-                      <td style={{ padding: '16px', fontWeight: 600, color: 'var(--text-primary)' }}>{prod.nombre}</td>
-                      <td style={{ padding: '16px', color: 'var(--text-secondary)' }}>{pesoObjetivo.toFixed(3)} Kg</td>
-                      <td style={{ padding: '16px', color: 'var(--text-primary)' }}>${costoTotalPresentacion.toFixed(2)}</td>
-                      <td style={{ padding: '16px', fontWeight: 600, color: '#475569' }}>${costoPorKg.toFixed(2)}</td>
-                      <td style={{ padding: '16px', fontWeight: 600, color: '#3b82f6' }}>${precioComercial.toFixed(2)}</td>
-                      <td style={{ padding: '16px', color: gananciaActualKg >= 0 ? '#10b981' : '#ef4444' }}>${gananciaActualKg.toFixed(2)}</td>
-                      <td style={{ padding: '16px', fontWeight: 600 }}>{margenActual.toFixed(1)}%</td>
-                      <td style={{ padding: '16px', fontWeight: 700, color: '#8b5cf6' }}>${precioSugeridoKg.toFixed(2)}</td>
-                      <td style={{ padding: '16px', color: isOk ? '#10b981' : '#ef4444', fontWeight: 600 }}>
-                        {diferencia > 0 ? '+' : ''}{diferencia.toFixed(2)}
-                      </td>
-                      <td style={{ padding: '16px', textAlign: 'center' }}>
-                        <span style={{ 
-                          padding: '4px 10px', 
-                          borderRadius: '20px', 
-                          fontSize: '11px', 
-                          fontWeight: 700,
-                          backgroundColor: isOk ? '#dcfce7' : '#fee2e2',
-                          color: isOk ? '#16a34a' : '#ef4444'
-                        }}>
-                          {isOk ? 'OK' : 'POR DEBAJO DEL OBJETIVO'}
-                        </span>
-                      </td>
+          <div style={{ padding: '24px' }}>
+            {activeSubTab === 'PRESENTACIONES' && (
+              <div style={{ overflowX: 'auto' }}>
+                <table className="apple-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
+                  <thead>
+                    <tr style={{ borderBottom: '2px solid #edf2f7', textAlign: 'left', color: 'var(--text-secondary)', fontSize: '13px' }}>
+                      <th style={{ padding: '12px 10px', fontWeight: 600 }}>Nombre</th>
+                      <th style={{ padding: '12px 10px', fontWeight: 600 }}>Estado</th>
+                      <th style={{ padding: '12px 10px', fontWeight: 600 }}>Unidad</th>
+                      <th style={{ padding: '12px 10px', fontWeight: 600 }}>Precio Comercial / Kg</th>
+                      <th style={{ padding: '12px 10px', fontWeight: 600 }}>Utilidad Objetivo</th>
+                      <th style={{ padding: '12px 10px', fontWeight: 600 }}>Merma Objetivo</th>
+                      <th style={{ padding: '12px 10px', fontWeight: 600, textAlign: 'right' }}>Acciones</th>
                     </tr>
-                  );
-                })}
-                {groupedProducts.PRESENTACION.length === 0 && (
-                  <tr>
-                    <td colSpan={10} style={{ padding: '32px', textAlign: 'center', color: 'var(--text-secondary)' }}>
-                      No hay presentaciones configuradas.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
+                  </thead>
+                  <tbody>
+                    {groupedProducts.PRESENTACION.map(prod => {
+                      const util = prod.utilidadObjetivo !== undefined ? prod.utilidadObjetivo : getDefaultUtility(prod.nombre);
+                      const merma = prod.mermaObjetivo !== undefined ? prod.mermaObjetivo : 5;
+                      return (
+                        <tr key={prod.id} style={{ borderBottom: '1px solid #edf2f7', fontSize: '14px' }}>
+                          <td style={{ padding: '14px 10px', color: 'var(--text-primary)', fontWeight: 600 }}>{prod.nombre}</td>
+                          <td style={{ padding: '14px 10px' }}>
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '12px', fontWeight: 500, padding: '4px 8px', borderRadius: '20px', background: prod.activo ? '#e6f4ea' : '#fce8e6', color: prod.activo ? '#137333' : '#c5221f' }}>
+                              <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: prod.activo ? '#137333' : '#c5221f' }} />
+                              {prod.activo ? 'Activo' : 'Baja'}
+                            </span>
+                          </td>
+                          <td style={{ padding: '14px 10px', color: 'var(--text-secondary)' }}>{prod.unitType}</td>
+                          <td style={{ padding: '14px 10px', color: 'var(--text-primary)', fontWeight: 600 }}>
+                            ${(prod.precioComercial || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                          </td>
+                          <td style={{ padding: '14px 10px', color: 'var(--text-primary)' }}>{util}%</td>
+                          <td style={{ padding: '14px 10px', color: 'var(--text-primary)' }}>{merma}%</td>
+                          <td style={{ padding: '14px 10px', textAlign: 'right' }}>
+                            <button
+                              className="btn-secondary"
+                              style={{ padding: '6px 12px', borderRadius: '8px', fontSize: '13px' }}
+                              onClick={() => {
+                                setIsEditing(true);
+                                setCurrentProduct(prod);
+                                const existingRecipe = recipes.find(r => r.productId === prod.id);
+                                setRecipeItems(existingRecipe ? existingRecipe.items : []);
+                                setRecipeExpanded(false);
+                              }}
+                            >
+                              Editar
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                    {groupedProducts.PRESENTACION.length === 0 && (
+                      <tr>
+                        <td colSpan={7} style={{ padding: '32px', textAlign: 'center', color: 'var(--text-secondary)' }}>
+                          No hay presentaciones configuradas.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {activeSubTab === 'COSTOS' && (
+              <div style={{ overflowX: 'auto' }}>
+                <table className="apple-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
+                  <thead>
+                    <tr style={{ borderBottom: '2px solid #edf2f7', textAlign: 'left', color: 'var(--text-secondary)', fontSize: '13px' }}>
+                      <th style={{ width: '40px' }}></th>
+                      <th style={{ padding: '12px 10px', fontWeight: 600 }}>Presentación</th>
+                      <th style={{ padding: '12px 10px', fontWeight: 600 }}>Peso Objetivo</th>
+                      <th style={{ padding: '12px 10px', fontWeight: 600 }}>Costo Mercadería Kg</th>
+                      <th style={{ padding: '12px 10px', fontWeight: 600 }}>Packaging</th>
+                      <th style={{ padding: '12px 10px', fontWeight: 600 }}>Costo Operativo Kg</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {groupedProducts.PRESENTACION.map(prod => {
+                      const recipe = recipes.find(r => r.productId === prod.id);
+                      const pesoReal = getPesoRealKg(prod);
+                      const isExpanded = !!expandedCostoRows[prod.id];
+
+                      let comestibleCost = 0;
+                      const itemsDetails = (recipe?.items || []).map(item => {
+                        const ing = productos.find(p => p.id === item.ingredientProductId);
+                        const cost = ing?.costoActual || 0;
+                        const convertedQty = convertUnit(
+                          item.quantity,
+                          mapRecipeUnitToUnitType(item.unit),
+                          ing?.unitType || 'KG',
+                          ing?.nombre || '',
+                          '',
+                          equivalences
+                        );
+                        const subtotal = convertedQty * cost;
+
+                        const nameLower = (ing?.nombre || item.ingredientName || '').toLowerCase();
+                        const isPack = nameLower.includes('bolsa') || 
+                                       nameLower.includes('etiqueta') || 
+                                       nameLower.includes('folex') || 
+                                       nameLower.includes('film') || 
+                                       nameLower.includes('packaging');
+
+                        if (!isPack) {
+                          comestibleCost += subtotal;
+                        }
+
+                        return {
+                          nombre: ing?.nombre || item.ingredientName,
+                          quantity: item.quantity,
+                          unit: item.unit,
+                          costoUnitario: cost,
+                          subtotal,
+                          isPack
+                        };
+                      });
+
+                      const costoMercaderiaKg = comestibleCost / pesoReal;
+                      const folexQty = getFolexQty(prod.nombre);
+                      const packagingCost = 550 + 0.25 + (folexQty * 7);
+                      const costoOperativoKg = costoMercaderiaKg + packagingCost;
+
+                      return (
+                        <>
+                          <tr key={prod.id} style={{ borderBottom: '1px solid #edf2f7', fontSize: '14px' }}>
+                            <td style={{ padding: '14px 10px', textAlign: 'center' }}>
+                              <button
+                                type="button"
+                                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                                onClick={() => setExpandedCostoRows(prev => ({ ...prev, [prod.id]: !prev[prod.id] }))}
+                              >
+                                {isExpanded ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
+                              </button>
+                            </td>
+                            <td style={{ padding: '14px 10px', color: 'var(--text-primary)', fontWeight: 600 }}>{prod.nombre}</td>
+                            <td style={{ padding: '14px 10px', color: 'var(--text-secondary)' }}>
+                              {prod.pesoObjetivoKg || 1} Kg {prod.pesoObjetivoKg && prod.pesoObjetivoKg > 10 ? '(Autocorregido a ' + pesoReal.toFixed(3) + ' Kg)' : ''}
+                            </td>
+                            <td style={{ padding: '14px 10px', color: 'var(--text-primary)' }}>
+                              ${costoMercaderiaKg.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                            </td>
+                            <td style={{ padding: '14px 10px', color: 'var(--text-primary)' }}>
+                              ${packagingCost.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                            </td>
+                            <td style={{ padding: '14px 10px', color: 'var(--text-primary)', fontWeight: 600 }}>
+                              ${costoOperativoKg.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                            </td>
+                          </tr>
+                          {isExpanded && (
+                            <tr style={{ background: '#f8fafc' }}>
+                              <td></td>
+                              <td colSpan={5} style={{ padding: '16px 24px' }}>
+                                <div style={{ border: '1px solid #e2e8f0', borderRadius: '12px', overflow: 'hidden', background: '#fff', padding: '16px', boxShadow: '0 2px 8px rgba(0,0,0,0.02)' }}>
+                                  <h4 style={{ margin: '0 0 12px 0', fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)' }}>Desglose de Costo Operativo:</h4>
+                                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
+                                    <div>
+                                      <h5 style={{ margin: '0 0 8px 0', fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)' }}>Ingredientes de Receta (Comestibles)</h5>
+                                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
+                                        <thead>
+                                          <tr style={{ borderBottom: '1px solid #edf2f7', textAlign: 'left', color: 'var(--text-secondary)' }}>
+                                            <th style={{ padding: '6px 0' }}>Ingrediente</th>
+                                            <th style={{ padding: '6px' }}>Cantidad</th>
+                                            <th style={{ padding: '6px', textAlign: 'right' }}>Subtotal</th>
+                                          </tr>
+                                        </thead>
+                                        <tbody>
+                                          {itemsDetails.filter(it => !it.isPack).map((it, idx) => (
+                                            <tr key={idx} style={{ borderBottom: '1px solid #f1f5f9' }}>
+                                              <td style={{ padding: '6px 0', fontWeight: 500 }}>{it.nombre}</td>
+                                              <td style={{ padding: '6px' }}>{it.quantity} {it.unit}</td>
+                                              <td style={{ padding: '6px', textAlign: 'right', fontWeight: 600 }}>
+                                                ${it.subtotal.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                                              </td>
+                                            </tr>
+                                          ))}
+                                          {itemsDetails.filter(it => !it.isPack).length === 0 && (
+                                            <tr>
+                                              <td colSpan={3} style={{ padding: '8px 0', color: 'var(--text-secondary)', fontStyle: 'italic' }}>Sin ingredientes comestibles.</td>
+                                            </tr>
+                                          )}
+                                        </tbody>
+                                      </table>
+                                    </div>
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', borderLeft: '1px solid #edf2f7', paddingLeft: '24px' }}>
+                                      <h5 style={{ margin: '0 0 4px 0', fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)' }}>Estructura Comercial Fija</h5>
+                                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
+                                        <span>Mercadería (Costo Receta Comestible):</span>
+                                        <strong style={{ color: 'var(--text-primary)' }}>${comestibleCost.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</strong>
+                                      </div>
+                                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
+                                        <span>Bolsa (Costo Fijo):</span>
+                                        <strong>$550,00</strong>
+                                      </div>
+                                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
+                                        <span>Etiqueta (Costo Fijo):</span>
+                                        <strong>$0,25</strong>
+                                      </div>
+                                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
+                                        <span>Folex (Cantidad: {folexQty}):</span>
+                                        <strong>{folexQty} x $7,00 = ${(folexQty * 7).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</strong>
+                                      </div>
+                                      <hr style={{ border: 'none', borderTop: '1px solid #edf2f7', margin: '8px 0' }} />
+                                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px', fontWeight: 700 }}>
+                                        <span>Costo Operativo Final (Paquete):</span>
+                                        <span style={{ color: 'var(--alvacio-red)' }}>
+                                          ${(comestibleCost + packagingCost).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                                        </span>
+                                      </div>
+                                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px', fontWeight: 700 }}>
+                                        <span>Costo Operativo Final (por Kg):</span>
+                                        <span style={{ color: 'var(--alvacio-red)' }}>
+                                          ${costoOperativoKg.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                                        </span>
+                                      </div>
+                                    </div>
+                                  </div>
+                                </div>
+                              </td>
+                            </tr>
+                          )}
+                        </>
+                      );
+                    })}
+                    {groupedProducts.PRESENTACION.length === 0 && (
+                      <tr>
+                        <td colSpan={6} style={{ padding: '32px', textAlign: 'center', color: 'var(--text-secondary)' }}>
+                          No hay presentaciones configuradas.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {activeSubTab === 'PRECIOS' && (
+              <div style={{ overflowX: 'auto' }}>
+                <table className="apple-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
+                  <thead>
+                    <tr style={{ borderBottom: '2px solid #edf2f7', textAlign: 'left', color: 'var(--text-secondary)', fontSize: '13px' }}>
+                      <th style={{ padding: '12px 10px', fontWeight: 600 }}>Nombre</th>
+                      <th style={{ padding: '12px 10px', fontWeight: 600 }}>Costo Base / Kg</th>
+                      <th style={{ padding: '12px 10px', fontWeight: 600 }}>Precio Sugerido / Kg</th>
+                      <th style={{ padding: '12px 10px', fontWeight: 600 }}>Precio Comercial / Kg</th>
+                      <th style={{ padding: '12px 10px', fontWeight: 600 }}>Margen Objetivo</th>
+                      <th style={{ padding: '12px 10px', fontWeight: 600 }}>Margen Real Actual</th>
+                      <th style={{ padding: '12px 10px', fontWeight: 600 }}>Diferencia $</th>
+                      <th style={{ padding: '12px 10px', textAlign: 'center', fontWeight: 600 }}>Estado</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(() => {
+                      const items = groupedProducts.PRESENTACION.map(prod => {
+                        const recipe = recipes.find(r => r.productId === prod.id);
+                        const pesoReal = getPesoRealKg(prod);
+
+                        let comestibleCost = 0;
+                        if (recipe && recipe.items) {
+                          recipe.items.forEach(item => {
+                            const ing = productos.find(p => p.id === item.ingredientProductId);
+                            const cost = ing?.costoActual || 0;
+                            const convertedQty = convertUnit(
+                              item.quantity,
+                              mapRecipeUnitToUnitType(item.unit),
+                              ing?.unitType || 'KG',
+                              ing?.nombre || '',
+                              '',
+                              equivalences
+                            );
+                            const subtotal = convertedQty * cost;
+
+                            const nameLower = (ing?.nombre || item.ingredientName || '').toLowerCase();
+                            const isPack = nameLower.includes('bolsa') || 
+                                           nameLower.includes('etiqueta') || 
+                                           nameLower.includes('folex') || 
+                                           nameLower.includes('film') || 
+                                           nameLower.includes('packaging');
+
+                            if (!isPack) {
+                              comestibleCost += subtotal;
+                            }
+                          });
+                        }
+
+                        const costoMercaderiaKg = comestibleCost / pesoReal;
+                        const folexQty = getFolexQty(prod.nombre);
+                        const packagingCost = 550 + 0.25 + (folexQty * 7);
+                        const costoOperativoKg = costoMercaderiaKg + packagingCost;
+
+                        const util = prod.utilidadObjetivo !== undefined ? prod.utilidadObjetivo : getDefaultUtility(prod.nombre);
+                        const merma = prod.mermaObjetivo !== undefined ? prod.mermaObjetivo : 5;
+                        const denom = 1 - (merma / 100) - (util / 100);
+                        const sugeridoKg = denom <= 0 ? 0 : costoOperativoKg / denom;
+                        const comercial = prod.precioComercial || 0;
+
+                        const diff = comercial - sugeridoKg;
+                        const margenReal = comercial > 0 ? ((comercial - costoOperativoKg) / comercial) * 100 : 0;
+
+                        let stateLabel = 'OK';
+                        let badgeColor = '#137333';
+                        let badgeBg = '#e6f4ea';
+                        let rank = 2; // OK
+
+                        if (margenReal < util) {
+                          stateLabel = 'BAJO PRECIO';
+                          badgeColor = '#c5221f';
+                          badgeBg = '#fce8e6';
+                          rank = 1;
+                        } else if (margenReal > util + 10) {
+                          stateLabel = 'SOBRE PRECIO';
+                          badgeColor = '#b06000';
+                          badgeBg = '#fef3c7';
+                          rank = 3;
+                        }
+
+                        return {
+                          prod,
+                          costoOperativoKg,
+                          sugeridoKg,
+                          comercial,
+                          util,
+                          margenReal,
+                          diff,
+                          stateLabel,
+                          badgeColor,
+                          badgeBg,
+                          rank
+                        };
+                      });
+
+                      // Sort: rank ascending (BAJO PRECIO = 1, OK = 2, SOBRE PRECIO = 3)
+                      items.sort((a, b) => a.rank - b.rank);
+
+                      return items.map(({ prod, costoOperativoKg, sugeridoKg, comercial, util, margenReal, diff, stateLabel, badgeColor, badgeBg }) => (
+                        <tr key={prod.id} style={{ borderBottom: '1px solid #edf2f7', fontSize: '14px' }}>
+                          <td style={{ padding: '14px 10px', color: 'var(--text-primary)', fontWeight: 600 }}>{prod.nombre}</td>
+                          <td style={{ padding: '14px 10px', color: 'var(--text-primary)' }}>
+                            ${costoOperativoKg.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                          </td>
+                          <td style={{ padding: '14px 10px', color: '#6b21a8', fontWeight: 600 }}>
+                            ${sugeridoKg.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                          </td>
+                          <td style={{ padding: '14px 10px', color: '#1d4ed8', fontWeight: 600 }}>
+                            ${comercial.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                          </td>
+                          <td style={{ padding: '14px 10px', color: 'var(--text-secondary)' }}>
+                            {util}%
+                          </td>
+                          <td style={{ padding: '14px 10px', color: badgeColor, fontWeight: 600 }}>
+                            {margenReal.toFixed(1)}%
+                          </td>
+                          <td style={{ padding: '14px 10px', color: diff >= 0 ? '#137333' : '#c5221f', fontWeight: 600 }}>
+                            {diff >= 0 ? '+' : ''}${diff.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                          </td>
+                          <td style={{ padding: '14px 10px', textAlign: 'center' }}>
+                            <span style={{
+                              padding: '4px 10px',
+                              borderRadius: '20px',
+                              fontSize: '11px',
+                              fontWeight: 700,
+                              backgroundColor: badgeBg,
+                              color: badgeColor
+                            }}>
+                              {stateLabel}
+                            </span>
+                          </td>
+                        </tr>
+                      ));
+                    })()}
+                    {groupedProducts.PRESENTACION.length === 0 && (
+                      <tr>
+                        <td colSpan={8} style={{ padding: '32px', textAlign: 'center', color: 'var(--text-secondary)' }}>
+                          No hay presentaciones configuradas.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -610,6 +985,32 @@ export default function ProductosConfig() {
                   <span style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px', display: 'block' }}>
                     Si se asigna, esta presentación se agrupa bajo ese cliente en todas las vistas.
                   </span>
+                </div>
+                <div className="form-group">
+                  <label style={{ display: 'block', marginBottom: '6px', fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)' }}>
+                    Utilidad Objetivo (%)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    placeholder="30"
+                    value={currentProduct.utilidadObjetivo !== undefined ? currentProduct.utilidadObjetivo : ''}
+                    onChange={e => setCurrentProduct({ ...currentProduct, utilidadObjetivo: e.target.value === '' ? undefined : Number(e.target.value) })}
+                    style={{ width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid var(--border-color)' }}
+                  />
+                </div>
+                <div className="form-group">
+                  <label style={{ display: 'block', marginBottom: '6px', fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)' }}>
+                    Merma Objetivo (%)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    placeholder="5"
+                    value={currentProduct.mermaObjetivo !== undefined ? currentProduct.mermaObjetivo : ''}
+                    onChange={e => setCurrentProduct({ ...currentProduct, mermaObjetivo: e.target.value === '' ? undefined : Number(e.target.value) })}
+                    style={{ width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid var(--border-color)' }}
+                  />
                 </div>
               </div>
             )}

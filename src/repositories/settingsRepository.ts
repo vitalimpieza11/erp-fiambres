@@ -8,13 +8,13 @@ export const settingsRepository = {
       const docRef = doc(db, 'settings', 'global');
       const snap = await getDoc(docRef);
       if (snap.exists()) {
-        return { usePackages: false, allowNegativeStock: true, margenObjetivo: 35, ...snap.data() } as SystemSettings;
+        return { usePackages: false, allowNegativeStock: true, ...snap.data() } as SystemSettings;
       }
     } catch (e) {
       console.error("Error fetching settings:", e);
     }
     // Default to false (Simplified mode)
-    return { usePackages: false, allowNegativeStock: true, margenObjetivo: 35 };
+    return { usePackages: false, allowNegativeStock: true };
   },
 
   async updateSettings(settings: Partial<SystemSettings>): Promise<void> {

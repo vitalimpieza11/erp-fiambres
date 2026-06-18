@@ -10,7 +10,7 @@ interface SettingsState {
 }
 
 export const useSettingsStore = create<SettingsState>((set) => ({
-  settings: { usePackages: false, allowNegativeStock: true, margenObjetivo: 35 },
+  settings: { usePackages: false, allowNegativeStock: true },
   loading: true,
   fetchSettings: async () => {
     set({ loading: true });
@@ -19,7 +19,7 @@ export const useSettingsStore = create<SettingsState>((set) => ({
       set({ settings, loading: false });
       return settings;
     } catch (e) {
-      const fallback = { usePackages: false, allowNegativeStock: true, margenObjetivo: 35 };
+      const fallback = { usePackages: false, allowNegativeStock: true };
       set({ loading: false, settings: fallback });
       return fallback;
     }
