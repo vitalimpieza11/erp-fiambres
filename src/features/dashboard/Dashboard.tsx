@@ -38,6 +38,7 @@ export default function Dashboard() {
 
   // 1. Caja actual (Efectivo - type === 'EFECTIVO')
   const cajaActual = useMemo(() => {
+    const activeAccounts = accounts.filter(a => a.activa);
     return cacheCaja.movements
       .filter(m => {
         if (!m.accountId) {
@@ -53,14 +54,15 @@ export default function Dashboard() {
                           cat.includes('transferencia');
           return !isBanco;
         }
-        const acc = accounts.find(a => a.id === m.accountId);
-        return acc ? acc.tipo === 'EFECTIVO' : true;
+        const acc = activeAccounts.find(a => a.id === m.accountId);
+        return acc ? acc.tipo === 'EFECTIVO' : false;
       })
       .reduce((acc, mov) => acc + (mov.type === 'INCOME' ? mov.amount : -mov.amount), 0);
   }, [cacheCaja.movements, accounts]);
 
   // 2. Saldo bancos (Bank/Virtual Wallet transactions - type === 'BANCO' or 'BILLETERA_VIRTUAL')
   const saldoBancos = useMemo(() => {
+    const activeAccounts = accounts.filter(a => a.activa);
     return cacheCaja.movements
       .filter(m => {
         if (!m.accountId) {
@@ -75,7 +77,7 @@ export default function Dashboard() {
                  cat.includes('banco') || 
                  cat.includes('transferencia');
         }
-        const acc = accounts.find(a => a.id === m.accountId);
+        const acc = activeAccounts.find(a => a.id === m.accountId);
         return acc ? (acc.tipo === 'BANCO' || acc.tipo === 'BILLETERA_VIRTUAL') : false;
       })
       .reduce((acc, mov) => acc + (mov.type === 'INCOME' ? mov.amount : -mov.amount), 0);

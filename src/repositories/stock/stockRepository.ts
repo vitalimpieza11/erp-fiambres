@@ -17,7 +17,16 @@ export const stockRepository = {
     ]);
 
     return {
-      products: productsSnap.docs.map(d => ({ id: d.id, ...d.data() } as Product)),
+      products: productsSnap.docs
+        .map(d => {
+          const data = d.data();
+          return {
+            id: d.id,
+            ...data,
+            nombre: data.nombre || (data as any).name || ''
+          } as Product;
+        })
+        .sort((a, b) => a.nombre.localeCompare(b.nombre)),
       movements: movesSnap.docs.map(d => ({ id: d.id, ...d.data() } as StockMovement)),
       equivalences: equivSnap.docs.map(d => ({ id: d.id, ...d.data() } as Equivalencia))
     };

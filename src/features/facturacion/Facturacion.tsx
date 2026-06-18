@@ -152,7 +152,8 @@ export default function Facturacion() {
           importeReal: importeReal,
           costoUnitarioHistorico: finalCostPerKg,
           costoTotalHistorico: finalTotalCost,
-          rentabilidadBruta: Number((importeReal - finalTotalCost).toFixed(2))
+          rentabilidadBruta: Number((importeReal - finalTotalCost).toFixed(2)),
+          pesosReales: it.pesosReales || (it.pesoReal ? [it.pesoReal] : [])
         };
       })
     );
@@ -612,13 +613,26 @@ export default function Facturacion() {
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                       <strong style={{ fontSize: '14px', color: 'var(--text-primary)' }}>{prod?.nombre || 'Producto Desconocido'}</strong>
                       <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '12px', backgroundColor: '#f3f4f6', color: 'var(--text-secondary)' }}>
-                        {prod?.type}
+                        Cant: {item.cantidad} {item.unidad}
                       </span>
                     </div>
-                    
+
+                    {item.pesosReales && item.pesosReales.length > 0 && (
+                      <div style={{ padding: '8px 12px', borderRadius: '8px', backgroundColor: '#fdfdfd', border: '1px dashed var(--border-color)', fontSize: '12.5px' }}>
+                        <span style={{ color: 'var(--text-secondary)', display: 'block', marginBottom: '4px', fontWeight: 600 }}>Pesos Reales Individuales:</span>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                          {item.pesosReales.map((w, wIdx) => (
+                            <span key={wIdx} style={{ backgroundColor: '#f3f4f6', padding: '2px 6px', borderRadius: '4px', fontSize: '11.5px' }}>
+                              Paq {wIdx + 1}: <strong>{w.toFixed(3)} kg</strong>
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1.2fr', gap: '12px' }}>
                       <div>
-                        <label style={{ fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', display: 'block' }}>Peso Real (Kg)</label>
+                        <label style={{ fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', display: 'block' }}>Peso Total (Kg)</label>
                         <div style={{ padding: '8px 12px', borderRadius: '8px', backgroundColor: '#f9fafb', border: '1px solid var(--border-color)', fontSize: '13px', fontWeight: 600 }}>
                           {item.pesoReal || 0} Kg
                         </div>
@@ -637,7 +651,7 @@ export default function Facturacion() {
                         />
                       </div>
                       <div>
-                        <label style={{ fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', display: 'block' }}>Importe Real ($)</label>
+                        <label style={{ fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', display: 'block' }}>Subtotal ($)</label>
                         <div style={{ padding: '8px 12px', borderRadius: '8px', backgroundColor: '#f9fafb', border: '1px solid var(--border-color)', fontSize: '13px', fontWeight: 600, color: 'var(--alvacio-red)' }}>
                           ${(item.importeReal || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
                         </div>

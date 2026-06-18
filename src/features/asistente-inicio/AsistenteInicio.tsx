@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useStockStore } from '../../store/stockStore';
 import { useSociosStore } from '../../store/sociosStore';
@@ -17,7 +17,8 @@ import {
   Info,
   DollarSign,
   Plus,
-  Trash2
+  Trash2,
+  Lock
 } from 'lucide-react';
 import './AsistenteInicio.css';
 
@@ -31,6 +32,9 @@ export default function AsistenteInicio() {
   const [loading, setLoading] = useState<boolean>(false);
   const [success, setSuccess] = useState<boolean>(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  // Status de Idempotencia
+  const [migrationStatus, setMigrationStatus] = useState<{ executed: boolean; executedAt?: string } | null>(null);
 
   // Form State
   const [fechaCorte, setFechaCorte] = useState<string>('2026-06-17');
@@ -88,8 +92,22 @@ export default function AsistenteInicio() {
     amount: number;
   }[]>([]);
 
+  // Check initial load status
+  const checkStatus = async () => {
+    try {
+      const status = await initialLoadRepository.getInitialLoadStatus();
+      setMigrationStatus(status);
+      if (status.executed && status.executedAt) {
+        setFechaCorte(status.executedAt.split('T')[0]);
+      }
+    } catch (err) {
+      console.error("Error reading initial load status:", err);
+    }
+  };
+
   // Load stores data
   useEffect(() => {
+    checkStatus();
     fetchStock();
     const unsub = subscribeAll();
     fetchAccounts();
@@ -193,8 +211,8 @@ export default function AsistenteInicio() {
     }
   }, [accounts, cajaInicialList.length]);
 
-  // Helpers to add or remove rows in tables
   const addStockRow = () => {
+    if (migrationStatus?.executed) return;
     const unselected = products.find(p => p.type === 'MERCADERIA' && !stocksList.some(s => s.productId === p.id));
     if (unselected) {
       setStocksList([...stocksList, {
@@ -207,10 +225,12 @@ export default function AsistenteInicio() {
   };
 
   const removeStockRow = (index: number) => {
+    if (migrationStatus?.executed) return;
     setStocksList(stocksList.filter((_, i) => i !== index));
   };
 
   const updateStockRow = (index: number, field: string, value: any) => {
+    if (migrationStatus?.executed) return;
     const newList = [...stocksList];
     if (field === 'productId') {
       const prod = products.find(p => p.id === value);
@@ -229,15 +249,24 @@ export default function AsistenteInicio() {
   };
 
   const updateInsumoRow = (index: number, field: string, value: number) => {
+    if (migrationStatus?.executed) return;
     const newList = [...insumosList];
     newList[index] = { ...newList[index], [field]: value };
     setInsumosList(newList);
   };
 
   const handleExecute = async () => {
+    if (migrationStatus?.executed) return;
     setLoading(true);
     setErrorMsg(null);
     try {
+      // Re-verificar status antes de mandar
+      const currentStatus = await initialLoadRepository.getInitialLoadStatus();
+      if (currentStatus.executed) {
+        setMigrationStatus(currentStatus);
+        throw new Error("La migración inicial ya fue ejecutada.");
+      }
+
       const payload: InitialLoadData = {
         fechaCorte,
         stocks: stocksList.map(s => ({
@@ -280,6 +309,7 @@ export default function AsistenteInicio() {
 
       await initialLoadRepository.executeInitialLoad(payload);
       setSuccess(true);
+      await checkStatus();
     } catch (err: any) {
       console.error(err);
       setErrorMsg(err.message || 'Ocurrió un error inesperado al procesar la carga inicial.');
@@ -297,6 +327,8 @@ export default function AsistenteInicio() {
     { num: 6, label: 'Confirmación', icon: <CheckCircle size={18} /> }
   ];
 
+  const isReadOnly = !!migrationStatus?.executed;
+
   return (
     <div className="asistente-container">
       <div className="asistente-header">
@@ -308,6 +340,15 @@ export default function AsistenteInicio() {
           <p className="asistente-subtitle">Migración y carga contable de negocio en marcha al ERP Al Vacío</p>
         </div>
       </div>
+
+      {isReadOnly && (
+        <div className="asistente-error-alert" style={{ background: '#fef3c7', borderColor: '#f59e0b', color: '#b45309' }}>
+          <Lock size={20} />
+          <div>
+            <strong>Mapeo contable bloqueado:</strong> La migración inicial ya fue ejecutada y consolidada en este entorno el {migrationStatus?.executedAt ? new Date(migrationStatus.executedAt).toLocaleString() : ''}. El asistente ahora está en modo de solo lectura.
+          </div>
+        </div>
+      )}
 
       {/* Steppers */}
       <div className="stepper-bar">
@@ -361,6 +402,7 @@ export default function AsistenteInicio() {
                   value={fechaCorte} 
                   onChange={e => setFechaCorte(e.target.value)} 
                   className="input-corte"
+                  disabled={isReadOnly}
                 />
               </div>
 
@@ -392,7 +434,7 @@ export default function AsistenteInicio() {
                   <tr>
                     <th>Producto</th>
                     <th>Stock Físico (Kg / Uni)</th>
-                    <th>Acciones</th>
+                    {!isReadOnly && <th>Acciones</th>}
                   </tr>
                 </thead>
                 <tbody>
@@ -403,6 +445,7 @@ export default function AsistenteInicio() {
                           value={row.productId} 
                           onChange={e => updateStockRow(index, 'productId', e.target.value)}
                           className="table-select"
+                          disabled={isReadOnly}
                         >
                           {products.filter(p => p.type === 'MERCADERIA').map(p => (
                             <option key={p.id} value={p.id}>{p.nombre}</option>
@@ -417,22 +460,27 @@ export default function AsistenteInicio() {
                             value={row.stockFisico} 
                             onChange={e => updateStockRow(index, 'stockFisico', parseFloat(e.target.value) || 0)}
                             className="table-input"
+                            disabled={isReadOnly}
                           />
                           <span className="unit-label">Kg</span>
                         </div>
                       </td>
-                      <td>
-                        <button className="btn-icon-danger" onClick={() => removeStockRow(index)}>
-                          <Trash2 size={16} />
-                        </button>
-                      </td>
+                      {!isReadOnly && (
+                        <td>
+                          <button className="btn-icon-danger" onClick={() => removeStockRow(index)}>
+                            <Trash2 size={16} />
+                          </button>
+                        </td>
+                      )}
                     </tr>
                   ))}
                 </tbody>
               </table>
-              <button className="asistente-btn-secondary add-row-btn" onClick={addStockRow}>
-                <Plus size={16} /> Agregar Producto
-              </button>
+              {!isReadOnly && (
+                <button className="asistente-btn-secondary add-row-btn" onClick={addStockRow}>
+                  <Plus size={16} /> Agregar Producto
+                </button>
+              )}
 
               <h4 style={{ marginTop: '24px' }}>2. Insumos en Inventario</h4>
               <table className="asistente-table">
@@ -455,6 +503,7 @@ export default function AsistenteInicio() {
                           value={row.compraCosto} 
                           onChange={e => updateInsumoRow(index, 'compraCosto', parseFloat(e.target.value) || 0)}
                           className="table-input"
+                          disabled={isReadOnly}
                         />
                       </td>
                       <td>
@@ -463,6 +512,7 @@ export default function AsistenteInicio() {
                           value={row.cantidadComprada} 
                           onChange={e => updateInsumoRow(index, 'cantidadComprada', parseFloat(e.target.value) || 0)}
                           className="table-input"
+                          disabled={isReadOnly}
                         />
                       </td>
                       <td>
@@ -471,6 +521,7 @@ export default function AsistenteInicio() {
                           value={row.cantidadActual} 
                           onChange={e => updateInsumoRow(index, 'cantidadActual', parseFloat(e.target.value) || 0)}
                           className="table-input"
+                          disabled={isReadOnly}
                         />
                       </td>
                       <td style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>
@@ -516,6 +567,7 @@ export default function AsistenteInicio() {
                               setComprasHist(newC);
                             }}
                             className="table-input"
+                            disabled={isReadOnly}
                           />
                         </div>
                       </td>
@@ -550,6 +602,7 @@ export default function AsistenteInicio() {
                               setVentasHist(newV);
                             }}
                             className="table-input"
+                            disabled={isReadOnly}
                           />
                         </div>
                       </td>
@@ -565,6 +618,7 @@ export default function AsistenteInicio() {
                               setVentasHist(newV);
                             }}
                             className="table-input"
+                            disabled={isReadOnly}
                           />
                         </div>
                       </td>
@@ -613,6 +667,7 @@ export default function AsistenteInicio() {
                               setAportesList(newA);
                             }}
                             className="table-input"
+                            disabled={isReadOnly}
                           />
                         </div>
                       </td>
@@ -647,6 +702,7 @@ export default function AsistenteInicio() {
                               setPrestamosList(newP);
                             }}
                             className="table-input"
+                            disabled={isReadOnly}
                           />
                         </div>
                       </td>
@@ -689,6 +745,7 @@ export default function AsistenteInicio() {
                               setCajaInicialList(newC);
                             }}
                             className="table-input"
+                            disabled={isReadOnly}
                           />
                         </div>
                       </td>
@@ -708,6 +765,21 @@ export default function AsistenteInicio() {
                 Los cambios se aplicarán y establecerán la foto operativa del negocio al {fechaCorte}.
               </p>
 
+              {/* Auditoría Visual del Módulo de Inicio */}
+              <div className="apple-card" style={{ padding: '20px', marginBottom: '24px', backgroundColor: '#fafafa' }}>
+                <h4 style={{ margin: '0 0 16px 0', fontSize: '15px', color: 'var(--text-primary)' }}>📋 Reporte de Auditoría de Carga</h4>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', fontSize: '13px' }}>
+                  <div>Estado de Migración: <strong style={{ color: isReadOnly ? '#16a34a' : '#d97706' }}>{isReadOnly ? 'CONSOLIDADO / MIGRADO' : 'PENDIENTE DE EJECUCIÓN'}</strong></div>
+                  <div>Fecha de Ejecución: <strong>{migrationStatus?.executedAt ? new Date(migrationStatus.executedAt).toLocaleDateString() : 'N/A'}</strong></div>
+                  <div>Mercaderías inicializadas: <strong>{stocksList.length} productos</strong></div>
+                  <div>Insumos inicializados: <strong>{insumosList.length} insumos</strong></div>
+                  <div>Compras históricas registradas: <strong>{comprasHist.length} compras</strong></div>
+                  <div>Ventas históricas registradas: <strong>{ventasHist.length} ventas</strong></div>
+                  <div>Aportes declarados: <strong>{aportesList.length} conceptos</strong></div>
+                  <div>Préstamos declarados: <strong>{prestamosList.length} pasivos</strong></div>
+                </div>
+              </div>
+
               <div className="resumen-grid">
                 <div className="resumen-card">
                   <h4>Stock Inicial Mercadería</h4>
@@ -721,7 +793,7 @@ export default function AsistenteInicio() {
                   <h4>Insumos Iniciales</h4>
                   <ul>
                     {insumosList.map((ins, i) => (
-                      <li key={i}>{ins.nombre}: <strong>{ins.cantidadActual} Unidades</strong> (costo unitario: ${(ins.compraCosto/ins.cantidadComprada).toFixed(2)})</li>
+                      <li key={i}>{ins.nombre}: <strong>{ins.cantidadActual} Unidades</strong> (costo: ${(ins.compraCosto/ins.cantidadComprada).toFixed(2)})</li>
                     ))}
                   </ul>
                 </div>
@@ -742,16 +814,18 @@ export default function AsistenteInicio() {
                 </div>
               </div>
 
-              <div className="corte-info-box warning-box" style={{ marginTop: '24px' }}>
-                <Info size={20} />
-                <div>
-                  <h4>Acción Irreversible</h4>
-                  <p>
-                    Al presionar confirmar se generarán los saldos iniciales del sistema. Asegúrese 
-                    de que los datos coincidan con su planilla de balances físicos y contables.
-                  </p>
+              {!isReadOnly && (
+                <div className="corte-info-box warning-box" style={{ marginTop: '24px' }}>
+                  <Info size={20} />
+                  <div>
+                    <h4>Acción Irreversible</h4>
+                    <p>
+                      Al presionar confirmar se generarán los saldos iniciales del sistema. Asegúrese 
+                      de que los datos coincidan con su planilla de balances físicos y contables. Esta acción es de ejecución única.
+                    </p>
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
           )}
 
@@ -779,10 +853,10 @@ export default function AsistenteInicio() {
               <button 
                 className="asistente-btn-primary execute-btn" 
                 onClick={handleExecute}
-                disabled={loading}
-                style={{ marginLeft: 'auto' }}
+                disabled={loading || isReadOnly}
+                style={{ marginLeft: 'auto', backgroundColor: isReadOnly ? '#d2d2d7' : undefined, cursor: isReadOnly ? 'not-allowed' : undefined }}
               >
-                {loading ? 'Procesando...' : 'Confirmar e Iniciar ERP'}
+                {loading ? 'Procesando...' : isReadOnly ? 'Migración Bloqueada' : 'Confirmar e Iniciar ERP'}
               </button>
             )}
           </div>

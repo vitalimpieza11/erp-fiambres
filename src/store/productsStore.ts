@@ -18,7 +18,12 @@ export const useProductsStore = create<ProductsState>((set, get) => ({
     if (hasData) {
       // Stale-While-Revalidate: fetch in background, don't set loading to true
       productsRepository.fetchProducts().then((data) => {
-        set({ productos: data });
+        const normalized = data.map(p => ({
+          ...p,
+          nombre: p.nombre || (p as any).name || ''
+        }));
+        const sorted = normalized.sort((a, b) => a.nombre.localeCompare(b.nombre));
+        set({ productos: sorted });
       }).catch(err => console.error("Background fetch products error:", err));
       return;
     }
@@ -26,7 +31,12 @@ export const useProductsStore = create<ProductsState>((set, get) => ({
     set({ loading: true });
     try {
       const data = await productsRepository.fetchProducts();
-      set({ productos: data });
+      const normalized = data.map(p => ({
+        ...p,
+        nombre: p.nombre || (p as any).name || ''
+      }));
+      const sorted = normalized.sort((a, b) => a.nombre.localeCompare(b.nombre));
+      set({ productos: sorted });
     } catch (error) {
       console.error("Error fetching products in store:", error);
     } finally {
@@ -38,7 +48,12 @@ export const useProductsStore = create<ProductsState>((set, get) => ({
     try {
       const id = await productsRepository.saveProduct(product, get().productos);
       const data = await productsRepository.fetchProducts();
-      set({ productos: data });
+      const normalized = data.map(p => ({
+        ...p,
+        nombre: p.nombre || (p as any).name || ''
+      }));
+      const sorted = normalized.sort((a, b) => a.nombre.localeCompare(b.nombre));
+      set({ productos: sorted });
       return id;
     } catch (error) {
       console.error("Error saving product in store:", error);
@@ -52,7 +67,12 @@ export const useProductsStore = create<ProductsState>((set, get) => ({
     try {
       await productsRepository.toggleProductStatus(id, currentStatus);
       const data = await productsRepository.fetchProducts();
-      set({ productos: data });
+      const normalized = data.map(p => ({
+        ...p,
+        nombre: p.nombre || (p as any).name || ''
+      }));
+      const sorted = normalized.sort((a, b) => a.nombre.localeCompare(b.nombre));
+      set({ productos: sorted });
     } catch (error) {
       console.error("Error toggling product status in store:", error);
       throw error;

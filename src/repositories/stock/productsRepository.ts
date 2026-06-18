@@ -23,7 +23,14 @@ export function validateProduct(product: Partial<Product>, catalog: Product[]): 
 export const productsRepository = {
   async fetchProducts(): Promise<Product[]> {
     const snapshot = await getDocs(COLLECTIONS.PRODUCTS);
-    return snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Product));
+    return snapshot.docs.map(d => {
+      const data = d.data();
+      return {
+        id: d.id,
+        ...data,
+        nombre: data.nombre || (data as any).name || ''
+      } as Product;
+    });
   },
 
   async saveProduct(product: Partial<Product>, catalog: Product[]): Promise<string> {

@@ -39,25 +39,55 @@ export default function Produccion() {
     return (orders || []).filter(o => o && o.status === 'PRODUCIDO');
   }, [orders]);
 
-  const pendingByProduct = useMemo(() => {
-    const grouped: Record<string, { productName: string, totals: Record<string, number> }> = {};
+  const presentationSummary = useMemo(() => {
+    const summary: Record<string, {
+      productId: string;
+      productName: string;
+      unitType: string;
+      cantidadSolicitada: number;
+      cantidadProducida: number;
+      cantidadPendiente: number;
+      pesoProducidoAcumulado: number;
+    }> = {};
+
     pendingOrders.forEach(o => {
       (o.items || []).forEach(item => {
         if (!item || !item.productId) return;
         const p = products.find(prod => prod.id === item.productId);
-        if (p) {
-          if (!grouped[p.id]) {
-            grouped[p.id] = { productName: p.nombre, totals: {} };
+        if (p && p.type === 'PRESENTACION') {
+          if (!summary[p.id]) {
+            summary[p.id] = {
+              productId: p.id,
+              productName: p.nombre,
+              unitType: item.unidad || p.unitType || 'KG',
+              cantidadSolicitada: 0,
+              cantidadProducida: 0,
+              cantidadPendiente: 0,
+              pesoProducidoAcumulado: 0
+            };
           }
-          const unit = String(item.unidad || p.unitType || 'KG').toUpperCase().trim();
-          if (!grouped[p.id].totals[unit]) {
-            grouped[p.id].totals[unit] = 0;
+          const s = summary[p.id];
+          s.cantidadSolicitada += item.cantidad;
+          
+          const pesosReales = item.pesosReales || [];
+          if (s.unitType === 'UNIDADES') {
+            s.cantidadProducida += pesosReales.length;
+          } else {
+            const sumWeights = pesosReales.reduce((sum, w) => sum + w, 0) || item.pesoReal || 0;
+            s.cantidadProducida += sumWeights;
           }
-          grouped[p.id].totals[unit] += Number(item.cantidad || 0);
+          
+          const totalWeightReal = pesosReales.reduce((sum, w) => sum + w, 0) || item.pesoReal || 0;
+          s.pesoProducidoAcumulado += totalWeightReal;
         }
       });
     });
-    return grouped;
+
+    Object.values(summary).forEach(s => {
+      s.cantidadPendiente = Math.max(0, s.cantidadSolicitada - s.cantidadProducida);
+    });
+
+    return Object.values(summary);
   }, [pendingOrders, products]);
 
   const finishedProducts = useMemo(() => {
@@ -74,10 +104,15 @@ export default function Produccion() {
     }
   };
 
+  const activePendingTotals = useMemo(() => {
+    if (!targetProductId) return undefined;
+    const summary = presentationSummary.find(s => s.productId === targetProductId);
+    if (!summary) return undefined;
+    return { [summary.unitType]: summary.cantidadPendiente };
+  }, [targetProductId, presentationSummary]);
+
   const hasData = products && products.length > 0;
   if (loading && !hasData) return <LoadingSpinner message="Cargando módulo de producción..." />;
-
-  const activePendingTotals = targetProductId ? pendingByProduct[targetProductId]?.totals : undefined;
 
   return (
     <div style={{ position: 'relative' }}>
@@ -145,30 +180,38 @@ export default function Produccion() {
       {activeTab === 'PENDING' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '40px' }}>
           <div>
-            <h3 style={{ fontSize: '20px', marginBottom: '20px', color: 'var(--text-primary)' }}>Agrupado por Producto</h3>
+            <h3 style={{ fontSize: '20px', marginBottom: '20px', color: 'var(--text-primary)' }}>Agrupado por Presentación</h3>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '20px' }}>
-              {Object.keys(pendingByProduct).length === 0 && (
+              {presentationSummary.length === 0 && (
                 <p style={{ color: 'var(--text-secondary)' }}>No hay productos pendientes.</p>
               )}
-              {Object.entries(pendingByProduct).map(([productId, data]) => (
+              {presentationSummary.map((s) => (
                 <ExpandableCard
-                  key={productId}
-                  title={data.productName}
+                  key={s.productId}
+                  title={s.productName}
                   collapsedContent={
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '12px' }}>
-                      {Object.entries(data?.totals || {}).map(([unit, total]) => (
-                        <div key={unit} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          <Package size={18} color="var(--alvacio-red)" />
-                          <span style={{ fontSize: '16px', fontWeight: 'bold' }}>
-                            {Number(Number(total || 0).toFixed(3))} {unit}
-                          </span>
-                        </div>
-                      ))}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '12px', fontSize: '14px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span style={{ color: 'var(--text-secondary)' }}>Solicitado:</span>
+                        <strong style={{ color: 'var(--text-primary)' }}>{s.cantidadSolicitada.toFixed(3)} {s.unitType}</strong>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span style={{ color: 'var(--text-secondary)' }}>Producido:</span>
+                        <strong style={{ color: '#10b981' }}>{s.cantidadProducida.toFixed(3)} {s.unitType}</strong>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span style={{ color: 'var(--text-secondary)' }}>Pendiente:</span>
+                        <strong style={{ color: 'var(--alvacio-red-dark)' }}>{s.cantidadPendiente.toFixed(3)} {s.unitType}</strong>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px dashed var(--border-color)', paddingTop: '6px', marginTop: '4px' }}>
+                        <span style={{ color: 'var(--text-secondary)' }}>Peso Acumulado:</span>
+                        <strong style={{ color: 'var(--text-primary)' }}>{s.pesoProducidoAcumulado.toFixed(3)} kg</strong>
+                      </div>
                     </div>
                   }
                   expandedContent={<></>}
                   actions={
-                    <button className="btn-secondary" onClick={() => openProducePanel('ORDER', undefined, productId)}>
+                    <button className="btn-secondary" onClick={() => openProducePanel('ORDER', undefined, s.productId)}>
                       Producir esto
                     </button>
                   }

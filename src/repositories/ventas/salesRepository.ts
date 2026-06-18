@@ -1,5 +1,5 @@
 import { getDocs, query, where, doc, updateDoc, runTransaction, collection, orderBy, limit, addDoc } from 'firebase/firestore';
-import { db, COLLECTIONS } from '../../lib/firebase';
+import { db, COLLECTIONS, removeUndefinedFields } from '../../lib/firebase';
 import type { Sale, Order, Customer, Product, SaleItem } from '../../types/domain';
 import { convertQuantityToBaseUnit } from '../../lib/unitConverter';
 import { truncateDecimals } from '../../lib/formatters';
@@ -189,7 +189,10 @@ export const salesRepository = {
         tipoComprobante: tipoComprobante || 'PRESUPUESTO'
       };
 
-      transaction.set(newSaleRef, saleData);
+      // Sanitise saleData to remove undefined fields that crash Firestore using recursive helper
+      const sanitizedSaleData = removeUndefinedFields(saleData);
+
+      transaction.set(newSaleRef, sanitizedSaleData);
 
       // Update Order Status
       const orderRef = doc(db, 'orders', order.id);

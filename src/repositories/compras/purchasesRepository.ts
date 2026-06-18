@@ -50,8 +50,30 @@ export const purchasesRepository = {
       await setDoc(stockMovRef, stockMov);
     }
 
-    // 3. Impactar CAJA V2 si hubo pago
-    if (newPurchase.montoPagado > 0) {
+    // 3. Impactar CAJA V2 si hubo pagos
+    if (newPurchase.paymentMethod === 'MULTIPLES' && newPurchase.payments && newPurchase.payments.length > 0) {
+      for (const pay of newPurchase.payments) {
+        if (pay.amount > 0) {
+          const cajaMovRef = doc(COLLECTIONS.CAJA_MOVEMENTS);
+          const cajaMov: CajaMovement = {
+            id: cajaMovRef.id,
+            type: 'EXPENSE',
+            amount: pay.amount,
+            date: newPurchase.date,
+            category: 'COMPRA_PROVEEDOR',
+            description: `Pago por compra (Ref: ${newPurchase.id})`,
+            sourceId: newPurchase.id,
+            sourceType: 'COMPRA',
+            reasonType: 'COMPRA_PROVEEDOR',
+            operation: 'MOVEMENT',
+            reversalOf: null,
+            accountId: pay.accountId,
+            isDeleted: false
+          };
+          await setDoc(cajaMovRef, cajaMov);
+        }
+      }
+    } else if (newPurchase.montoPagado > 0) {
       const cajaMovRef = doc(COLLECTIONS.CAJA_MOVEMENTS);
       const cajaMov: CajaMovement = {
         id: cajaMovRef.id,
@@ -101,21 +123,6 @@ export const purchasesRepository = {
   },
 
   async annulPurchase(purchaseId: string, reason: string, original: Purchase): Promise<void> {
-    // Query original caja movement to find its accountId
-    let originalAccountId: string | undefined = undefined;
-    if (original.montoPagado > 0) {
-      const cajaSnap = await getDocs(query(
-        COLLECTIONS.CAJA_MOVEMENTS,
-        where('sourceId', '==', original.id),
-        where('sourceType', '==', 'COMPRA'),
-        where('type', '==', 'EXPENSE'),
-        where('isDeleted', '==', false)
-      ));
-      if (!cajaSnap.empty) {
-        originalAccountId = (cajaSnap.docs[0].data() as any).accountId;
-      }
-    }
-
     // REGLA V2 OBLIGATORIA: Nunca borrar compras ni editar el evento original.
     // La anulación es un NUEVO EVENTO COMPENSATORIO. El evento original permanece intacto.
     const compPurchaseRef = doc(COLLECTIONS.PURCHASES);
@@ -146,13 +153,22 @@ export const purchasesRepository = {
       await setDoc(stockMovRef, stockMov);
     }
 
-    // 2. Revertir CAJA V2 si hubo pago
-    if (original.montoPagado > 0) {
+    // 2. Revertir CAJA V2: Consultamos todos los movimientos de caja reales asociados
+    const cajaSnap = await getDocs(query(
+      COLLECTIONS.CAJA_MOVEMENTS,
+      where('sourceId', '==', original.id),
+      where('sourceType', '==', 'COMPRA'),
+      where('type', '==', 'EXPENSE'),
+      where('isDeleted', '==', false)
+    ));
+    
+    for (const docSnap of cajaSnap.docs) {
+      const origMov = docSnap.data() as CajaMovement;
       const cajaMovRef = doc(COLLECTIONS.CAJA_MOVEMENTS);
       const cajaMov: CajaMovement = {
         id: cajaMovRef.id,
         type: 'INCOME', // reverso de EXPENSE
-        amount: original.montoPagado,
+        amount: origMov.amount,
         date: new Date().toISOString(),
         category: 'ANULACION_COMPRA',
         description: `Reverso por anulación de compra (Ref: ${original.id}). Motivo: ${reason}`,
@@ -160,8 +176,8 @@ export const purchasesRepository = {
         sourceType: 'REVERSAL_COMPRA',
         reasonType: 'REVERSAL_COMPRA_PROVEEDOR',
         operation: 'REVERSAL',
-        reversalOf: original.id,
-        accountId: originalAccountId,
+        reversalOf: origMov.id,
+        accountId: origMov.accountId,
         isDeleted: false
       };
       await setDoc(cajaMovRef, cajaMov);

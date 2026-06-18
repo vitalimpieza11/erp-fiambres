@@ -41,18 +41,27 @@ export function useCaja() {
     fetchAccounts();
   }, [fetchAccounts]);
 
+  const activeAccounts = useMemo(() => accounts.filter(a => a.activa), [accounts]);
+
+  const activeMovements = useMemo(() => {
+    return movements.filter(mov => {
+      if (!mov.accountId) return true;
+      return activeAccounts.some(a => a.id === mov.accountId);
+    });
+  }, [movements, activeAccounts]);
+
   // --- SALDOS POR CUENTA INDIVIDUAL ---
   const accountBalances = useMemo((): AccountBalance[] => {
-    if (!accounts.length) return [];
+    if (!activeAccounts.length) return [];
 
     const balanceMap = new Map<string, number>();
-    accounts.forEach(a => balanceMap.set(a.id, 0));
+    activeAccounts.forEach(a => balanceMap.set(a.id, 0));
 
     // Fallback accounts for legacy movements without accountId
-    const cashFallback = accounts.find(a => a.tipo === 'EFECTIVO' && a.activa) || accounts.find(a => a.tipo === 'EFECTIVO');
-    const bankFallback = accounts.find(a => (a.tipo === 'BANCO' || a.tipo === 'BILLETERA_VIRTUAL') && a.activa) || accounts.find(a => a.tipo === 'BANCO' || a.tipo === 'BILLETERA_VIRTUAL');
+    const cashFallback = activeAccounts.find(a => a.tipo === 'EFECTIVO');
+    const bankFallback = activeAccounts.find(a => a.tipo === 'BANCO' || a.tipo === 'BILLETERA_VIRTUAL');
 
-    movements.forEach(mov => {
+    activeMovements.forEach(mov => {
       let resolvedId = mov.accountId;
       if (!resolvedId) {
         // Heuristic fallback for legacy movements
@@ -65,11 +74,11 @@ export function useCaja() {
       }
     });
 
-    return accounts.map(a => ({
+    return activeAccounts.map(a => ({
       account: a,
       balance: balanceMap.get(a.id) || 0
     }));
-  }, [movements, accounts]);
+  }, [activeMovements, activeAccounts]);
 
   // --- SALDO TOTAL EFECTIVO ---
   const totalEfectivo = useMemo(() => {
@@ -94,8 +103,8 @@ export function useCaja() {
     const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate()).toISOString();
     const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1).toISOString();
 
-    const movementsToday = movements.filter(m => m.date >= startOfDay);
-    const movementsThisMonth = movements.filter(m => m.date >= startOfMonth);
+    const movementsToday = activeMovements.filter(m => m.date >= startOfDay);
+    const movementsThisMonth = activeMovements.filter(m => m.date >= startOfMonth);
 
     return {
       ingresosHoy: movementsToday.filter(m => m.type === 'INCOME').reduce((acc, m) => acc + m.amount, 0),
@@ -103,16 +112,16 @@ export function useCaja() {
       ingresosMes: movementsThisMonth.filter(m => m.type === 'INCOME').reduce((acc, m) => acc + m.amount, 0),
       egresosMes: movementsThisMonth.filter(m => m.type === 'EXPENSE').reduce((acc, m) => acc + m.amount, 0)
     };
-  }, [movements]);
+  }, [activeMovements]);
 
   // --- MOVIMIENTOS CON CUENTA RESUELTA ---
   const resolvedMovements = useMemo(() => {
-    if (!accounts.length) return movements.map(m => ({ ...m, resolvedAccountId: m.accountId || '' }));
+    if (!activeAccounts.length) return activeMovements.map(m => ({ ...m, resolvedAccountId: m.accountId || '' }));
 
-    const cashFallback = accounts.find(a => a.tipo === 'EFECTIVO' && a.activa) || accounts.find(a => a.tipo === 'EFECTIVO');
-    const bankFallback = accounts.find(a => (a.tipo === 'BANCO' || a.tipo === 'BILLETERA_VIRTUAL') && a.activa) || accounts.find(a => a.tipo === 'BANCO' || a.tipo === 'BILLETERA_VIRTUAL');
+    const cashFallback = activeAccounts.find(a => a.tipo === 'EFECTIVO');
+    const bankFallback = activeAccounts.find(a => a.tipo === 'BANCO' || a.tipo === 'BILLETERA_VIRTUAL');
 
-    return movements.map(mov => {
+    return activeMovements.map(mov => {
       let resolvedAccountId = mov.accountId;
       if (!resolvedAccountId) {
         const isBanco = isBancoMovement(mov.description || '', mov.category || '');
@@ -120,12 +129,12 @@ export function useCaja() {
       }
       return { ...mov, resolvedAccountId };
     });
-  }, [movements, accounts]);
+  }, [activeMovements, activeAccounts]);
 
   return {
-    movements,
+    movements: activeMovements,
     resolvedMovements,
-    accounts,
+    accounts: activeAccounts,
     loading,
     addMovement,
     annulMovement,

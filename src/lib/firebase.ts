@@ -36,3 +36,21 @@ export const COLLECTIONS = {
   PACKAGES: collection(db, 'packages'),
   FINANCIAL_ACCOUNTS: collection(db, 'financial_accounts')
 };
+
+export function removeUndefinedFields<T>(obj: T): T {
+  if (obj === null || obj === undefined) return obj;
+  if (Array.isArray(obj)) {
+    return obj.map(item => removeUndefinedFields(item)) as unknown as T;
+  }
+  if (typeof obj === 'object') {
+    const newObj = {} as any;
+    for (const key of Object.keys(obj as any)) {
+      const val = (obj as any)[key];
+      if (val !== undefined) {
+        newObj[key] = removeUndefinedFields(val);
+      }
+    }
+    return newObj as T;
+  }
+  return obj;
+}

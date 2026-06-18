@@ -34,6 +34,7 @@ export default function Ventas() {
 
   // Filters
   const [searchTerm, setSearchTerm] = useState('');
+  const [showHistorical, setShowHistorical] = useState(false);
 
   const generateRemitoPDF = (sale: Sale) => {
     const doc = createAlvacioPDF('REMITO COMERCIAL');
@@ -164,6 +165,7 @@ export default function Ventas() {
   // Grouped Sales View
   const groupedSales = useMemo(() => {
     const filtered = sales.filter(s => {
+      if (!showHistorical && s.isHistorical) return false;
       const c = customers.find(x => x.id === s.customerId);
       return c?.nombre?.toLowerCase().includes(searchTerm.toLowerCase());
     });
@@ -176,7 +178,7 @@ export default function Ventas() {
     });
     
     return groups;
-  }, [sales, customers, searchTerm]);
+  }, [sales, customers, searchTerm, showHistorical]);
 
 
 
@@ -191,7 +193,7 @@ export default function Ventas() {
         </div>
       </div>
 
-      <div className="search-bar" style={{ marginBottom: '24px' }}>
+      <div className="search-bar" style={{ marginBottom: '24px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
         <input 
           type="text" 
           placeholder="Buscar ventas por cliente..." 
@@ -199,6 +201,18 @@ export default function Ventas() {
           onChange={(e) => setSearchTerm(e.target.value)}
           style={{ width: '100%', maxWidth: '400px' }}
         />
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <input 
+            type="checkbox" 
+            id="toggleSalesHistorical" 
+            checked={showHistorical} 
+            onChange={e => setShowHistorical(e.target.checked)} 
+            style={{ width: 'auto' }}
+          />
+          <label htmlFor="toggleSalesHistorical" style={{ fontSize: '13px', color: 'var(--text-secondary)', cursor: 'pointer' }}>
+            Mostrar ventas históricas de carga inicial
+          </label>
+        </div>
       </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: '40px' }}>

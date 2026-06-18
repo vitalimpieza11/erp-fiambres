@@ -143,8 +143,10 @@ export type OrderItem = {
   precioEstimado: number;
   subtotal: number;
   pesoReal?: number;
+  pesosReales?: number[];
   observaciones?: string;
 };
+
 
 export type Order = { 
   id: string; 
@@ -177,6 +179,7 @@ export type SaleItem = {
   importeReal?: number;
   costoUnitarioHistorico?: number;
   costoTotalHistorico?: number;
+  pesosReales?: number[];
 };
 
 export type RecipeSnapshotItem = {
@@ -233,6 +236,11 @@ export type PurchaseItem = {
   totalCost: number;
 };
 
+export type PurchasePayment = {
+  accountId: string;
+  amount: number;
+};
+
 export type Purchase = {
   id: string;
   type: 'PURCHASE' | 'PURCHASE_REVERSAL';
@@ -242,9 +250,10 @@ export type Purchase = {
   subtotal: number;
   impuestos: number | null;
   total: number;
-  paymentMethod: 'CONTADO' | 'CUENTA_CORRIENTE' | 'MIXTA';
+  paymentMethod: 'CONTADO' | 'CUENTA_CORRIENTE' | 'MIXTA' | 'MULTIPLES';
   montoPagado: number;
   montoCuentaCorriente: number;
+  payments?: PurchasePayment[];
   status: 'ACTIVE' | 'VOIDED';
   reversalOf?: string | null;
   isDeleted: boolean;
@@ -346,7 +355,36 @@ export type ShareholderLoan = {
   description: string;
   remainingAmount: number;
   status: 'PENDIENTE' | 'PAGADO';
-  payments: ShareholderLoanPayment[];
   isDeleted: boolean;
+  payments?: ShareholderLoanPayment[];
 };
+
+export type ProductionItem = {
+  id: string;
+  orderId: string;
+  orderItemId?: string;
+  productId: string;
+  pesoReal: number;
+  fecha: string;
+  operario?: string;
+};
+
+export type Arqueo = {
+  id?: string;
+  date: string;
+  accountId: string;
+  accountName: string;
+  billetes: {
+    [key: number]: number;
+  };
+  monedas: number;
+  totalContado: number;
+  saldoInicial: number;
+  ingresos: number;
+  egresos: number;
+  saldoTeorico: number;
+  diferencia: number;
+  observaciones?: string;
+};
+
 

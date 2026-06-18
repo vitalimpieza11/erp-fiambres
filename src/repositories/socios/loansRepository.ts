@@ -84,14 +84,15 @@ export const loansRepository = {
       if (!loanSnap.exists()) throw new Error("Préstamo no encontrado");
 
       const loan = loanSnap.data() as ShareholderLoan;
-      const paymentIndex = loan.payments.findIndex(p => p.id === paymentId);
+      const payments = loan.payments || [];
+      const paymentIndex = payments.findIndex(p => p.id === paymentId);
       if (paymentIndex === -1) throw new Error("Pago no encontrado");
 
-      const payment = loan.payments[paymentIndex];
+      const payment = payments[paymentIndex];
 
       // Revert in loan
       const newRemaining = Number((loan.remainingAmount + payment.amount).toFixed(2));
-      const updatedPayments = loan.payments.filter(p => p.id !== paymentId);
+      const updatedPayments = payments.filter(p => p.id !== paymentId);
 
       transaction.update(loanRef, {
         remainingAmount: newRemaining,

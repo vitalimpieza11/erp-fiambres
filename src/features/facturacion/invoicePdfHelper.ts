@@ -9,42 +9,53 @@ export function generateInvoicePDF(sale: Sale, customer: Customer | undefined, p
   doc.setFillColor(196, 49, 38);
   doc.rect(0, 0, 210, 8, 'F');
   
-  // 2. Large Central Document Type Box ("R" for Remito)
-  doc.setDrawColor(80, 80, 80);
-  doc.rect(98, 12, 14, 16);
+  // 2. Logo drawing (Circular emblem + Name text)
+  doc.setFillColor(196, 49, 38);
+  doc.circle(25, 23, 8, 'F');
+  doc.setTextColor(255, 255, 255);
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(22);
-  doc.setTextColor(30, 30, 30);
-  doc.text('R', 105, 23, { align: 'center' });
-  doc.setFontSize(5.5);
-  doc.text('NO VÁLIDO FAC.', 105, 26, { align: 'center' });
+  doc.setFontSize(11);
+  doc.text('AV', 25, 26, { align: 'center' });
 
   // 3. Header Details
   // Left Side: Seller Info
-  doc.setFontSize(20);
+  doc.setFontSize(18);
   doc.setTextColor(196, 49, 38);
-  doc.text('ALVACÍO', 15, 22);
-  doc.setFontSize(8.5);
-  doc.setFont("helvetica", "normal");
+  doc.text('ALVACÍO', 37, 22);
+  doc.setFontSize(8);
+  doc.setFont("helvetica", "bold");
   doc.setTextColor(80, 80, 80);
-  doc.text('Distribuidora Al Vacío SRL', 15, 28);
-  doc.text('Dirección: Parque Industrial Al Vacío, Lote 14', 15, 33);
-  doc.text('Provincia de Buenos Aires, Argentina', 15, 38);
-  doc.text('Condición IVA: IVA Responsable Inscripto', 15, 43);
+  doc.text('Distribuidora Al Vacío SRL', 37, 27);
+  doc.setFont("helvetica", "normal");
+  doc.setTextColor(100, 100, 100);
+  doc.text('Dirección: Parque Industrial Al Vacío, Lote 14', 37, 32);
+  doc.text('Provincia de Buenos Aires, Argentina', 37, 36);
+  doc.text('Condición IVA: IVA Responsable Inscripto', 37, 40);
+  
+  // Center: Document Identifier "R"
+  doc.setDrawColor(80, 80, 80);
+  doc.setFillColor(250, 250, 250);
+  doc.rect(98, 12, 14, 16, 'FD');
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(20);
+  doc.setTextColor(30, 30, 30);
+  doc.text('R', 105, 22, { align: 'center' });
+  doc.setFontSize(5);
+  doc.text('NO VÁLIDO FAC.', 105, 26, { align: 'center' });
 
   // Right Side: Voucher Info
-  doc.setFontSize(13);
+  doc.setFontSize(12);
   doc.setFont("helvetica", "bold");
   doc.setTextColor(30, 30, 30);
-  doc.text('REMITO COMERCIAL', 195, 22, { align: 'right' });
+  doc.text('REMITO COMERCIAL', 195, 20, { align: 'right' });
   doc.setFontSize(8.5);
   doc.setFont("helvetica", "normal");
   doc.setTextColor(60, 60, 60);
-  doc.text(`Punto de Vta: 0001  Comp. N°: ${sale.id.slice(-8).toUpperCase()}`, 195, 28, { align: 'right' });
-  doc.text(`Fecha Emisión: ${new Date(sale.date).toLocaleDateString()}`, 195, 33, { align: 'right' });
-  doc.text(`CUIT Emisor: 30-76543210-9`, 195, 38, { align: 'right' });
-  doc.text(`Ing. Brutos: 901-765432-1`, 195, 43, { align: 'right' });
-  doc.text(`Inicio Actividades: 01/10/2020`, 195, 48, { align: 'right' });
+  doc.text(`Punto de Vta: 0001  Comp. N°: ${sale.id.slice(-8).toUpperCase()}`, 195, 26, { align: 'right' });
+  doc.text(`Fecha Emisión: ${new Date(sale.date).toLocaleDateString()}`, 195, 31, { align: 'right' });
+  doc.text(`CUIT Emisor: 30-76543210-9`, 195, 36, { align: 'right' });
+  doc.text(`Ing. Brutos: 901-765432-1`, 195, 41, { align: 'right' });
+  doc.text(`Inicio Actividades: 01/10/2020`, 195, 46, { align: 'right' });
 
   // Horizontal divider line
   doc.setDrawColor(200, 200, 200);
@@ -67,7 +78,7 @@ export function generateInvoicePDF(sale: Sale, customer: Customer | undefined, p
   const clientAddress = customer?.direccion || 'Domicilio no registrado';
   const clientPhone = customer?.telefono || 'Sin teléfono';
   
-  doc.text(`Razón Social: ${clientName}`, 20, 69);
+  doc.text(`Nombre / Razón Social: ${clientName}`, 20, 69);
   doc.text(`CUIT: ${clientCuit}`, 20, 75);
   doc.text(`Condición IVA: ${clientIva}`, 20, 81);
   
@@ -76,18 +87,25 @@ export function generateInvoicePDF(sale: Sale, customer: Customer | undefined, p
   doc.text(`Email: ${customer?.email || '-'}`, 110, 81);
 
   // 5. Items Table
-  const tableHeaders = ['Producto', 'Cantidad', 'Unidad', 'Precio Unit.', 'Subtotal'];
+  const tableHeaders = ['Producto', 'Cantidad', 'Peso Real (KG)', 'Precio Kg', 'Subtotal'];
   
   const tableData = sale.items.map(item => {
     const prod = products.find(p => p.id === item.productId);
     const prodName = prod?.nombre || 'Producto Desconocido';
+    const pesosReales = item.pesosReales || (item.pesoReal ? [item.pesoReal] : []);
+
+    let pesoRealCell = `${(item.pesoReal || 0).toFixed(3)} Kg`;
+    if (pesosReales.length > 1) {
+      const breakdown = pesosReales.map((w, idx) => `Paq ${idx + 1}: ${w.toFixed(3)} kg`).join('\n');
+      pesoRealCell = `${(item.pesoReal || 0).toFixed(3)} Kg\n${breakdown}`;
+    }
     
     return [
       prodName,
-      item.cantidad.toString(),
-      item.unidad,
-      `$ ${item.precioUnitario.toFixed(2)}`,
-      `$ ${item.subtotal.toFixed(2)}`
+      `${item.cantidad} ${item.unidad}`,
+      pesoRealCell,
+      `$ ${item.precioUnitario.toLocaleString('es-AR', { minimumFractionDigits: 2 })}`,
+      `$ ${item.subtotal.toLocaleString('es-AR', { minimumFractionDigits: 2 })}`
     ];
   });
 
@@ -96,13 +114,13 @@ export function generateInvoicePDF(sale: Sale, customer: Customer | undefined, p
     head: [tableHeaders],
     body: tableData,
     theme: 'grid',
-    styles: { fontSize: 8.5, cellPadding: 3, textColor: [50, 50, 50] },
+    styles: { fontSize: 8.5, cellPadding: 3, textColor: [50, 50, 50], valign: 'middle' },
     headStyles: { fillColor: [30, 30, 30], textColor: [255, 255, 255], fontStyle: 'bold' },
     alternateRowStyles: { fillColor: [248, 248, 248] },
     columnStyles: {
       0: { cellWidth: 'auto' },
       1: { cellWidth: 20, halign: 'center' },
-      2: { cellWidth: 20, halign: 'center' },
+      2: { cellWidth: 35, halign: 'left' },
       3: { cellWidth: 30, halign: 'right' },
       4: { cellWidth: 30, halign: 'right' }
     }
@@ -121,10 +139,20 @@ export function generateInvoicePDF(sale: Sale, customer: Customer | undefined, p
   doc.rect(138, finalY + 8, 57, 10, 'F');
   doc.setFontSize(10.5);
   doc.text(`TOTAL REMITO:`, 140, finalY + 14, { align: 'left' });
-  doc.text(`$ ${total.toFixed(2)}`, 195, finalY + 14, { align: 'right' });
+  doc.text(`$ ${total.toLocaleString('es-AR', { minimumFractionDigits: 2 })}`, 195, finalY + 14, { align: 'right' });
+
+  // Observations Box
+  const obsY = finalY + 22;
+  const observationsText = (sale as any).observaciones || 'Sin observaciones adicionales.';
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(8.5);
+  doc.text('Observaciones:', 15, obsY);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(8);
+  doc.text(observationsText, 15, obsY + 5, { maxWidth: 110 });
 
   // 7. Footer: Conform signature block & warnings
-  const footerY = Math.max(finalY + 32, 235);
+  const footerY = Math.max(obsY + 20, 235);
   doc.setDrawColor(220, 220, 220);
   doc.line(15, footerY, 195, footerY);
   

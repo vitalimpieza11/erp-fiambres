@@ -69,6 +69,23 @@ export default function ProductosConfig() {
     'PRESENTACION': false
   });
 
+  const [expandedCustomers, setExpandedCustomers] = useState<Record<string, boolean>>(() => {
+    try {
+      const stored = localStorage.getItem('vitalimpieza_expanded_customers');
+      return stored ? JSON.parse(stored) : {};
+    } catch {
+      return {};
+    }
+  });
+
+  const toggleCustomerAccordion = (customerId: string) => {
+    setExpandedCustomers(prev => {
+      const updated = { ...prev, [customerId]: !prev[customerId] };
+      localStorage.setItem('vitalimpieza_expanded_customers', JSON.stringify(updated));
+      return updated;
+    });
+  };
+
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -382,39 +399,61 @@ export default function ProductosConfig() {
                             </thead>
                           );
 
-                          return (
+                           return (
                             <>
                               {/* Grupos con cliente asignado */}
-                              {groups.byCustomer.map((grp: any) => (
-                                <div key={grp.customer.id} style={{ border: '1px solid var(--border-color)', borderRadius: '10px', overflow: 'hidden' }}>
-                                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 16px', background: 'linear-gradient(135deg, #f0f4ff 0%, #f8f9ff 100%)', borderBottom: '1px solid var(--border-color)' }}>
-                                    <span style={{ fontSize: '13px', fontWeight: 700, color: '#3b5bdb' }}>👤 {grp.customer.nombre}</span>
-                                    <span style={{ fontSize: '11px', background: '#dbe4ff', color: '#364fc7', padding: '2px 8px', borderRadius: '10px', fontWeight: 600 }}>{grp.products.length} presentación{grp.products.length !== 1 ? 'es' : ''}</span>
+                              {groups.byCustomer.map((grp: any) => {
+                                const isExpanded = !!expandedCustomers[grp.customer.id];
+                                return (
+                                  <div key={grp.customer.id} style={{ border: '1px solid var(--border-color)', borderRadius: '10px', overflow: 'hidden' }}>
+                                    <div 
+                                      onClick={() => toggleCustomerAccordion(grp.customer.id)}
+                                      style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '12px 16px', background: 'linear-gradient(135deg, #f0f4ff 0%, #f8f9ff 100%)', borderBottom: isExpanded ? '1px solid var(--border-color)' : 'none', cursor: 'pointer', userSelect: 'none' }}
+                                    >
+                                      <span style={{ color: 'var(--text-secondary)', display: 'flex', alignItems: 'center' }}>
+                                        {isExpanded ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
+                                      </span>
+                                      <span style={{ fontSize: '13px', fontWeight: 700, color: '#3b5bdb' }}>👤 {grp.customer.nombre}</span>
+                                      <span style={{ fontSize: '11px', background: '#dbe4ff', color: '#364fc7', padding: '2px 8px', borderRadius: '10px', fontWeight: 600 }}>{grp.products.length} presentación{grp.products.length !== 1 ? 'es' : ''}</span>
+                                    </div>
+                                    {isExpanded && (
+                                      <div style={{ overflowX: 'auto' }}>
+                                        <table className="apple-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
+                                          {tableHeader}
+                                          <tbody>{grp.products.map(renderProductRow)}</tbody>
+                                        </table>
+                                      </div>
+                                    )}
                                   </div>
-                                  <div style={{ overflowX: 'auto' }}>
-                                    <table className="apple-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
-                                      {tableHeader}
-                                      <tbody>{grp.products.map(renderProductRow)}</tbody>
-                                    </table>
-                                  </div>
-                                </div>
-                              ))}
+                                );
+                              })}
 
                               {/* Presentaciones sin cliente asignado */}
-                              {groups.loose.length > 0 && (
-                                <div style={{ border: '1px dashed #d1d5db', borderRadius: '10px', overflow: 'hidden' }}>
-                                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 16px', background: '#f9fafb', borderBottom: '1px dashed #d1d5db' }}>
-                                    <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)' }}>📦 Sin cliente asignado</span>
-                                    <span style={{ fontSize: '11px', background: '#f3f4f6', color: '#6b7280', padding: '2px 8px', borderRadius: '10px', fontWeight: 600 }}>{groups.loose.length} presentación{groups.loose.length !== 1 ? 'es' : ''}</span>
+                              {groups.loose.length > 0 && (() => {
+                                const isExpanded = !!expandedCustomers['loose'];
+                                return (
+                                  <div style={{ border: '1px dashed #d1d5db', borderRadius: '10px', overflow: 'hidden' }}>
+                                    <div 
+                                      onClick={() => toggleCustomerAccordion('loose')}
+                                      style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '12px 16px', background: '#f9fafb', borderBottom: isExpanded ? '1px dashed #d1d5db' : 'none', cursor: 'pointer', userSelect: 'none' }}
+                                    >
+                                      <span style={{ color: 'var(--text-secondary)', display: 'flex', alignItems: 'center' }}>
+                                        {isExpanded ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
+                                      </span>
+                                      <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)' }}>📦 Sin cliente asignado</span>
+                                      <span style={{ fontSize: '11px', background: '#f3f4f6', color: '#6b7280', padding: '2px 8px', borderRadius: '10px', fontWeight: 600 }}>{groups.loose.length} presentación{groups.loose.length !== 1 ? 'es' : ''}</span>
+                                    </div>
+                                    {isExpanded && (
+                                      <div style={{ overflowX: 'auto' }}>
+                                        <table className="apple-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
+                                          {tableHeader}
+                                          <tbody>{groups.loose.map(renderProductRow)}</tbody>
+                                        </table>
+                                      </div>
+                                    )}
                                   </div>
-                                  <div style={{ overflowX: 'auto' }}>
-                                    <table className="apple-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
-                                      {tableHeader}
-                                      <tbody>{groups.loose.map(renderProductRow)}</tbody>
-                                    </table>
-                                  </div>
-                                </div>
-                              )}
+                                );
+                              })()}
                             </>
                           );
                         })()}

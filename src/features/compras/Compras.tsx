@@ -24,7 +24,8 @@ export default function Compras() {
   const [supplierId, setSupplierId] = useState('');
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [items, setItems] = useState<PurchaseItem[]>([]);
-  const [paymentMethod, setPaymentMethod] = useState<'CONTADO' | 'CUENTA_CORRIENTE' | 'MIXTA'>('CONTADO');
+  const [paymentMethod, setPaymentMethod] = useState<'CONTADO' | 'CUENTA_CORRIENTE' | 'MIXTA' | 'MULTIPLES'>('CONTADO');
+  const [distribuidores, setDistribuidores] = useState<Record<string, number>>({});
   const [montoPagado, setMontoPagado] = useState(0);
   const [impuestos, setImpuestos] = useState(0);
   const [selectedAccountId, setSelectedAccountId] = useState('');
@@ -48,6 +49,7 @@ export default function Compras() {
     setPaymentMethod('CONTADO');
     setMontoPagado(0);
     setImpuestos(0);
+    setDistribuidores({});
     setIsEditing(true);
   };
 
@@ -89,9 +91,26 @@ export default function Compras() {
   const subtotal = items.reduce((acc, it) => acc + (it.totalCost || 0), 0);
   const total = subtotal + impuestos;
 
+  const sumOfMultiplesCaja = useMemo(() => {
+    if (paymentMethod !== 'MULTIPLES') return 0;
+    return Object.entries(distribuidores).reduce((acc, [key, val]) => {
+      if (key === 'CUENTA_CORRIENTE') return acc;
+      return acc + (val || 0);
+    }, 0);
+  }, [distribuidores, paymentMethod]);
+
+  const sumOfMultiplesTotal = useMemo(() => {
+    if (paymentMethod !== 'MULTIPLES') return 0;
+    return Object.values(distribuidores).reduce((acc, val) => acc + (val || 0), 0);
+  }, [distribuidores, paymentMethod]);
+
+  const isMultiplesValid = paymentMethod !== 'MULTIPLES' || Math.abs(sumOfMultiplesTotal - total) < 0.01;
+
   // Auto-calculate montos based on payment method
-  const calcMontoPagado = paymentMethod === 'CONTADO' ? total : (paymentMethod === 'CUENTA_CORRIENTE' ? 0 : montoPagado);
-  const calcMontoCuentaCorriente = total - calcMontoPagado;
+  const calcMontoPagado = paymentMethod === 'CONTADO' ? total : (paymentMethod === 'CUENTA_CORRIENTE' ? 0 : (paymentMethod === 'MIXTA' ? montoPagado : sumOfMultiplesCaja));
+  const calcMontoCuentaCorriente = paymentMethod === 'MULTIPLES' ? (distribuidores['CUENTA_CORRIENTE'] || 0) : (total - calcMontoPagado);
+
+  const [showHistorical, setShowHistorical] = useState(false);
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -100,10 +119,22 @@ export default function Compras() {
     if (items.some(i => !i.productId || i.quantity <= 0 || i.unitCost <= 0)) {
       return alert("Complete correctamente todos los ítems.");
     }
-    if (calcMontoCuentaCorriente < 0) return alert("El monto pagado no puede superar el total.");
-    if ((paymentMethod === 'CONTADO' || paymentMethod === 'MIXTA') && !selectedAccountId) {
-      return alert("Seleccione una cuenta financiera para registrar el pago.");
+    if (paymentMethod === 'MULTIPLES') {
+      if (!isMultiplesValid) {
+        return alert(`La suma de los pagos ($${sumOfMultiplesTotal.toFixed(2)}) no coincide exactamente con el total de la compra ($${total.toFixed(2)}).`);
+      }
+    } else {
+      if (calcMontoCuentaCorriente < 0) return alert("El monto pagado no puede superar el total.");
+      if ((paymentMethod === 'CONTADO' || paymentMethod === 'MIXTA') && !selectedAccountId) {
+        return alert("Seleccione una cuenta financiera para registrar el pago.");
+      }
     }
+
+    const paymentsList = paymentMethod === 'MULTIPLES'
+      ? Object.entries(distribuidores)
+          .filter(([key, val]) => key !== 'CUENTA_CORRIENTE' && val > 0)
+          .map(([key, val]) => ({ accountId: key, amount: val }))
+      : undefined;
 
     await addPurchase({
       supplierId,
@@ -115,6 +146,7 @@ export default function Compras() {
       paymentMethod,
       montoPagado: calcMontoPagado,
       montoCuentaCorriente: calcMontoCuentaCorriente,
+      payments: paymentsList,
       type: 'PURCHASE',
       status: 'ACTIVE',
       accountId: (paymentMethod === 'CONTADO' || paymentMethod === 'MIXTA') ? selectedAccountId : undefined
@@ -125,18 +157,33 @@ export default function Compras() {
   const groupedPurchases = useMemo(() => {
     const groups: Record<string, Purchase[]> = {};
     purchases.forEach(p => {
+      if (!showHistorical && p.isHistorical) return;
       if (!groups[p.supplierId]) groups[p.supplierId] = [];
       groups[p.supplierId].push(p);
     });
     return groups;
-  }, [purchases]);
+  }, [purchases, showHistorical]);
 
   if (loading) return <LoadingSpinner message="Cargando módulo de compras..." />;
 
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
-        <h1 className="page-title" style={{ margin: 0 }}>Compras</h1>
+        <div>
+          <h1 className="page-title" style={{ margin: 0 }}>Compras</h1>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '8px' }}>
+            <input 
+              type="checkbox" 
+              id="togglePurchasesHistorical" 
+              checked={showHistorical} 
+              onChange={e => setShowHistorical(e.target.checked)} 
+              style={{ width: 'auto' }}
+            />
+            <label htmlFor="togglePurchasesHistorical" style={{ fontSize: '13.5px', color: 'var(--text-secondary)', cursor: 'pointer' }}>
+              Mostrar compras históricas de carga inicial
+            </label>
+          </div>
+        </div>
         <button className="btn-primary" onClick={handleNewPurchase}>+ Registrar Compra</button>
       </div>
 
@@ -316,6 +363,7 @@ export default function Compras() {
                 <option value="CONTADO">Contado (Afecta Caja)</option>
                 <option value="CUENTA_CORRIENTE">Cuenta Corriente (Afecta Deuda)</option>
                 <option value="MIXTA">Mixta</option>
+                <option value="MULTIPLES">Distribución Libre / Múltiples Cuentas</option>
               </select>
             </div>
             {(paymentMethod === 'CONTADO' || paymentMethod === 'MIXTA') && (
@@ -339,6 +387,49 @@ export default function Compras() {
               <div className="form-group">
                 <label>Monto Pagado en Caja ($)</label>
                 <input type="number" min="0" max={total} step="0.01" value={montoPagado || ''} onChange={e => setMontoPagado(Number(e.target.value))} />
+              </div>
+            )}
+            {paymentMethod === 'MULTIPLES' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', background: '#fff', padding: '16px', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
+                <h4 style={{ margin: '0 0 8px 0', fontSize: '14px', fontWeight: 600 }}>Distribución de Pagos</h4>
+                
+                {accounts.filter(a => a.activa).map(a => (
+                  <div key={a.id} className="form-group" style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: '12px', margin: 0 }}>
+                    <label style={{ margin: 0, fontSize: '13px', flex: 1 }}>{a.nombre} ({a.tipo})</label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      placeholder="0.00"
+                      style={{ width: '120px', textAlign: 'right' }}
+                      value={distribuidores[a.id] || ''}
+                      onChange={e => setDistribuidores({ ...distribuidores, [a.id]: parseFloat(e.target.value) || 0 })}
+                    />
+                  </div>
+                ))}
+                
+                <div className="form-group" style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: '12px', margin: 0, borderTop: '1px dashed var(--border-color)', paddingTop: '8px' }}>
+                  <label style={{ margin: 0, fontSize: '13px', fontWeight: 600, flex: 1 }}>Cuenta Corriente (Proveedor)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    placeholder="0.00"
+                    style={{ width: '120px', textAlign: 'right' }}
+                    value={distribuidores['CUENTA_CORRIENTE'] || ''}
+                    onChange={e => setDistribuidores({ ...distribuidores, 'CUENTA_CORRIENTE': parseFloat(e.target.value) || 0 })}
+                  />
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid var(--border-color)', paddingTop: '10px', fontSize: '13px', fontWeight: 600, color: isMultiplesValid ? '#16a34a' : '#ef4444' }}>
+                  <span>Suma de Pagos:</span>
+                  <span>${sumOfMultiplesTotal.toFixed(2)} / ${total.toFixed(2)}</span>
+                </div>
+                {!isMultiplesValid && (
+                  <span style={{ fontSize: '11px', color: '#ef4444', textAlign: 'right', display: 'block' }}>
+                    {sumOfMultiplesTotal > total ? `Sobra $${(sumOfMultiplesTotal - total).toFixed(2)}` : `Falta $${(total - sumOfMultiplesTotal).toFixed(2)}`}
+                  </span>
+                )}
               </div>
             )}
           </div>

@@ -136,6 +136,8 @@ export default function Pedidos() {
     });
   };
 
+  const [expandedCustomers, setExpandedCustomers] = useState<Record<string, boolean>>({});
+
   const filteredPedidos = useMemo(() => {
     return pedidos.filter(p => {
       const c = clientes.find(c => c.id === p.customerId);
@@ -148,6 +150,56 @@ export default function Pedidos() {
       return matchSearch && matchCliente && matchEstado && matchFecha;
     }).sort((a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime());
   }, [pedidos, clientes, searchTerm, filterCliente, filterEstado, filterFecha]);
+
+  const groupedByCustomer = useMemo(() => {
+    const groups: Record<string, Order[]> = {};
+    filteredPedidos.forEach(pedido => {
+      if (!groups[pedido.customerId]) {
+        groups[pedido.customerId] = [];
+      }
+      groups[pedido.customerId].push(pedido);
+    });
+
+    return Object.entries(groups).map(([customerId, customerOrders]) => {
+      const customer = clientes.find(c => c.id === customerId);
+      const customerName = customer?.nombre || 'Cliente Desconocido';
+      
+      const sortedOrders = [...customerOrders].sort((a, b) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime());
+
+      let totalPendiente = 0;
+      let totalProducido = 0;
+      let totalFacturado = 0;
+
+      sortedOrders.forEach(o => {
+        if (o.status === 'PENDIENTE' || o.status === 'EN_PRODUCCION') {
+          totalPendiente += o.totalEstimado || 0;
+        } else if (o.status === 'PRODUCIDO') {
+          totalProducido += o.totalEstimado || 0;
+        } else if (o.status === 'FACTURADO' || o.status === 'ENTREGADO') {
+          totalFacturado += o.totalEstimado || 0;
+        }
+      });
+
+      return {
+        customerId,
+        customerName,
+        orders: sortedOrders,
+        summary: {
+          qty: sortedOrders.length,
+          totalPendiente,
+          totalProducido,
+          totalFacturado
+        }
+      };
+    }).sort((a, b) => a.customerName.localeCompare(b.customerName, 'es', { sensitivity: 'base' }));
+  }, [filteredPedidos, clientes]);
+
+  const toggleCustomer = (customerId: string) => {
+    setExpandedCustomers(prev => ({
+      ...prev,
+      [customerId]: !prev[customerId]
+    }));
+  };
 
   if (loading) return <LoadingSpinner message="Cargando módulo de pedidos..." />;
 
@@ -185,77 +237,124 @@ export default function Pedidos() {
         </select>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(350px, 1fr))', gap: '24px' }}>
-        {filteredPedidos.map(pedido => {
-          const c = clientes.find(x => x.id === pedido.customerId);
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+        {groupedByCustomer.map(grp => {
+          const isExpanded = !!expandedCustomers[grp.customerId];
           return (
-            <ExpandableCard
-              key={pedido.id}
-              title={c?.nombre || 'Cliente Desconocido'}
-              subtitle={`Fecha: ${pedido.fecha}`}
-              statusBadge={
-                <span style={{ 
-                  backgroundColor: STATUS_COLORS[pedido.status] + '20',
-                  color: STATUS_COLORS[pedido.status]
-                }}>
-                  {pedido.status}
-                </span>
-              }
-              collapsedContent={
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '12px' }}>
-                  <span>Ítems: {pedido.items?.length || 0}</span>
-                  <strong style={{ fontSize: '18px' }}>${pedido.totalEstimado?.toFixed(2)}</strong>
-                </div>
-              }
-              expandedContent={
+            <div key={grp.customerId} className="apple-card" style={{ padding: '0', overflow: 'hidden' }}>
+              <div 
+                onClick={() => toggleCustomer(grp.customerId)}
+                style={{ 
+                  padding: '20px 24px', 
+                  cursor: 'pointer', 
+                  display: 'flex', 
+                  justifyContent: 'space-between', 
+                  alignItems: 'center', 
+                  background: 'var(--surface-color)', 
+                  borderBottom: isExpanded ? '1px solid var(--border-color)' : 'none',
+                  userSelect: 'none'
+                }}
+              >
                 <div>
-                  <h4 style={{ marginBottom: '12px', fontSize: '14px', color: 'var(--text-secondary)' }}>Detalle de ítems:</h4>
-                  {pedido.items?.map((it, idx) => {
-                    const prod = productos.find(p => p.id === it.productId);
-                    const weight = calculateWeightInKg(it.cantidad, it.unidad, prod);
-                    const showWeightEstimation = prod?.unitType === 'KG' && it.unidad === 'UNIDADES' && prod.pesoObjetivoGramos;
-                    return (
-                      <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid var(--border-color)', fontSize: '14px' }}>
+                  <h3 style={{ margin: 0, fontSize: '18px', color: 'var(--text-primary)' }}>{grp.customerName}</h3>
+                  <div style={{ display: 'flex', gap: '16px', marginTop: '6px', fontSize: '13px', color: 'var(--text-secondary)', flexWrap: 'wrap' }}>
+                    <span>📦 Pedidos: <strong>{grp.summary.qty}</strong></span>
+                    <span>⏳ Pendiente: <strong style={{ color: 'var(--alvacio-red-dark)' }}>${grp.summary.totalPendiente.toFixed(2)}</strong></span>
+                    <span>⚙️ Producido: <strong style={{ color: '#8b5cf6' }}>${grp.summary.totalProducido.toFixed(2)}</strong></span>
+                    <span>💵 Facturado: <strong style={{ color: '#10b981' }}>${grp.summary.totalFacturado.toFixed(2)}</strong></span>
+                  </div>
+                </div>
+                <div style={{ transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)', transition: 'transform 0.2s ease', fontSize: '14px', color: 'var(--text-secondary)' }}>
+                  ▶
+                </div>
+              </div>
+              
+              {isExpanded && (
+                <div style={{ padding: '24px', background: '#fcfcfc', display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '20px' }}>
+                  {grp.orders.map(pedido => (
+                    <ExpandableCard
+                      key={pedido.id}
+                      title={`Pedido N° ${pedido.id.slice(-6).toUpperCase()}`}
+                      subtitle={`Fecha: ${pedido.fecha}`}
+                      statusBadge={
+                        <span style={{ 
+                          backgroundColor: STATUS_COLORS[pedido.status] + '20',
+                          color: STATUS_COLORS[pedido.status],
+                          padding: '2px 8px',
+                          borderRadius: '12px',
+                          fontSize: '11px',
+                          fontWeight: 600
+                        }}>
+                          {pedido.status}
+                        </span>
+                      }
+                      collapsedContent={
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '12px' }}>
+                          <span>Ítems: {pedido.items?.length || 0}</span>
+                          <strong style={{ fontSize: '18px' }}>${pedido.totalEstimado?.toFixed(2)}</strong>
+                        </div>
+                      }
+                      expandedContent={
                         <div>
-                          <span>{prod?.nombre} x {it.cantidad} {it.unidad}</span>
-                          {showWeightEstimation && (
-                            <span style={{ fontSize: '12px', color: 'var(--text-secondary)', marginLeft: '8px' }}>
-                              (~{weight.toFixed(3)} kg)
-                            </span>
+                          <h4 style={{ marginBottom: '12px', fontSize: '14px', color: 'var(--text-secondary)' }}>Detalle de ítems:</h4>
+                          {pedido.items?.map((it, idx) => {
+                            const prod = productos.find(p => p.id === it.productId);
+                            const weightObj = calculateWeightInKg(it.cantidad, it.unidad, prod);
+                            const currentPesosReales = it.pesosReales || [];
+                            const hasRealWeights = currentPesosReales.length > 0 || (it.pesoReal !== undefined && it.pesoReal > 0);
+                            
+                            return (
+                              <div key={idx} style={{ padding: '10px 0', borderBottom: '1px solid var(--border-color)', fontSize: '14px' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 500 }}>
+                                  <span>{prod?.nombre}</span>
+                                  <strong>${it.subtotal?.toFixed(2)}</strong>
+                                </div>
+                                <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px', display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                                  <span>Cantidad: {it.cantidad} {it.unidad}</span>
+                                  <span>Peso Objetivo: {weightObj.toFixed(3)} kg</span>
+                                  {hasRealWeights && (
+                                    <div style={{ marginTop: '4px', paddingLeft: '8px', borderLeft: '2px solid var(--alvacio-red)', display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                                      {currentPesosReales.length > 0 ? (
+                                        <>
+                                          {currentPesosReales.map((w, pkgIdx) => (
+                                            <span key={pkgIdx}>Paquete {pkgIdx + 1}: <strong>{w.toFixed(3)} kg</strong></span>
+                                          ))}
+                                          <span style={{ fontWeight: 'bold', color: 'var(--text-primary)' }}>Total Peso Real: {(it.pesoReal || 0).toFixed(3)} kg</span>
+                                        </>
+                                      ) : (
+                                        <span style={{ fontWeight: 'bold', color: 'var(--text-primary)' }}>Total Peso Real: {(it.pesoReal || 0).toFixed(3)} kg</span>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })}
+                          {pedido.observaciones && (
+                            <div style={{ marginTop: '12px', fontSize: '13px', fontStyle: 'italic', color: 'var(--text-secondary)' }}>
+                              Obs: {pedido.observaciones}
+                            </div>
                           )}
                         </div>
-                        <div style={{ textAlign: 'right' }}>
-                          {it.precioEstimado !== undefined && (
-                            <span style={{ fontSize: '12px', color: 'var(--text-secondary)', marginRight: '8px' }}>
-                              ${it.precioEstimado.toFixed(2)} / {prod?.unitType}
-                            </span>
+                      }
+                      actions={
+                        <div style={{ display: 'flex', gap: '8px', width: '100%' }}>
+                          <button className="btn-secondary" style={{ flex: 1, padding: '8px' }} onClick={(e) => { e.stopPropagation(); handleEdit(pedido); }}>Editar</button>
+                          <button className="btn-secondary" style={{ flex: 1, padding: '8px' }} onClick={(e) => { e.stopPropagation(); handleDuplicate(pedido); }}>Duplicar</button>
+                          {pedido.status !== 'ANULADO' && (
+                            <button className="btn-secondary" style={{ flex: 1, padding: '8px', color: '#ef4444' }} onClick={(e) => { e.stopPropagation(); changeStatus(pedido.id, 'ANULADO'); }}>Anular</button>
                           )}
-                          <strong>${it.subtotal?.toFixed(2)}</strong>
                         </div>
-                      </div>
-                    );
-                  })}
-                  {pedido.observaciones && (
-                    <div style={{ marginTop: '12px', fontSize: '13px', fontStyle: 'italic', color: 'var(--text-secondary)' }}>
-                      Obs: {pedido.observaciones}
-                    </div>
-                  )}
+                      }
+                    />
+                  ))}
                 </div>
-              }
-              actions={
-                <div style={{ display: 'flex', gap: '8px', width: '100%' }}>
-                  <button className="btn-secondary" style={{ flex: 1, padding: '8px' }} onClick={(e) => { e.stopPropagation(); handleEdit(pedido); }}>Editar</button>
-                  <button className="btn-secondary" style={{ flex: 1, padding: '8px' }} onClick={(e) => { e.stopPropagation(); handleDuplicate(pedido); }}>Duplicar</button>
-                  {pedido.status !== 'ANULADO' && (
-                    <button className="btn-secondary" style={{ flex: 1, padding: '8px', color: '#ef4444' }} onClick={(e) => { e.stopPropagation(); changeStatus(pedido.id, 'ANULADO'); }}>Anular</button>
-                  )}
-                </div>
-              }
-            />
+              )}
+            </div>
           );
         })}
-        {filteredPedidos.length === 0 && (
-          <p style={{ gridColumn: '1 / -1', textAlign: 'center', color: 'var(--text-secondary)' }}>No se encontraron pedidos.</p>
+        {groupedByCustomer.length === 0 && (
+          <p style={{ textAlign: 'center', color: 'var(--text-secondary)' }}>No se encontraron pedidos.</p>
         )}
       </div>
 

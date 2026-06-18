@@ -1,6 +1,6 @@
 import { collection, onSnapshot, query, where, doc, setDoc, orderBy, limit } from 'firebase/firestore';
 import { db, COLLECTIONS } from '../../lib/firebase';
-import type { CajaMovement } from '../../types/domain';
+import type { CajaMovement, Arqueo } from '../../types/domain';
 
 export const cajaRepository = {
   subscribeMovements(onData: (movements: CajaMovement[]) => void): () => void {
@@ -45,5 +45,26 @@ export const cajaRepository = {
       isDeleted: false
     };
     await setDoc(docRef, compensatoryMovement);
+  },
+
+  subscribeArqueos(onData: (arqueos: Arqueo[]) => void): () => void {
+    const q = query(
+      collection(db, 'arqueos'),
+      orderBy('date', 'desc'),
+      limit(50)
+    );
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const data: Arqueo[] = [];
+      snapshot.forEach((d) => {
+        data.push({ id: d.id, ...d.data() } as Arqueo);
+      });
+      onData(data);
+    });
+    return unsubscribe;
+  },
+
+  async saveArqueo(arq: Omit<Arqueo, 'id'>): Promise<void> {
+    const docRef = doc(collection(db, 'arqueos'));
+    await setDoc(docRef, { ...arq, id: docRef.id });
   }
 };

@@ -2,13 +2,13 @@ import React, { useState, useEffect } from 'react';
 import { useSocios } from './useSocios';
 import type { MovFormType } from './useSocios';
 import type { Shareholder } from '../../types/domain';
-import ExpandableCard from '../../components/ExpandableCard';
 import RightPanel from '../../components/RightPanel';
-import { TrendingUp, TrendingDown, Plus, Edit, Sparkles, Receipt, Wallet, Landmark } from 'lucide-react';
+import { TrendingUp, TrendingDown, Plus, Edit, Calendar, Hash, ArrowUpRight, ShieldCheck } from 'lucide-react';
 import { formatCurrency, formatDate, formatTime } from '../../lib/formatters';
 import LoadingSpinner from '../../components/LoadingSpinner';
 import FilterBar from '../../components/FilterBar';
 import { useLoansStore } from '../../store/loansStore';
+import SocioDetalle from './SocioDetalle';
 
 export default function Socios() {
   const { 
@@ -54,19 +54,20 @@ export default function Socios() {
   // Tab State
   const [activeTab, setActiveTab] = useState<'aportes' | 'prestamos'>('aportes');
 
-  // Loans State
+  // Individual Partner View State
+  const [selectedSocioForDetail, setSelectedSocioForDetail] = useState<Shareholder | null>(null);
+
+  // Loans State - Always subscribe on mount so capital cards can use loan stats
   const { loans, loading: loansLoading, subscribeLoans, registerPayment, annulPayment } = useLoansStore();
   const [paymentPanelLoanId, setPaymentPanelLoanId] = useState<string | null>(null);
   const [paymentAmount, setPaymentAmount] = useState<number | ''>('');
   const [paymentDesc, setPaymentDesc] = useState<string>('');
   const [paymentAccountId, setPaymentAccountId] = useState<string>('');
-  const [annulReason, setAnnulReason] = useState<string>('');
 
   useEffect(() => {
-    if (activeTab === 'prestamos') {
-      subscribeLoans();
-    }
-  }, [activeTab, subscribeLoans]);
+    const unsubLoans = subscribeLoans();
+    return () => unsubLoans();
+  }, [subscribeLoans]);
 
   const handleOpenPaymentPanel = (loanId: string) => {
     setPaymentPanelLoanId(loanId);
@@ -104,8 +105,22 @@ export default function Socios() {
   const totalRestante = loans.reduce((acc, l) => acc + l.remainingAmount, 0);
   const totalDevuelto = totalPrestado - totalRestante;
 
-  if ((sociosLoading && shareholders.length === 0) || (activeTab === 'prestamos' && loansLoading)) {
-    return <LoadingSpinner message="Cargando datos..." />;
+  if (sociosLoading && shareholders.length === 0) {
+    return <LoadingSpinner message="Cargando datos de socios..." />;
+  }
+
+  // If a partner is selected for detail, show SocioDetalle instead
+  if (selectedSocioForDetail) {
+    return (
+      <SocioDetalle
+        socio={selectedSocioForDetail}
+        movements={movements}
+        loans={loans}
+        accounts={accounts}
+        onBack={() => setSelectedSocioForDetail(null)}
+        getBalance={getBalance}
+      />
+    );
   }
 
   return (
@@ -158,7 +173,8 @@ export default function Socios() {
             onStatusFilterChange={setStatusFilter}
           />
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(350px, 1fr))', gap: '24px' }}>
+          {/* Premium Shareholder Cards */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(380px, 1fr))', gap: '24px' }}>
             {filteredShareholders.length === 0 ? (
               <div className="apple-card" style={{ gridColumn: '1 / -1', textAlign: 'center', color: 'var(--text-secondary)' }}>
                 No se encontraron socios.
@@ -166,136 +182,135 @@ export default function Socios() {
             ) : (
               filteredShareholders.map(socio => {
                 const balance = getBalance(socio.id);
-                const socioMovs = movements
-                  .filter(m => m.shareholderId === socio.id)
-                  .sort((a,b) => {
-                    const tA = a.date ? new Date(a.date).getTime() : 0;
-                    const tB = b.date ? new Date(b.date).getTime() : 0;
-                    return (isNaN(tB) ? 0 : tB) - (isNaN(tA) ? 0 : tA);
-                  });
+                const socioMovs = movements.filter(m => m.shareholderId === socio.id);
+
+                // Loan stats for this shareholder
+                const socioLoans = loans.filter(l => l.shareholderId === socio.id);
+                const prestamosRealizados = socioLoans.reduce((sum, l) => sum + l.amount, 0);
+                const prestamosPendientes = socioLoans.reduce((sum, l) => sum + l.remainingAmount, 0);
+
+                // Date of last movement
+                const allDates = [
+                  ...socioMovs.map(m => m.date),
+                  ...socioLoans.map(l => l.date),
+                  ...socioLoans.flatMap(l => (l.payments || []).map(p => p.date))
+                ].filter(Boolean);
+
+                const fechaUltimoMovimiento = allDates.length > 0
+                  ? new Date(Math.max(...allDates.map(d => new Date(d).getTime()))).toISOString()
+                  : null;
+
+                const cantidadMovimientos = socioMovs.length + socioLoans.reduce((acc, l) => acc + 1 + (l.payments?.length || 0), 0);
 
                 return (
-                  <ExpandableCard
+                  <div
                     key={socio.id}
-                    title={
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                        <span>{socio.nombre}</span>
+                    className="apple-card hover-card"
+                    onClick={() => setSelectedSocioForDetail(socio)}
+                    style={{
+                      padding: '24px',
+                      background: '#ffffff',
+                      border: '1px solid var(--border-color)',
+                      borderRadius: '16px',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '16px',
+                      position: 'relative',
+                      transition: 'all 0.25s ease',
+                      boxShadow: '0 4px 12px rgba(0,0,0,0.02)'
+                    }}
+                  >
+                    {/* Header */}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                      <div>
+                        <h3 style={{ margin: 0, fontSize: '18px', fontWeight: 700, color: 'var(--text-primary)' }}>
+                          {socio.nombre}
+                        </h3>
+                        <span style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 500 }}>
+                          {socio.type} • {socio.participacionPorcentaje.toFixed(2)}% Part.
+                        </span>
+                      </div>
+                      <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                        <span 
+                          onClick={(e) => { e.stopPropagation(); handleToggleStatus(e, socio); }}
+                          style={{ 
+                            fontSize: '11px', fontWeight: 700, padding: '4px 10px', borderRadius: '12px', cursor: 'pointer',
+                            backgroundColor: socio.activo ? '#dcfce7' : '#fee2e2',
+                            color: socio.activo ? '#16a34a' : '#ef4444'
+                          }}
+                          title="Cambiar estado"
+                        >
+                          {socio.activo ? 'Activo' : 'Inactivo'}
+                        </span>
                         <button 
                           type="button" 
-                          onClick={(e) => handleOpenEditSocio(e, socio)}
-                          style={{ background: 'transparent', padding: '4px', color: 'var(--text-secondary)', borderRadius: '50%', border: 'none', cursor: 'pointer' }}
+                          onClick={(e) => { e.stopPropagation(); handleOpenEditSocio(e, socio); }}
+                          style={{ background: 'var(--bg-color)', padding: '6px', color: 'var(--text-secondary)', borderRadius: '50%', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                           title="Editar Socio"
                         >
                           <Edit size={14} />
                         </button>
                       </div>
-                    }
-                    subtitle={`${socio.type} • {socio.participacionPorcentaje}% Participación`}
-                    statusBadge={
-                      <span 
-                        onClick={(e) => handleToggleStatus(e, socio)}
-                        style={{ 
-                          fontSize: '11px', fontWeight: 600, padding: '2px 8px', borderRadius: '12px', cursor: 'pointer',
-                          backgroundColor: socio.activo ? '#dcfce7' : '#fee2e2',
-                          color: socio.activo ? '#16a34a' : '#ef4444'
-                        }}
-                        title="Haga clic para cambiar estado"
-                      >
-                        {socio.activo ? 'Activo' : 'Inactivo'}
-                      </span>
-                    }
-                    collapsedContent={
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '12px' }}>
-                        <span style={{ color: 'var(--text-secondary)' }}>Aportes Netos</span>
-                        <strong style={{ fontSize: '20px', color: balance >= 0 ? '#16a34a' : '#ef4444' }}>
-                          {formatCurrency(balance)}
+                    </div>
+
+                    {/* Financial Metrics grid */}
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', background: 'var(--bg-color)', padding: '16px', borderRadius: '12px' }}>
+                      <div>
+                        <span style={{ fontSize: '10px', color: 'var(--text-secondary)', display: 'block', textTransform: 'uppercase', fontWeight: 600 }}>Capital Aportado</span>
+                        <strong style={{ fontSize: '15px', color: '#16a34a' }}>{formatCurrency(balance)}</strong>
+                      </div>
+                      <div>
+                        <span style={{ fontSize: '10px', color: 'var(--text-secondary)', display: 'block', textTransform: 'uppercase', fontWeight: 600 }}>Préstamos Realizados</span>
+                        <strong style={{ fontSize: '15px', color: 'var(--text-primary)' }}>{formatCurrency(prestamosRealizados)}</strong>
+                      </div>
+                      <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '8px' }}>
+                        <span style={{ fontSize: '10px', color: 'var(--text-secondary)', display: 'block', textTransform: 'uppercase', fontWeight: 600 }}>Saldo Pendiente</span>
+                        <strong style={{ fontSize: '15px', color: prestamosPendientes > 0 ? '#ef4444' : 'var(--text-primary)' }}>
+                          {formatCurrency(prestamosPendientes)}
                         </strong>
                       </div>
-                    }
-                    expandedContent={
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-                          <button 
-                            onClick={(e) => { e.stopPropagation(); handleOpenMovementPanel(socio.id, 'APORTE_INICIAL'); }}
-                            className="btn-secondary" style={{ flex: 1, padding: '6px 12px', fontSize: '12px', color: '#16a34a', borderColor: '#16a34a' }}
-                          >
-                            + Aporte Inicial
-                          </button>
-                          <button 
-                            onClick={(e) => { e.stopPropagation(); handleOpenMovementPanel(socio.id, 'APORTE_OPERATIVO'); }}
-                            className="btn-secondary" style={{ flex: 1, padding: '6px 12px', fontSize: '12px', color: '#3b82f6', borderColor: '#3b82f6' }}
-                          >
-                            + Aporte Op.
-                          </button>
-                          <button 
-                            onClick={(e) => { e.stopPropagation(); handleOpenMovementPanel(socio.id, 'RETIRO'); }}
-                            className="btn-secondary" style={{ flex: 1, padding: '6px 12px', fontSize: '12px', color: '#a855f7', borderColor: '#a855f7' }}
-                          >
-                            - Retiro
-                          </button>
-                          <button 
-                            onClick={(e) => { e.stopPropagation(); handleOpenMovementPanel(socio.id, 'AJUSTE'); }}
-                            className="btn-secondary" style={{ flex: 1, padding: '6px 12px', fontSize: '12px', color: '#f97316', borderColor: '#f97316' }}
-                          >
-                            ± Ajuste
-                          </button>
-                        </div>
-
-                        <div>
-                          <h4 style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)', margin: '0 0 12px 0' }}>Historial de Aportes</h4>
-                          {socioMovs.length === 0 ? (
-                            <p style={{ color: 'var(--text-secondary)', fontSize: '12px' }}>No hay movimientos registrados.</p>
-                          ) : (
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', maxHeight: '300px', overflowY: 'auto' }}>
-                              {socioMovs.map(mov => {
-                                const isPositive = mov.sourceType === 'APORTE' || (mov.sourceType === 'AJUSTE' && mov.amount > 0) || (mov.sourceType === 'ANULACION' && mov.amount > 0);
-                                return (
-                                  <div key={mov.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', paddingBottom: '8px', borderBottom: '1px solid var(--border-color)' }}>
-                                    <div style={{ display: 'flex', gap: '12px' }}>
-                                      <div style={{ 
-                                        width: '32px', height: '32px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-                                        backgroundColor: isPositive ? '#dcfce7' : '#fee2e2',
-                                        color: isPositive ? '#16a34a' : '#ef4444'
-                                      }}>
-                                        {isPositive ? <TrendingUp size={16} /> : <TrendingDown size={16} />}
-                                      </div>
-                                      <div>
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                          <span style={{ fontWeight: 600, fontSize: '13px' }}>{mov.sourceType}</span>
-                                          {mov.sourceType === 'ANULACION' && (
-                                            <span style={{ fontSize: '9px', background: '#f3f4f6', padding: '2px 6px', borderRadius: '8px', color: 'var(--text-secondary)' }}>Compensatorio</span>
-                                          )}
-                                        </div>
-                                        {mov.description && (
-                                          <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '2px' }}>{mov.description}</div>
-                                        )}
-                                        <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '4px' }}>
-                                          {formatDate(mov.date)} {formatTime(mov.date)}
-                                        </div>
-                                      </div>
-                                    </div>
-                                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '4px' }}>
-                                      <strong style={{ fontSize: '14px', color: isPositive ? '#16a34a' : '#ef4444' }}>
-                                        {isPositive ? '+' : ''}{formatCurrency(mov.amount)}
-                                      </strong>
-                                      {mov.sourceType !== 'ANULACION' && (
-                                        <button 
-                                          onClick={(e) => { e.stopPropagation(); handleAnnul(mov.id); }}
-                                          style={{ background: 'none', border: 'none', color: '#ef4444', textDecoration: 'underline', fontSize: '11px', cursor: 'pointer', padding: 0 }}
-                                        >
-                                          Anular
-                                        </button>
-                                      )}
-                                    </div>
-                                  </div>
-                                )
-                              })}
-                            </div>
-                          )}
-                        </div>
+                      <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '8px' }}>
+                        <span style={{ fontSize: '10px', color: 'var(--text-secondary)', display: 'block', textTransform: 'uppercase', fontWeight: 600 }}>Capital Neto</span>
+                        <strong style={{ fontSize: '15px', color: '#2563eb' }}>{formatCurrency(balance - prestamosPendientes)}</strong>
                       </div>
-                    }
-                  />
+                    </div>
+
+                    {/* Footer Info */}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '12px', color: 'var(--text-secondary)', borderTop: '1px solid var(--border-color)', paddingTop: '12px' }}>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                        <Calendar size={13} /> Ult: {fechaUltimoMovimiento ? formatDate(fechaUltimoMovimiento) : 'Ninguno'}
+                      </span>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                        <Hash size={13} /> Movs: {cantidadMovimientos}
+                      </span>
+                      <span style={{ color: 'var(--alvacio-red)', fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '2px' }}>
+                        Ver ficha <ArrowUpRight size={13} />
+                      </span>
+                    </div>
+
+                    {/* Quick Transaction Actions */}
+                    <div style={{ display: 'flex', gap: '8px', borderTop: '1px dashed var(--border-color)', paddingTop: '12px' }} onClick={e => e.stopPropagation()}>
+                      <button 
+                        onClick={() => handleOpenMovementPanel(socio.id, 'APORTE_INICIAL')}
+                        className="btn-secondary" style={{ flex: 1, padding: '6px', fontSize: '11px', color: '#16a34a', borderColor: '#16a34a' }}
+                      >
+                        + Aporte
+                      </button>
+                      <button 
+                        onClick={() => handleOpenMovementPanel(socio.id, 'RETIRO')}
+                        className="btn-secondary" style={{ flex: 1, padding: '6px', fontSize: '11px', color: '#a855f7', borderColor: '#a855f7' }}
+                      >
+                        - Retiro
+                      </button>
+                      <button 
+                        onClick={() => handleOpenMovementPanel(socio.id, 'AJUSTE')}
+                        className="btn-secondary" style={{ flex: 1, padding: '6px', fontSize: '11px', color: '#f97316', borderColor: '#f97316' }}
+                      >
+                        ± Ajuste
+                      </button>
+                    </div>
+                  </div>
                 );
               })
             )}
@@ -326,72 +341,83 @@ export default function Socios() {
               </div>
             ) : (
               loans.map(loan => (
-                <ExpandableCard
+                <div
                   key={loan.id}
-                  title={`${loan.shareholderName}`}
-                  subtitle={loan.description}
-                  statusBadge={
+                  className="apple-card"
+                  style={{
+                    padding: '20px',
+                    border: '1px solid var(--border-color)',
+                    background: '#ffffff',
+                    borderRadius: '16px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '16px'
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div>
+                      <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700 }}>{loan.shareholderName}</h3>
+                      <p style={{ margin: '4px 0 0 0', fontSize: '12px', color: 'var(--text-secondary)' }}>{loan.description} • {formatDate(loan.date)}</p>
+                    </div>
                     <span style={{
-                      fontSize: '11px', fontWeight: 600, padding: '2px 8px', borderRadius: '12px',
+                      fontSize: '11px', fontWeight: 600, padding: '4px 10px', borderRadius: '12px',
                       backgroundColor: loan.status === 'PAGADO' ? '#dcfce7' : '#fff3cd',
                       color: loan.status === 'PAGADO' ? '#16a34a' : '#d97706'
                     }}>
                       {loan.status}
                     </span>
-                  }
-                  collapsedContent={
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '12px' }}>
-                      <span style={{ color: 'var(--text-secondary)' }}>Deuda Restante</span>
-                      <strong style={{ fontSize: '18px', color: 'var(--text-primary)' }}>
-                        {formatCurrency(loan.remainingAmount)} / {formatCurrency(loan.amount)}
-                      </strong>
-                    </div>
-                  }
-                  expandedContent={
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                      {loan.status !== 'PAGADO' && (
-                        <button
-                          onClick={() => handleOpenPaymentPanel(loan.id)}
-                          className="btn-primary"
-                          style={{ padding: '8px 16px', display: 'inline-flex', alignItems: 'center', gap: '6px', width: 'fit-content' }}
-                        >
-                          <Plus size={16} /> Registrar Pago / Devolución
-                        </button>
-                      )}
+                  </div>
 
-                      <div>
-                        <h4 style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)', margin: '0 0 12px 0' }}>Historial de Devoluciones</h4>
-                        {!loan.payments || loan.payments.length === 0 ? (
-                          <p style={{ color: 'var(--text-secondary)', fontSize: '12px' }}>No hay devoluciones registradas.</p>
-                        ) : (
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                            {loan.payments.map(pay => (
-                              <div key={pay.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingBottom: '8px', borderBottom: '1px solid var(--border-color)' }}>
-                                <div>
-                                  <span style={{ fontWeight: 600, fontSize: '13px' }}>{pay.description}</span>
-                                  <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>
-                                    {formatDate(pay.date)} {formatTime(pay.date)}
-                                  </div>
-                                </div>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                                  <strong style={{ fontSize: '14px', color: '#16a34a' }}>
-                                    -{formatCurrency(pay.amount)}
-                                  </strong>
-                                  <button
-                                    onClick={() => handleAnnulLoanPayment(loan.id, pay.id)}
-                                    style={{ background: 'none', border: 'none', color: '#ef4444', textDecoration: 'underline', fontSize: '11px', cursor: 'pointer' }}
-                                  >
-                                    Anular
-                                  </button>
-                                </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--bg-color)', padding: '12px 16px', borderRadius: '8px' }}>
+                    <span style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>Deuda Restante</span>
+                    <strong style={{ fontSize: '16px' }}>
+                      {formatCurrency(loan.remainingAmount)} / {formatCurrency(loan.amount)}
+                    </strong>
+                  </div>
+
+                  <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+                    {loan.status !== 'PAGADO' && (
+                      <button
+                        onClick={() => handleOpenPaymentPanel(loan.id)}
+                        className="btn-primary"
+                        style={{ padding: '8px 16px', fontSize: '12px' }}
+                      >
+                        Registrar Pago
+                      </button>
+                    )}
+                  </div>
+
+                  <div>
+                    <h4 style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)', margin: '0 0 12px 0' }}>Historial de Devoluciones</h4>
+                    {!loan.payments || loan.payments.length === 0 ? (
+                      <p style={{ color: 'var(--text-secondary)', fontSize: '12px' }}>No hay devoluciones registradas.</p>
+                    ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                        {loan.payments.map(pay => (
+                          <div key={pay.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingBottom: '8px', borderBottom: '1px solid var(--border-color)' }}>
+                            <div>
+                              <span style={{ fontWeight: 600, fontSize: '13px' }}>{pay.description}</span>
+                              <div style={{ fontSize: '11px', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                                {formatDate(pay.date)} {formatTime(pay.date)}
                               </div>
-                            ))}
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                              <strong style={{ fontSize: '14px', color: '#16a34a' }}>
+                                -{formatCurrency(pay.amount)}
+                              </strong>
+                              <button
+                                onClick={() => handleAnnulLoanPayment(loan.id, pay.id)}
+                                style={{ background: 'none', border: 'none', color: '#ef4444', textDecoration: 'underline', fontSize: '11px', cursor: 'pointer' }}
+                              >
+                                Anular
+                              </button>
+                            </div>
                           </div>
-                        )}
+                        ))}
                       </div>
-                    </div>
-                  }
-                />
+                    )}
+                  </div>
+                </div>
               ))
             )}
           </div>

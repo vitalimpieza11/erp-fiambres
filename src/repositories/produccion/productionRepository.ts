@@ -506,15 +506,34 @@ export const productionRepository = {
           const prodItem = data.items.find(it => it.productId === item.productId);
           if (prodItem) {
             const newQty = truncateDecimals(prodItem.cantidad, 3);
-            const newPesoReal = prodItem.pesoReal !== undefined ? truncateDecimals(prodItem.pesoReal, 3) : item.pesoReal;
+            const addedPesoReal = prodItem.pesoReal !== undefined ? truncateDecimals(prodItem.pesoReal, 3) : 0;
+
+            let currentPesosReales = item.pesosReales || [];
+            if (currentPesosReales.length === 0 && item.pesoReal !== undefined && item.pesoReal > 0) {
+              currentPesosReales = [item.pesoReal];
+            }
+            const newPesosReales = addedPesoReal > 0 ? [...currentPesosReales, addedPesoReal] : currentPesosReales;
+            const newPesoReal = truncateDecimals(newPesosReales.reduce((acc, w) => acc + w, 0), 3);
 
             const mp = mainProductDocs.find(x => x.data.id === item.productId);
             const product = mp ? mp.data : undefined;
             let newSubtotal = item.subtotal;
             const price = item.precioEstimado;
             if (product) {
-              const weightInKg = newPesoReal !== undefined && newPesoReal > 0 ? newPesoReal : calculateWeightInKg(newQty, prodItem.unidad, product);
+              const weightInKg = newPesoReal > 0 ? newPesoReal : calculateWeightInKg(newQty, prodItem.unidad, product);
               newSubtotal = weightInKg * price;
+            }
+
+            if (addedPesoReal > 0) {
+              const prodItemRef = doc(collection(db, 'production_items'));
+              transaction.set(prodItemRef, {
+                id: prodItemRef.id,
+                orderId: data.orderId || '',
+                productId: item.productId,
+                pesoReal: addedPesoReal,
+                fecha: new Date().toISOString(),
+                operario: 'Sistema'
+              });
             }
 
             updatedItems.push({
@@ -522,6 +541,7 @@ export const productionRepository = {
               cantidad: newQty,
               unidad: prodItem.unidad as any,
               pesoReal: newPesoReal,
+              pesosReales: newPesosReales,
               subtotal: Number(newSubtotal.toFixed(2)),
               observaciones: prodItem.observaciones || item.observaciones || ''
             });
@@ -717,12 +737,27 @@ export const productionRepository = {
         });
       }
 
+      // Register individual ProductionItem record for each package produced
+      const prodItemRef = doc(collection(db, 'production_items'));
+      transaction.set(prodItemRef, {
+        id: prodItemRef.id,
+        orderId: data.orderId,
+        productId: data.productId,
+        pesoReal: data.pesoReal || 0,
+        fecha: new Date().toISOString(),
+        operario: 'Sistema'
+      });
+
       const updatedItems = [];
       for (const item of orderData.items || []) {
         if (item.productId === data.productId) {
           const addedPesoReal = data.pesoReal || 0;
-          const currentPesoReal = item.pesoReal || 0;
-          const newPesoReal = truncateDecimals(currentPesoReal + addedPesoReal, 3);
+          let currentPesosReales = item.pesosReales || [];
+          if (currentPesosReales.length === 0 && item.pesoReal !== undefined && item.pesoReal > 0) {
+            currentPesosReales = [item.pesoReal];
+          }
+          const newPesosReales = [...currentPesosReales, addedPesoReal];
+          const newPesoReal = truncateDecimals(newPesosReales.reduce((acc, w) => acc + w, 0), 3);
 
           let newObs = item.observaciones || '';
           const cleanStepObs = data.observaciones.replace(/^Preparación de Pedido [a-zA-Z0-9]+ - /, '');
@@ -742,6 +777,7 @@ export const productionRepository = {
           updatedItems.push({
             ...item,
             pesoReal: newPesoReal,
+            pesosReales: newPesosReales,
             subtotal: Number(newSubtotal.toFixed(2)),
             observaciones: newObs
           });
