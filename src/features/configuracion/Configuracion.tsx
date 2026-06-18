@@ -6,10 +6,11 @@ import ProductosConfig from './ProductosConfig';
 import ListasPreciosConfig from './ListasPreciosConfig';
 import EquivalenciasConfig from './EquivalenciasConfig';
 import SistemaConfig from './SistemaConfig';
+import EmpresaConfig from './EmpresaConfig';
 import CuentasFinancierasConfig from './CuentasFinancierasConfig';
 import { Settings } from 'lucide-react';
 
-type Tab = 'clientes' | 'proveedores' | 'socios' | 'productos' | 'listas' | 'equivalencias' | 'sistema' | 'cuentas';
+type Tab = 'clientes' | 'proveedores' | 'socios' | 'productos' | 'listas' | 'equivalencias' | 'sistema' | 'cuentas' | 'empresa';
 
 export default function Configuracion() {
   const [activeTab, setActiveTab] = useState<Tab>('clientes');
@@ -23,6 +24,7 @@ export default function Configuracion() {
     { id: 'equivalencias', label: 'Equivalencias' },
     { id: 'cuentas', label: 'Cuentas Financieras' },
     { id: 'sistema', label: 'Sistema' },
+    { id: 'empresa', label: 'Empresa' },
   ];
 
   return (
@@ -63,6 +65,7 @@ export default function Configuracion() {
         {activeTab === 'equivalencias' && <EquivalenciasConfig />}
         {activeTab === 'cuentas' && <CuentasFinancierasConfig />}
         {activeTab === 'sistema' && <SistemaConfig />}
+        {activeTab === 'empresa' && <EmpresaConfig />}
       </div>
     </div>
   );

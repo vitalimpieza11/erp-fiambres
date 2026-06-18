@@ -498,7 +498,11 @@ export default function Facturacion() {
                         <button 
                           className="btn-primary" 
                           style={{ flex: 1, padding: '8px 12px', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '6px' }} 
-                          onClick={(e) => { e.stopPropagation(); generateInvoicePDF(sale, customer, products); }}
+                          onClick={(e) => { 
+                            e.stopPropagation(); 
+                            const showPrices = window.confirm("¿Desea incluir precios en el PDF del remito? (Aceptar = SI, Cancelar = NO)");
+                            generateInvoicePDF(sale, customer, products, settings, showPrices); 
+                          }}
                         >
                           <Printer size={16} /> Descargar Remito (PDF)
                         </button>

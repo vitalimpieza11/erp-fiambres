@@ -209,6 +209,19 @@ export type SystemSettings = {
   id?: string;
   usePackages: boolean;
   allowNegativeStock: boolean;
+  // Empresa Configuration
+  companyLogo?: string;
+  companyRazonSocial?: string;
+  companyNombreComercial?: string;
+  companyDireccion?: string;
+  companyCiudad?: string;
+  companyProvincia?: string;
+  companyTelefono?: string;
+  companyEmail?: string;
+  companyCuit?: string;
+  companyCondicionIva?: string;
+  companyIngresosBrutos?: string;
+  companyObservacionesLegales?: string;
 };
 
 

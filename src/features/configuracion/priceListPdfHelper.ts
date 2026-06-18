@@ -1,63 +1,38 @@
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import type { PriceList, Customer, Product } from '../../types/domain';
-import { formatDate, formatCurrency } from '../../lib/formatters';
+import type { PriceList, Product, SystemSettings } from '../../types/domain';
+import { formatDate } from '../../lib/formatters';
+import { drawCorporateHeader, drawCorporateFooter, BRAND_COLORS } from '../../utils/pdfBrandingHelper';
 
 export function generatePriceListPDF(
   priceList: PriceList,
   customerName: string,
-  products: Product[]
+  products: Product[],
+  settings: SystemSettings
 ) {
   const doc = new jsPDF();
 
-  // 1. Top Brand Accent Line (Al Vacío Red: #c43126)
-  doc.setFillColor(196, 49, 38);
-  doc.rect(0, 0, 210, 8, 'F');
+  // 1. Draw Corporate Header
+  drawCorporateHeader(doc, settings, 'LISTA DE PRECIOS', {
+    subtitle: `Lista: ${priceList.name}`,
+    documentNumber: priceList.id?.slice(-8).toUpperCase() || 'NUEVA',
+    date: formatDate(new Date().toISOString()),
+    docCode: 'L'
+  });
 
-  // 2. Logo drawing (Circular emblem + Name text)
-  doc.setFillColor(196, 49, 38);
-  doc.circle(25, 23, 8, 'F');
-  doc.setTextColor(255, 255, 255);
+  // Additional subtitle for customer scope
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(11);
-  doc.text('AV', 25, 26, { align: 'center' });
-
-  // 3. Header Details
-  // Left Side: Seller Info
-  doc.setFontSize(18);
-  doc.setTextColor(196, 49, 38);
-  doc.text('ALVACÍO', 37, 22);
-  doc.setFontSize(8);
-  doc.setFont("helvetica", "bold");
-  doc.setTextColor(80, 80, 80);
-  doc.text('Distribuidora Al Vacío SRL', 37, 27);
-  doc.setFont("helvetica", "normal");
-  doc.setTextColor(100, 100, 100);
-  doc.text('Fábrica de Embutidos y Fiambres Premium', 37, 32);
-  
-  // Right Side: Voucher Info
-  doc.setFontSize(12);
-  doc.setFont("helvetica", "bold");
+  doc.setFontSize(9.5);
   doc.setTextColor(30, 30, 30);
-  doc.text('LISTA DE PRECIOS', 195, 20, { align: 'right' });
-  doc.setFontSize(8.5);
-  doc.setFont("helvetica", "normal");
-  doc.setTextColor(60, 60, 60);
-  doc.text(`Lista: ${priceList.name}`, 195, 26, { align: 'right' });
-  doc.text(`Cliente: ${customerName}`, 195, 31, { align: 'right' });
-  doc.text(`Fecha Emisión: ${formatDate(new Date().toISOString())}`, 195, 36, { align: 'right' });
+  doc.text(`Cliente Asignado: ${customerName}`, 15, 52);
 
-  // Horizontal divider line
-  doc.setDrawColor(200, 200, 200);
-  doc.line(15, 42, 195, 42);
-
-  // 4. Table Headers & Data
-  const tableHeaders = ['Producto', 'Precio Comercial', 'Unidad'];
+  // 2. Table Headers & Data
+  const tableHeaders = ['Producto / Detalle', 'Precio por Kg ($)', 'Unidad'];
   
   const tableData = priceList.items.map(item => {
     const prod = products.find(p => p.id === item.productId);
     const prodName = prod?.nombre || 'Producto Desconocido';
-    const unit = prod?.unitType || 'U';
+    const unit = prod?.unitType || 'KG';
     return [
       prodName,
       `$ ${item.price.toLocaleString('es-AR', { minimumFractionDigits: 2 })}`,
@@ -66,33 +41,26 @@ export function generatePriceListPDF(
   });
 
   autoTable(doc, {
-    startY: 48,
+    startY: 56,
     head: [tableHeaders],
     body: tableData,
     theme: 'grid',
-    styles: { fontSize: 9, cellPadding: 3, textColor: [50, 50, 50], valign: 'middle' },
-    headStyles: { fillColor: [196, 49, 38], textColor: [255, 255, 255], fontStyle: 'bold' },
-    alternateRowStyles: { fillColor: [248, 248, 248] },
+    styles: { fontSize: 8.5, cellPadding: 2.5, textColor: [30, 30, 30], valign: 'middle' },
+    headStyles: { fillColor: BRAND_COLORS.primary, textColor: [255, 255, 255], fontStyle: 'bold' },
+    alternateRowStyles: { fillColor: BRAND_COLORS.background },
     columnStyles: {
       0: { cellWidth: 'auto' },
       1: { cellWidth: 40, halign: 'right' },
-      2: { cellWidth: 30, halign: 'center' }
-    },
-    didDrawPage: (data) => {
-      // Footer
-      const totalPages = (doc as any).internal.getNumberOfPages();
-      const pageNo = data.pageNumber;
-      
-      doc.setFont("helvetica", "normal");
-      doc.setFontSize(8);
-      doc.setTextColor(150, 150, 150);
-      
-      // Right aligned page numbering
-      doc.text(`Página ${pageNo} de ${totalPages}`, 195, 287, { align: 'right' });
-      // Left aligned text
-      doc.text('Vitalimpieza ERP • Gestión Profesional de Distribución • Precios sujetos a cambios sin previo aviso', 15, 287);
+      2: { cellWidth: 25, halign: 'center' }
     }
   });
+
+  // 3. Render footers on all pages
+  const totalPages = doc.getNumberOfPages();
+  for (let i = 1; i <= totalPages; i++) {
+    doc.setPage(i);
+    drawCorporateFooter(doc, settings, i, totalPages);
+  }
 
   doc.save(`Lista_Precios_${priceList.name.replace(/\s+/g, '_')}.pdf`);
 }

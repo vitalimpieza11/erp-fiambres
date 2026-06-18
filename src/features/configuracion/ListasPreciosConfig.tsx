@@ -5,8 +5,10 @@ import type { PriceList, Customer, Product } from '../../types/domain';
 import { formatCurrency, formatDate } from '../../lib/formatters';
 import { Eye, FileText, CheckSquare, Square, Printer, ArrowLeft, Loader2 } from 'lucide-react';
 import { generatePriceListPDF } from './priceListPdfHelper';
+import { useSettingsStore } from '../../store/settingsStore';
 
 export default function ListasPreciosConfig() {
+  const { settings, fetchSettings } = useSettingsStore();
   const [listas, setListas] = useState<PriceList[]>([]);
   const [clientes, setClientes] = useState<Customer[]>([]);
   const [presentaciones, setPresentaciones] = useState<Product[]>([]);
@@ -25,6 +27,7 @@ export default function ListasPreciosConfig() {
   const [previewLista, setPreviewLista] = useState<PriceList | null>(null);
 
   useEffect(() => {
+    fetchSettings();
     fetchData();
   }, []);
 
@@ -128,7 +131,7 @@ export default function ListasPreciosConfig() {
     const listCustomer = previewLista.customerId
       ? clientes.find(c => c.id === previewLista.customerId)?.nombre || 'Desconocido'
       : 'Global';
-    generatePriceListPDF(previewLista, listCustomer, presentaciones);
+    generatePriceListPDF(previewLista, listCustomer, presentaciones, settings);
   };
 
   if (loading) return <p>Cargando listas de precios...</p>;
@@ -156,11 +159,19 @@ export default function ListasPreciosConfig() {
           {/* Header */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', borderBottom: '2px solid var(--alvacio-red)', paddingBottom: '20px', marginBottom: '30px' }}>
             <div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <span style={{ background: 'var(--alvacio-red)', color: '#fff', padding: '6px 12px', borderRadius: '6px', fontWeight: 900, fontSize: '18px', letterSpacing: '1px' }}>V</span>
-                <h1 style={{ fontSize: '24px', fontWeight: 800, margin: 0, letterSpacing: '-0.5px' }}>VITALIMPIEZA</h1>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                {settings.companyLogo ? (
+                  <img src={settings.companyLogo} alt="Logo" style={{ maxHeight: '40px', objectFit: 'contain' }} />
+                ) : (
+                  <span style={{ background: 'var(--alvacio-red)', color: '#fff', padding: '6px 12px', borderRadius: '6px', fontWeight: 900, fontSize: '18px', letterSpacing: '1px' }}>AV</span>
+                )}
+                <h1 style={{ fontSize: '24px', fontWeight: 800, margin: 0, letterSpacing: '-0.5px' }}>
+                  {settings.companyNombreComercial || settings.companyRazonSocial || 'AL VACÍO'}
+                </h1>
               </div>
-              <p style={{ margin: '4px 0 0 0', fontSize: '12px', color: '#718096', fontWeight: 500 }}>Fábrica de Embutidos y Fiambres Premium</p>
+              <p style={{ margin: '6px 0 0 0', fontSize: '12px', color: '#718096', fontWeight: 500 }}>
+                {settings.companyDireccion || 'Pablo Buitrago 5996'} | CUIT: {settings.companyCuit || '20-39494658-4'}
+              </p>
             </div>
             <div style={{ textAlign: 'right' }}>
               <h2 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: 'var(--text-primary)' }}>{previewLista.name}</h2>
@@ -200,7 +211,9 @@ export default function ListasPreciosConfig() {
           {/* Footer */}
           <div style={{ borderTop: '1px solid #e2e8f0', paddingTop: '20px', textAlign: 'center', fontSize: '11px', color: '#a0aec0' }}>
             <p style={{ margin: '0 0 4px 0', fontWeight: 600 }}>Precios sujetos a modificaciones sin previo aviso.</p>
-            <p style={{ margin: 0 }}>Vitalimpieza ERP • Gestión Profesional de Distribución</p>
+            <p style={{ margin: 0 }}>
+              {settings.companyRazonSocial || 'AL VACÍO'} • CUIT: {settings.companyCuit || '20-39494658-4'} • IVA: {settings.companyCondicionIva || 'Monotributista'}
+            </p>
           </div>
         </div>
 
