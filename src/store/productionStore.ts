@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { productionRepository } from '../repositories/produccion/productionRepository';
 import type { Order, Product, Equivalencia, StockMovement, RecipeItem, Customer } from '../types/domain';
+import { useSettingsStore } from './settingsStore';
 
 interface ProductionState {
   orders: Order[];
@@ -57,6 +58,9 @@ export const useProductionStore = create<ProductionState>((set, get) => ({
   customers: [],
   loading: true,
   fetchData: async () => {
+    // Load settings in background
+    useSettingsStore.getState().fetchSettings().catch(e => console.error("Error fetching settings:", e));
+
     const hasData = get().orders.length > 0;
     if (hasData) {
       productionRepository.fetchProductionData().then((data) => {

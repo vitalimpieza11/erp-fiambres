@@ -58,5 +58,11 @@ service cloud.firestore {
     match /purchases/{id} {
       allow read, write: if signedIn();
     }
+    match /packages/{id} {
+      allow read, write: if signedIn();
+    }
+    match /financial_accounts/{id} {
+      allow read, write: if signedIn();
+    }
   }
 }

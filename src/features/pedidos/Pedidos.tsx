@@ -4,6 +4,7 @@ import type { Order, OrderItem, OrderStatus } from '../../types/domain';
 import RightPanel from '../../components/RightPanel';
 import ExpandableCard from '../../components/ExpandableCard';
 import { calculateWeightInKg, convertQuantityToBaseUnit } from '../../lib/unitConverter';
+import { groupPresentacionesByCustomer } from '../../lib/groupByCustomer';
 
 const STATUS_COLORS: Record<OrderStatus, string> = {
   PENDIENTE: '#f59e0b',
@@ -327,7 +328,24 @@ export default function Pedidos() {
                       onChange={e => updateItem(idx, 'productId', e.target.value)}
                     >
                       <option value="">Seleccione Producto</option>
-                      {productos.map(p => <option key={p.id} value={p.id}>{p.nombre}</option>)}
+                      {(() => {
+                        const pres = productos.filter(p => p.type === 'PRESENTACION');
+                        const { byCustomer, loose } = groupPresentacionesByCustomer(pres, clientes, currentPedido.customerId);
+                        return (
+                          <>
+                            {byCustomer.map(grp => (
+                              <optgroup key={grp.customer.id} label={`👤 ${grp.customer.nombre}`}>
+                                {grp.products.map(p => <option key={p.id} value={p.id}>{p.nombre}</option>)}
+                              </optgroup>
+                            ))}
+                            {loose.length > 0 && (
+                              <optgroup label="📦 Sin cliente asignado">
+                                {loose.map(p => <option key={p.id} value={p.id}>{p.nombre}</option>)}
+                              </optgroup>
+                            )}
+                          </>
+                        );
+                      })()}
                     </select>
                     
                     <div style={{ display: 'flex', gap: '12px' }}>

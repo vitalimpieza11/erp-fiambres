@@ -16,6 +16,7 @@ interface SociosState {
     description: string;
     impactCaja: boolean;
     cajaCategory?: string;
+    accountId?: string;
   }) => Promise<void>;
   annulMovement: (originalId: string, reason: string) => Promise<void>;
   saveShareholder: (shareholder: Partial<Shareholder>) => Promise<void>;

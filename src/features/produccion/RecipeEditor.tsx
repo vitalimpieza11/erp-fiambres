@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import type { Product, RecipeItem, Equivalencia } from '../../types/domain';
+import { mapRecipeUnitToUnitType, mapUnitTypeToRecipeUnit } from '../../types/domain';
 import { convertUnit } from '../../lib/unitConverter';
 import { truncateDecimals } from '../../lib/formatters';
 
@@ -30,8 +31,9 @@ export default function RecipeEditor({
     const prodObj = products.find(p => p.id === newProductId);
     updated[index] = {
       ...updated[index],
-      productId: newProductId,
-      unit: prodObj ? (prodObj.unitType as any) : 'GRAMOS'
+      ingredientProductId: newProductId,
+      ingredientName: prodObj ? (prodObj.nombre || '') : '',
+      unit: prodObj ? mapUnitTypeToRecipeUnit(prodObj.unitType) : 'gramos'
     };
     onChange(updated);
   };
@@ -54,15 +56,6 @@ export default function RecipeEditor({
     onChange(updated);
   };
 
-  const handleIngredientPesoNetoChange = (index: number, pesoNeto: number | undefined) => {
-    const updated = [...ingredients];
-    updated[index] = {
-      ...updated[index],
-      pesoNeto: pesoNeto
-    };
-    onChange(updated);
-  };
-
   const handleRemoveIngredient = (index: number) => {
     const updated = ingredients.filter((_, idx) => idx !== index);
     onChange(updated);
@@ -72,9 +65,10 @@ export default function RecipeEditor({
     onChange([
       ...ingredients,
       {
-        productId: '',
+        ingredientProductId: '',
+        ingredientName: '',
         quantity: 0,
-        unit: 'GRAMOS'
+        unit: 'gramos'
       }
     ]);
   };
@@ -97,21 +91,21 @@ export default function RecipeEditor({
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
         {ingredients.map((ing, idx) => {
-          const ingProduct = products.find(p => p.id === ing.productId);
+          const ingProduct = products.find(p => p.id === ing.ingredientProductId);
           
           let convertedQty = 0;
           if (ingProduct) {
             try {
               convertedQty = convertUnit(
                 Number(ing.quantity || 0),
-                ing.unit as any,
+                mapRecipeUnitToUnitType(ing.unit),
                 ingProduct.unitType,
                 ingProduct.nombre || '',
                 '',
                 equivalences || []
               );
             } catch (err) {
-              console.error("Error converting unit", err);
+              console.error("Error al convertir unidad:", err);
             }
           }
           const totalNeeded = convertedQty * (prodQty || 0);
@@ -123,7 +117,7 @@ export default function RecipeEditor({
               <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                 <select
                   style={{ flex: 2, padding: '6px', fontSize: '13px', border: '1px solid var(--border-color)', borderRadius: '6px', backgroundColor: '#fff' }}
-                  value={ing.productId}
+                  value={ing.ingredientProductId}
                   required
                   onChange={(e) => handleIngredientProductChange(idx, e.target.value)}
                 >
@@ -142,27 +136,16 @@ export default function RecipeEditor({
                   onChange={(e) => handleIngredientQuantityChange(idx, Number(e.target.value))}
                 />
                 <select
-                  style={{ width: '90px', padding: '6px', fontSize: '13px', border: '1px solid var(--border-color)', borderRadius: '6px', backgroundColor: '#fff' }}
+                  style={{ width: '110px', padding: '6px', fontSize: '13px', border: '1px solid var(--border-color)', borderRadius: '6px', backgroundColor: '#fff' }}
                   value={ing.unit}
                   required
                   onChange={(e) => handleIngredientUnitChange(idx, e.target.value as any)}
                 >
-                  <option value="GRAMOS">GRAMOS</option>
-                  <option value="KG">KG</option>
-                  <option value="UNIDADES">UNIDADES</option>
-                  <option value="FETAS">FETAS</option>
+                  <option value="gramos">gramos</option>
+                  <option value="kilogramos">kilogramos</option>
+                  <option value="unidades">unidades</option>
+                  <option value="fetas">fetas</option>
                 </select>
-                <input
-                  type="number"
-                  step="any"
-                  placeholder="Neto KG"
-                  style={{ width: '80px', padding: '6px', fontSize: '13px', border: '1px solid var(--border-color)', borderRadius: '6px' }}
-                  value={ing.pesoNeto !== undefined ? ing.pesoNeto : ''}
-                  onChange={(e) => {
-                    const val = e.target.value === '' ? undefined : Number(e.target.value);
-                    handleIngredientPesoNetoChange(idx, val);
-                  }}
-                />
                 <button
                   type="button"
                   style={{
@@ -173,14 +156,15 @@ export default function RecipeEditor({
                     padding: '4px',
                     display: 'flex',
                     alignItems: 'center',
-                    fontSize: '16px'
+                    fontSize: '16px',
+                    marginLeft: '8px'
                   }}
                   onClick={() => handleRemoveIngredient(idx)}
                 >
                   ✕
                 </button>
               </div>
-              {ing.productId && (
+              {ing.ingredientProductId && (
                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: 'var(--text-secondary)', paddingLeft: '4px' }}>
                   <span>
                     Necesario: <strong style={{ color: 'var(--text-primary)' }}>{truncateDecimals(totalNeeded, 3)} {ingProduct?.unitType || ''}</strong>

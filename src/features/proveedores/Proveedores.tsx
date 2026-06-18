@@ -53,7 +53,10 @@ export default function Proveedores() {
     handleSubmit,
     handleToggleStatus,
     handleAnnul,
-    filteredSuppliers
+    filteredSuppliers,
+    accounts,
+    selectedAccountId,
+    setSelectedAccountId
   } = useProveedores();
 
   if (loading && suppliers.length === 0) {
@@ -342,18 +345,38 @@ export default function Proveedores() {
             )}
 
             {showPanel === 'PAGO' && (
-              <div className="form-group" style={{ flexDirection: 'row', alignItems: 'center', gap: '10px' }}>
-                <input 
-                  type="checkbox" 
-                  checked={fromCaja} 
-                  onChange={e => setFromCaja(e.target.checked)} 
-                  id="fromCajaCheckbox"
-                  style={{ width: 'auto' }}
-                />
-                <label htmlFor="fromCajaCheckbox" style={{ margin: 0 }}>
-                  Extraer dinero desde Caja Diaria
-                </label>
-              </div>
+              <>
+                <div className="form-group" style={{ flexDirection: 'row', alignItems: 'center', gap: '10px' }}>
+                  <input 
+                    type="checkbox" 
+                    checked={fromCaja} 
+                    onChange={e => setFromCaja(e.target.checked)} 
+                    id="fromCajaCheckbox"
+                    style={{ width: 'auto' }}
+                  />
+                  <label htmlFor="fromCajaCheckbox" style={{ margin: 0 }}>
+                    Extraer dinero desde Caja Diaria
+                  </label>
+                </div>
+
+                {fromCaja && (
+                  <div className="form-group">
+                    <label>Cuenta de Egreso *</label>
+                    <select
+                      required
+                      value={selectedAccountId}
+                      onChange={e => setSelectedAccountId(e.target.value)}
+                    >
+                      <option value="">Seleccione cuenta de egreso...</option>
+                      {accounts.filter(a => a.activa).map(a => (
+                        <option key={a.id} value={a.id}>
+                          {a.nombre} ({a.tipo})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+              </>
             )}
 
             <div className="form-group">

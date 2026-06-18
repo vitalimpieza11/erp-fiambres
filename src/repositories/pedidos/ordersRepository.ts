@@ -1,4 +1,4 @@
-import { getDocs, addDoc, updateDoc, doc, query, where } from 'firebase/firestore';
+import { getDocs, getDoc, addDoc, updateDoc, doc, query, where } from 'firebase/firestore';
 import { db, COLLECTIONS } from '../../lib/firebase';
 import type { Order, Customer, Product, PriceList } from '../../types/domain';
 
@@ -25,6 +25,19 @@ export const ordersRepository = {
   },
 
   async savePedido(pedido: Partial<Order>): Promise<void> {
+    if (pedido.items) {
+      for (const item of pedido.items) {
+        const prodRef = doc(db, 'products', item.productId);
+        const prodSnap = await getDoc(prodRef);
+        if (prodSnap.exists()) {
+          const prodData = prodSnap.data() as Product;
+          if (prodData.type !== 'PRESENTACION') {
+            throw new Error(`El producto ${prodData.nombre} no es de tipo PRESENTACION. No se pueden agregar productos de tipo ${prodData.type} a un pedido.`);
+          }
+        }
+      }
+    }
+
     if (pedido.id) {
       await updateDoc(doc(db, 'orders', pedido.id), pedido);
     } else {

@@ -1,6 +1,8 @@
 import { useEffect, useCallback } from 'react';
 import { useProductionStore } from '../../store/productionStore';
 import { convertUnit } from '../../lib/unitConverter';
+import { mapRecipeUnitToUnitType } from '../../types/domain';
+import { calculateCapacityDetails } from '../../utils/costHelpers';
 
 export function useProduccion() {
   const orders = useProductionStore((state) => state.orders);
@@ -24,35 +26,20 @@ export function useProduccion() {
     const product = products.find(p => p.id === productId);
     if (!product || product.type !== 'PRESENTACION') return 0;
 
-    let recipeItems = product.recipeItems || [];
-    if (recipeItems.length === 0) {
-      const recipeId = product.recipeId || (product as any).recetaId;
-      if (recipeId) {
-        const recipe = recipes.find(r => r.id === recipeId);
-        if (recipe) {
-          const ingredients = recipe.ingredients || [];
-          recipeItems = ingredients.map((ing: any) => ({
-            productId: ing.productId,
-            quantity: ing.quantity,
-            unit: ing.unit || 'GRAMOS'
-          }));
-        }
-      }
-    }
-
-    if (recipeItems.length === 0) return 0;
+    const recipe = recipes.find(r => r.productId === productId);
+    if (!recipe || !recipe.items || recipe.items.length === 0) return 0;
 
     let maxProducible = Infinity;
 
-    for (const ing of recipeItems) {
-      const ingredientProduct = products.find(p => p.id === ing.productId);
+    for (const ing of recipe.items) {
+      const ingredientProduct = products.find(p => p.id === ing.ingredientProductId);
       if (!ingredientProduct) {
         return 0; // If ingredient doesn't exist, we can't produce
       }
       
       const convertedQty = convertUnit(
         ing.quantity,
-        ing.unit,
+        mapRecipeUnitToUnitType(ing.unit),
         ingredientProduct.unitType,
         ingredientProduct.nombre || '',
         '',
@@ -70,6 +57,11 @@ export function useProduccion() {
     return maxProducible === Infinity ? 0 : Math.floor(maxProducible);
   }, [products, recipes, equivalences]);
 
+  const getCapacityDetails = useCallback((productId: string) => {
+    const recipe = recipes.find(r => r.productId === productId);
+    return calculateCapacityDetails(recipe, products, equivalences);
+  }, [products, recipes, equivalences]);
+
   return {
     orders,
     products,
@@ -79,6 +71,7 @@ export function useProduccion() {
     customers,
     loading,
     getCapacity,
+    getCapacityDetails,
     produce,
     produceMultiple,
     produceStep,

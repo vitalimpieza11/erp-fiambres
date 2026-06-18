@@ -17,6 +17,7 @@ export default function Produccion() {
     customers, 
     loading, 
     getCapacity, 
+    getCapacityDetails,
     produce, 
     produceStep, 
     revertMovement 
@@ -322,12 +323,7 @@ export default function Produccion() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
               {(movements || []).filter(m => {
                 if (!m) return false;
-                const isProduction = m.type === 'PRODUCCION';
-                const isOrderPrep = m.type === 'VENTA' && (
-                  m.observaciones?.startsWith('Preparación de Pedido') ||
-                  m.observaciones?.startsWith('Reversión de movimiento')
-                );
-                return isProduction || isOrderPrep;
+                return m.type === 'PRODUCCION_STOCK' || m.type === 'PRODUCCION_PEDIDO';
               }).sort((a,b) => {
                 const timeA = a && a.date ? new Date(a.date).getTime() : 0;
                 const timeB = b && b.date ? new Date(b.date).getTime() : 0;
@@ -335,7 +331,7 @@ export default function Produccion() {
               }).slice(0,10).map(m => {
                 if (!m) return null;
                 const p = products.find(prod => prod.id === m.productId);
-                const isOrder = m.type === 'VENTA';
+                const isOrder = m.type === 'PRODUCCION_PEDIDO';
                 return (
                   <div key={m.id} className="apple-card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '20px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
@@ -351,7 +347,7 @@ export default function Produccion() {
                             backgroundColor: isOrder ? '#fef3c7' : '#dcfce7',
                             color: isOrder ? '#b45309' : '#15803d'
                           }}>
-                            {isOrder ? 'Por Pedido (Descuenta Stock)' : 'Prod. Libre / Preventa (Ingresa Stock)'}
+                            {isOrder ? 'Por Pedido (Ingresa Stock)' : 'Para Stock / Libre (Ingresa Stock)'}
                           </span>
                         </div>
                         <div style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>{m.date ? new Date(m.date).toLocaleString() : ''} • {m.observaciones || 'Sin observaciones'}</div>
@@ -384,18 +380,36 @@ export default function Produccion() {
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '20px' }}>
             {(finishedProducts || []).map(p => {
               if (!p) return null;
-              const max = getCapacity(p.id) || 0;
+              const details = getCapacityDetails(p.id);
+              const max = details.maxCapacity;
               return (
                 <ExpandableCard
                   key={p.id}
                   title={p.nombre || 'Producto Desconocido'}
                   collapsedContent={
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginTop: '12px' }}>
-                      <Clock size={20} color={max > 0 ? "var(--alvacio-red)" : "var(--text-secondary)"} />
-                      <span style={{ fontSize: '24px', fontWeight: 'bold', color: max > 0 ? 'var(--text-primary)' : 'var(--text-secondary)' }}>
-                        {max}
-                      </span>
-                      <span style={{ color: 'var(--text-secondary)' }}>{p.unitType || ''}</span>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '12px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                        <Clock size={20} color={max > 0 ? "var(--alvacio-red)" : "var(--text-secondary)"} />
+                        <span style={{ fontSize: '24px', fontWeight: 'bold', color: max > 0 ? 'var(--text-primary)' : 'var(--text-secondary)' }}>
+                          {max}
+                        </span>
+                        <span style={{ color: 'var(--text-secondary)' }}>{p.unitType || ''}</span>
+                      </div>
+                      
+                      <div style={{ borderTop: '1px solid #f1f5f9', paddingTop: '8px', display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '12px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                          <span style={{ color: 'var(--text-secondary)' }}>Insumo Limitante:</span>
+                          <strong style={{ color: max > 0 ? 'var(--text-primary)' : '#ef4444' }}>{details.limitingIngredientName}</strong>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                          <span style={{ color: 'var(--text-secondary)' }}>Costo por Lote/Unidad:</span>
+                          <strong style={{ color: 'var(--text-primary)' }}>${details.costPerUnit.toFixed(2)}</strong>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                          <span style={{ color: 'var(--text-secondary)' }}>Costo Prod. Máxima:</span>
+                          <strong style={{ color: 'var(--text-primary)' }}>${details.totalMaxCapacityCost.toFixed(2)}</strong>
+                        </div>
+                      </div>
                     </div>
                   }
                   expandedContent={<></>}

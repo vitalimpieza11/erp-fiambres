@@ -1,15 +1,16 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useFacturacion } from './useFacturacion';
 import type { Sale, Order, SaleItem } from '../../types/domain';
+import { useFinancialAccountsStore } from '../../store/financialAccountsStore';
 import ExpandableCard from '../../components/ExpandableCard';
 import RightPanel from '../../components/RightPanel';
 import Modal from '../../components/Modal';
 import LoadingSpinner from '../../components/LoadingSpinner';
 import { generateInvoicePDF } from './invoicePdfHelper';
-import { createAlvacioPDF } from '../../lib/pdfHelper';
-import autoTable from 'jspdf-autotable';
 import { calculateWeightInKg } from '../../lib/unitConverter';
 import { truncateDecimals } from '../../lib/formatters';
+import { useSettingsStore } from '../../store/settingsStore';
+import { calculateProductionCostDetails } from '../../utils/costHelpers';
 import { FileText, DollarSign, XCircle, Search, Printer, Check } from 'lucide-react';
 
 const STATUS_COLORS: Record<string, string> = {
@@ -23,6 +24,9 @@ export default function Facturacion() {
     sales,
     customers,
     products,
+    recipes,
+    equivalences,
+    packages,
     loading,
     pendingOrders,
     createSaleFromOrder,
@@ -32,6 +36,9 @@ export default function Facturacion() {
     markOrderAsDelivered
   } = useFacturacion();
 
+  const settings = useSettingsStore(state => state.settings);
+  const { accounts, fetchAccounts } = useFinancialAccountsStore();
+
   // Navigation tabs: 'pending' or 'issued'
   const [activeTab, setActiveTab] = useState<'pending' | 'issued'>('pending');
 
@@ -40,6 +47,19 @@ export default function Facturacion() {
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [saleItems, setSaleItems] = useState<SaleItem[]>([]);
   const [saleToCobrar, setSaleToCobrar] = useState<Sale | null>(null);
+  const [selectedAccountId, setSelectedAccountId] = useState('');
+
+  useEffect(() => {
+    fetchAccounts();
+  }, [fetchAccounts]);
+
+  useEffect(() => {
+    if (accounts.length > 0) {
+      const activeCash = accounts.find(a => a.activa && a.tipo === 'EFECTIVO');
+      const activeAny = accounts.find(a => a.activa);
+      setSelectedAccountId(activeCash?.id || activeAny?.id || '');
+    }
+  }, [accounts, saleToCobrar]);
 
   // Search & Filter states
   const [searchTerm, setSearchTerm] = useState('');
@@ -65,19 +85,74 @@ export default function Facturacion() {
     setSaleItems(
       order.items.map(it => {
         const prod = products.find(p => p.id === it.productId);
-        const hasRealWeight = it.pesoReal !== undefined && it.pesoReal > 0;
         
-        const saleQty = hasRealWeight ? (it.pesoReal ?? it.cantidad) : it.cantidad;
-        const saleUnit = hasRealWeight ? 'KG' : it.unidad;
-        let weightInKg = hasRealWeight ? (it.pesoReal ?? 0) : calculateWeightInKg(saleQty, saleUnit, prod);
-        weightInKg = truncateDecimals(weightInKg, 3);
+        // Sum packages if usePackages = true
+        let pkgWeightSum = 0;
+        let pkgCostSum = 0;
+        if (settings.usePackages) {
+          const prodPkgs = packages.filter(pkg => pkg.productId === it.productId && pkg.status === 'STOCK');
+          prodPkgs.sort((a, b) => {
+            const aIsOrder = a.orderId === order.id ? 1 : 0;
+            const bIsOrder = b.orderId === order.id ? 1 : 0;
+            if (aIsOrder !== bIsOrder) return bIsOrder - aIsOrder;
+
+            const aNoOrder = !a.orderId ? 1 : 0;
+            const bNoOrder = !b.orderId ? 1 : 0;
+            if (aNoOrder !== bNoOrder) return aNoOrder - bNoOrder;
+
+            return new Date(a.producedAt).getTime() - new Date(b.producedAt).getTime();
+          });
+          const selectedPkgs = prodPkgs.slice(0, Math.ceil(it.cantidad));
+          selectedPkgs.forEach(pkg => {
+            pkgWeightSum += pkg.weight;
+            pkgCostSum += pkg.totalCost;
+          });
+        }
+
+        const hasPackages = settings.usePackages && pkgWeightSum > 0;
+        const pesoReal = hasPackages ? pkgWeightSum : (it.pesoReal !== undefined && it.pesoReal > 0 ? it.pesoReal : calculateWeightInKg(it.cantidad, it.unidad, prod));
+        const finalPesoReal = truncateDecimals(pesoReal, 3);
+
+        // Calculate dynamic recipe cost if not using packages
+        let costPerKg = 0;
+        if (hasPackages) {
+          costPerKg = pkgWeightSum > 0 ? pkgCostSum / pkgWeightSum : 0;
+        } else {
+          const recipe = recipes.find(r => r.productId === it.productId);
+          if (recipe && prod) {
+            const details = calculateProductionCostDetails(
+              recipe.items || [],
+              it.cantidad,
+              finalPesoReal,
+              prod,
+              products,
+              equivalences
+            );
+            costPerKg = details.costPerKg;
+          } else {
+            costPerKg = prod?.costoActual || 0;
+          }
+        }
         
+        const finalCostPerKg = truncateDecimals(costPerKg, 2);
+        const finalTotalCost = truncateDecimals(finalCostPerKg * finalPesoReal, 2);
+
+        const precioRealKg = Number(it.precioEstimado.toFixed(2));
+        const importeReal = Number((finalPesoReal * precioRealKg).toFixed(2));
+
         return {
           productId: it.productId,
-          cantidad: truncateDecimals(saleQty, 3),
-          unidad: saleUnit as any,
-          precioUnitario: Number(it.precioEstimado.toFixed(2)),
-          subtotal: Number((weightInKg * it.precioEstimado).toFixed(2))
+          cantidad: it.cantidad,
+          unidad: it.unidad,
+          precioUnitario: precioRealKg,
+          subtotal: importeReal,
+          // Cost and Profitability real weight fields
+          pesoReal: finalPesoReal,
+          precioRealKg: precioRealKg,
+          importeReal: importeReal,
+          costoUnitarioHistorico: finalCostPerKg,
+          costoTotalHistorico: finalTotalCost,
+          rentabilidadBruta: Number((importeReal - finalTotalCost).toFixed(2))
         };
       })
     );
@@ -88,22 +163,64 @@ export default function Facturacion() {
     const newItems = [...saleItems];
     const item = { ...newItems[idx], [field]: val };
     const prod = products.find(p => p.id === item.productId);
-    let weightInKg = calculateWeightInKg(item.cantidad, item.unidad, prod);
-    weightInKg = truncateDecimals(weightInKg, 3);
+
+    if (field === 'precioRealKg') {
+      const precioReal = Number(val);
+      const peso = item.pesoReal || 0;
+      item.precioRealKg = precioReal;
+      item.precioUnitario = precioReal;
+      item.importeReal = Number((peso * precioReal).toFixed(2));
+      item.subtotal = item.importeReal;
+      
+      const totalCost = item.costoTotalHistorico || 0;
+      item.rentabilidadBruta = Number((item.importeReal - totalCost).toFixed(2));
+    }
     
-    item.cantidad = truncateDecimals(Number(item.cantidad), 3);
-    item.precioUnitario = Number(Number(item.precioUnitario).toFixed(2));
-    item.subtotal = Number((weightInKg * item.precioUnitario).toFixed(2));
     newItems[idx] = item as SaleItem;
     setSaleItems(newItems);
   };
 
   const totalFacturar = useMemo(() => {
-    return Number(saleItems.reduce((acc, it) => acc + it.subtotal, 0).toFixed(2));
+    return Number(saleItems.reduce((acc, it) => acc + (it.importeReal || 0), 0).toFixed(2));
   }, [saleItems]);
+
+  const totalCostoInterno = useMemo(() => {
+    return Number(saleItems.reduce((acc, it) => acc + (it.costoTotalHistorico || 0), 0).toFixed(2));
+  }, [saleItems]);
+
+  const totalRentabilidadInterna = useMemo(() => {
+    return Number(saleItems.reduce((acc, it) => acc + (it.rentabilidadBruta || 0), 0).toFixed(2));
+  }, [saleItems]);
+
+  const totalMargenInterno = useMemo(() => {
+    if (totalFacturar <= 0) return 0;
+    return Number(((totalRentabilidadInterna / totalFacturar) * 100).toFixed(1));
+  }, [totalFacturar, totalRentabilidadInterna]);
 
   const handleSubmitSale = async () => {
     if (!selectedOrder) return;
+    
+    // Repository validations at client-side before submission
+    for (const item of saleItems) {
+      const prod = products.find(p => p.id === item.productId);
+      if (!prod) continue;
+      
+      const stockToDeduct = item.pesoReal || item.cantidad;
+      if (!settings.allowNegativeStock && stockToDeduct > (prod.stockActual || 0)) {
+        alert(`Error: El stock disponible para ${prod.nombre} (${prod.stockActual || 0} Kg) es menor a la cantidad a remisionar (${stockToDeduct} Kg). La operación está bloqueada por la configuración de Stock Negativo.`);
+        return;
+      }
+      
+      if (item.pesoReal === undefined || item.pesoReal <= 0) {
+        alert(`Error: El peso real para ${prod.nombre} debe ser mayor a 0.`);
+        return;
+      }
+      
+      if (item.precioRealKg !== undefined && item.precioRealKg < 0) {
+        alert(`Error: El precio de venta para ${prod.nombre} no puede ser negativo.`);
+        return;
+      }
+    }
     
     const confirmMsg = `¿Emitir Remito Comercial por un total de $${totalFacturar.toLocaleString('es-AR', { minimumFractionDigits: 2 })}?`;
     if (window.confirm(confirmMsg)) {
@@ -125,8 +242,12 @@ export default function Facturacion() {
 
   const executeCobrar = async (method: 'EFECTIVO_TRANSFERENCIA' | 'CUENTA_CORRIENTE') => {
     if (!saleToCobrar) return;
+    if (method === 'EFECTIVO_TRANSFERENCIA' && !selectedAccountId) {
+      alert("Debe seleccionar una cuenta financiera para cobrar.");
+      return;
+    }
     try {
-      await cobrarSale(saleToCobrar, method);
+      await cobrarSale(saleToCobrar, method, method === 'EFECTIVO_TRANSFERENCIA' ? selectedAccountId : undefined);
       setSaleToCobrar(null);
     } catch (err: any) {
       alert(`Error al registrar cobro: ${err.message || err}`);
@@ -469,47 +590,83 @@ export default function Facturacion() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
               {saleItems.map((item, idx) => {
                 const prod = products.find(p => p.id === item.productId);
+                const isPres = prod?.type === 'PRESENTACION';
+                const totalCost = item.costoTotalHistorico || 0;
+                const profit = isPres ? (item.importeReal || 0) - totalCost : 0;
+                const margin = isPres && item.importeReal && item.importeReal > 0 ? (profit / item.importeReal) * 100 : 0;
+
                 return (
                   <div 
                     key={idx} 
                     style={{
                       background: '#ffffff',
-                      padding: '12px',
-                      borderRadius: '8px',
+                      padding: '16px',
+                      borderRadius: '12px',
                       border: '1px solid var(--border-color)',
-                      boxShadow: '0 1px 3px rgba(0, 0, 0, 0.02)'
+                      boxShadow: '0 1px 3px rgba(0, 0, 0, 0.02)',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '12px'
                     }}
                   >
-                    <div style={{ fontWeight: 600, fontSize: '13.5px', marginBottom: '8px' }}>
-                      {prod?.nombre || 'Producto desconocido'} ({item.unidad})
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <strong style={{ fontSize: '14px', color: 'var(--text-primary)' }}>{prod?.nombre || 'Producto Desconocido'}</strong>
+                      <span style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '12px', backgroundColor: '#f3f4f6', color: 'var(--text-secondary)' }}>
+                        {prod?.type}
+                      </span>
                     </div>
                     
-                    <div style={{ display: 'flex', gap: '12px' }}>
-                      <div style={{ flex: 1 }}>
-                        <label style={{ fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', display: 'block' }}>Cantidad</label>
-                        <input 
-                          type="number" 
-                          step="0.1" 
-                          value={item.cantidad} 
-                          onChange={e => handleUpdateItem(idx, 'cantidad', parseFloat(e.target.value) || 0)} 
-                          style={{ width: '100%', padding: '6px 8px', borderRadius: '6px', border: '1px solid var(--border-color)', outline: 'none' }}
-                        />
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1.2fr', gap: '12px' }}>
+                      <div>
+                        <label style={{ fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', display: 'block' }}>Peso Real (Kg)</label>
+                        <div style={{ padding: '8px 12px', borderRadius: '8px', backgroundColor: '#f9fafb', border: '1px solid var(--border-color)', fontSize: '13px', fontWeight: 600 }}>
+                          {item.pesoReal || 0} Kg
+                        </div>
                       </div>
-                      <div style={{ flex: 1 }}>
-                        <label style={{ fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', display: 'block' }}>Precio Unit. ($)</label>
+                      <div>
+                        <label style={{ fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', display: 'block' }}>Precio/Kg ($)</label>
                         <input 
                           type="number" 
                           step="0.01" 
-                          value={item.precioUnitario} 
-                          onChange={e => handleUpdateItem(idx, 'precioUnitario', parseFloat(e.target.value) || 0)} 
-                          style={{ width: '100%', padding: '6px 8px', borderRadius: '6px', border: '1px solid var(--border-color)', outline: 'none' }}
+                          value={item.precioRealKg || ''} 
+                          onChange={e => {
+                            const val = parseFloat(e.target.value) || 0;
+                            handleUpdateItem(idx, 'precioRealKg', val);
+                          }}
+                          style={{ width: '100%', padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--border-color)', outline: 'none', fontSize: '13px', fontWeight: 600 }}
                         />
                       </div>
+                      <div>
+                        <label style={{ fontSize: '11px', color: 'var(--text-secondary)', marginBottom: '4px', display: 'block' }}>Importe Real ($)</label>
+                        <div style={{ padding: '8px 12px', borderRadius: '8px', backgroundColor: '#f9fafb', border: '1px solid var(--border-color)', fontSize: '13px', fontWeight: 600, color: 'var(--alvacio-red)' }}>
+                          ${(item.importeReal || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                        </div>
+                      </div>
                     </div>
-                    
-                    <div style={{ textAlign: 'right', marginTop: '8px', fontSize: '13px', fontWeight: 600 }}>
-                      Subtotal: ${item.subtotal.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
-                    </div>
+
+                    {/* ERP Internal Margins Panel */}
+                    {isPres && (
+                      <div style={{ 
+                        marginTop: '8px', 
+                        padding: '12px', 
+                        borderRadius: '8px', 
+                        backgroundColor: 'rgba(0, 0, 0, 0.02)', 
+                        border: '1px solid var(--border-color)',
+                        display: 'grid',
+                        gridTemplateColumns: '1fr 1fr',
+                        gap: '8px',
+                        fontSize: '11.5px'
+                      }}>
+                        <div>Costo/Kg: <strong>${item.costoUnitarioHistorico?.toFixed(2) || '0.00'}</strong></div>
+                        <div>Costo Total: <strong>${totalCost.toFixed(2)}</strong></div>
+                        <div style={{ color: profit >= 0 ? '#16a34a' : '#ef4444' }}>
+                          Ganancia: <strong>${profit.toFixed(2)}</strong>
+                        </div>
+                        <div style={{ color: margin >= 0 ? '#16a34a' : '#ef4444' }}>
+                          Margen: <strong>{margin.toFixed(1)}%</strong>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 );
               })}
@@ -522,6 +679,32 @@ export default function Facturacion() {
             borderTop: '1px solid var(--border-color)',
             paddingTop: '16px'
           }}>
+            {/* ERP Internal Totals */}
+            <div style={{
+              backgroundColor: 'rgba(0, 0, 0, 0.03)',
+              border: '1px solid var(--border-color)',
+              borderRadius: '10px',
+              padding: '14px',
+              marginBottom: '16px',
+              fontSize: '13px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '6px'
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ color: 'var(--text-secondary)' }}>Costo Total Interno:</span>
+                <strong>${totalCostoInterno.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</strong>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', color: totalRentabilidadInterna >= 0 ? '#16a34a' : '#ef4444' }}>
+                <span>Ganancia Estimada:</span>
+                <strong>${totalRentabilidadInterna.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</strong>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', color: totalMargenInterno >= 0 ? '#16a34a' : '#ef4444' }}>
+                <span>Margen Comercial Promedio:</span>
+                <strong>{totalMargenInterno}%</strong>
+              </div>
+            </div>
+
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
               <span style={{ fontWeight: 500, color: 'var(--text-secondary)' }}>Monto Total del Remito:</span>
               <strong style={{ fontSize: '20px', color: 'var(--alvacio-red)' }}>
@@ -570,11 +753,28 @@ export default function Facturacion() {
               </strong>:
             </p>
 
+            <div className="form-group" style={{ display: 'flex', flexDirection: 'column', gap: '6px', margin: '8px 0 4px 0' }}>
+              <label style={{ fontSize: '13px', fontWeight: 600 }}>Cuenta de Destino (Solo para Efectivo/Transferencia)</label>
+              <select
+                value={selectedAccountId}
+                onChange={e => setSelectedAccountId(e.target.value)}
+                style={{ width: '100%', padding: '8px', borderRadius: '8px', border: '1px solid var(--border-color)', fontSize: '14px' }}
+              >
+                <option value="">Seleccione cuenta destino...</option>
+                {accounts.filter(a => a.activa).map(a => (
+                  <option key={a.id} value={a.id}>
+                    {a.nombre} ({a.tipo})
+                  </option>
+                ))}
+              </select>
+            </div>
+
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginTop: '8px' }}>
               <button
                 type="button"
                 className="btn-primary"
                 onClick={() => executeCobrar('EFECTIVO_TRANSFERENCIA')}
+                disabled={!selectedAccountId}
                 style={{
                   display: 'flex',
                   alignItems: 'center',
@@ -582,7 +782,9 @@ export default function Facturacion() {
                   gap: '10px',
                   padding: '14px',
                   fontSize: '14px',
-                  fontWeight: 600
+                  fontWeight: 600,
+                  opacity: !selectedAccountId ? 0.5 : 1,
+                  cursor: !selectedAccountId ? 'not-allowed' : 'pointer'
                 }}
               >
                 💵 Efectivo / Transferencia (Ingreso a Caja)

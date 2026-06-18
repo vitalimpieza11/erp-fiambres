@@ -41,6 +41,7 @@ export const cajaRepository = {
       category: 'ANULACION',
       description: `Anulación de ${original.category} (Ref: ${originalId}). Motivo: ${reason}`,
       referenceId: original.id,
+      accountId: original.accountId,
       isDeleted: false
     };
     await setDoc(docRef, compensatoryMovement);

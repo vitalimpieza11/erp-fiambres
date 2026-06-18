@@ -36,7 +36,7 @@ export function usePedidos() {
     // 3. Fallback al precio comercial o sugerido del producto base
     const product = productos.find(p => p.id === productId);
     if (product) {
-      return product.precioComercial || product.precioSugerido || 0;
+      return product.precioComercial || 0;
     }
 
     return 0; // Sin precio

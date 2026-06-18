@@ -1,10 +1,17 @@
 import React, { useEffect, useCallback, useState } from 'react';
 import { useProveedoresStore } from '../../store/proveedoresStore';
+import { useFinancialAccountsStore } from '../../store/financialAccountsStore';
 import type { Supplier, SupplierMovement } from '../../types/domain';
 
 export type ShowPanelType = false | 'COMPRA' | 'PAGO' | 'AJUSTE' | 'NEW_SUPPLIER' | 'EDIT_SUPPLIER';
 
 export function useProveedores() {
+  const { accounts, fetchAccounts } = useFinancialAccountsStore();
+  const [selectedAccountId, setSelectedAccountId] = useState('');
+
+  useEffect(() => {
+    fetchAccounts();
+  }, [fetchAccounts]);
   const suppliers = useProveedoresStore((state) => state.suppliers);
   const movements = useProveedoresStore((state) => state.movements);
   const loading = useProveedoresStore((state) => state.loading);
@@ -40,6 +47,14 @@ export function useProveedores() {
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('active');
   const [showPanel, setShowPanel] = useState<ShowPanelType>(false);
   const [selectedSupplierId, setSelectedSupplierId] = useState<string>('');
+
+  useEffect(() => {
+    if (accounts.length > 0) {
+      const activeCash = accounts.find(a => a.activa && a.tipo === 'EFECTIVO');
+      const activeAny = accounts.find(a => a.activa);
+      setSelectedAccountId(activeCash?.id || activeAny?.id || '');
+    }
+  }, [accounts, showPanel]);
   
   // Supplier Form states
   const [supplierName, setSupplierName] = useState('');
@@ -137,7 +152,11 @@ export function useProveedores() {
       if (showPanel === 'COMPRA') {
         await registerCompra(selectedSupplierId, amount, date, sourceId, observaciones);
       } else if (showPanel === 'PAGO') {
-        await registerPago(selectedSupplierId, amount, date, sourceId, observaciones, fromCaja);
+        if (fromCaja && !selectedAccountId) {
+          alert("Debe seleccionar una cuenta financiera.");
+          return;
+        }
+        await registerPago(selectedSupplierId, amount, date, sourceId, observaciones, fromCaja, fromCaja ? selectedAccountId : undefined);
       } else if (showPanel === 'AJUSTE') {
         await registerAjuste(selectedSupplierId, amount, date, observaciones);
       }
@@ -162,6 +181,8 @@ export function useProveedores() {
     sourceId,
     observaciones,
     fromCaja,
+    selectedAccountId,
+    accounts,
     saveSupplier,
     registerCompra,
     registerPago,
@@ -254,6 +275,9 @@ export function useProveedores() {
     handleSubmit,
     handleToggleStatus,
     handleAnnul,
-    filteredSuppliers
+    filteredSuppliers,
+    accounts,
+    selectedAccountId,
+    setSelectedAccountId
   };
 }

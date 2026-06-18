@@ -1,6 +1,7 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useVentas } from './useVentas';
 import type { Sale, Order, SaleItem } from '../../types/domain';
+import { useFinancialAccountsStore } from '../../store/financialAccountsStore';
 import ExpandableCard from '../../components/ExpandableCard';
 import RightPanel from '../../components/RightPanel';
 import Modal from '../../components/Modal';
@@ -11,6 +12,7 @@ import LoadingSpinner from '../../components/LoadingSpinner';
 import { createAlvacioPDF } from '../../lib/pdfHelper';
 import { calculateWeightInKg, convertQuantityToBaseUnit } from '../../lib/unitConverter';
 import { truncateDecimals } from '../../lib/formatters';
+import { groupPresentacionesByCustomer } from '../../lib/groupByCustomer';
 
 const STATUS_COLORS: Record<string, string> = {
   FACTURADO: '#f59e0b',
@@ -113,7 +115,7 @@ export default function Ventas() {
       const prod = products.find(p => p.id === val);
       if (prod) {
         item.unidad = prod.unitType;
-        item.precioUnitario = prod.precioComercial || prod.precioSugerido || 0;
+        item.precioUnitario = prod.precioComercial || 0;
       }
     }
     
@@ -323,9 +325,24 @@ export default function Ventas() {
                 <div key={idx} style={{ background: '#fff', padding: '16px', borderRadius: '12px', border: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', gap: '12px' }}>
                   <select required value={item.productId} onChange={e => updateQuickSaleItem(idx, 'productId', e.target.value)}>
                     <option value="">Seleccione Producto</option>
-                    {products.filter(p => p.type === 'PRESENTACION').map(p => (
-                      <option key={p.id} value={p.id}>{p.nombre}</option>
-                    ))}
+                    {(() => {
+                      const pres = products.filter(p => p.type === 'PRESENTACION');
+                      const { byCustomer, loose } = groupPresentacionesByCustomer(pres, customers, quickSale.customerId);
+                      return (
+                        <>
+                          {byCustomer.map(grp => (
+                            <optgroup key={grp.customer.id} label={`👤 ${grp.customer.nombre}`}>
+                              {grp.products.map(p => <option key={p.id} value={p.id}>{p.nombre}</option>)}
+                            </optgroup>
+                          ))}
+                          {loose.length > 0 && (
+                            <optgroup label="📦 Sin cliente asignado">
+                              {loose.map(p => <option key={p.id} value={p.id}>{p.nombre}</option>)}
+                            </optgroup>
+                          )}
+                        </>
+                      );
+                    })()}
                   </select>
                   
                   <div style={{ display: 'flex', gap: '12px' }}>

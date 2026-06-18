@@ -1,6 +1,7 @@
 import { getDocs, query, where, doc, runTransaction, collection } from 'firebase/firestore';
 import { db, COLLECTIONS } from '../../lib/firebase';
 import type { Order, Product, Equivalencia, StockMovement, RecipeItem, Customer } from '../../types/domain';
+import { mapRecipeUnitToUnitType } from '../../types/domain';
 import { convertUnit, convertQuantityToBaseUnit, calculateWeightInKg } from '../../lib/unitConverter';
 import { truncateDecimals } from '../../lib/formatters';
 
@@ -47,7 +48,11 @@ export const productionRepository = {
     equivalences: Equivalencia[]
   ): Promise<void> {
     await runTransaction(db, async (transaction) => {
-      // 1. Get current product (READ)
+      // 1. Get current product and settings (READ)
+      const settingsRef = doc(db, 'settings', 'global');
+      const settingsSnap = await transaction.get(settingsRef);
+      const usePackages = settingsSnap.exists() ? (settingsSnap.data()?.usePackages ?? false) : false;
+
       const productRef = doc(db, 'products', data.productId);
       const productDoc = await transaction.get(productRef);
       if (!productDoc.exists()) throw new Error("Producto no encontrado");
@@ -55,26 +60,25 @@ export const productionRepository = {
       const productData = productDoc.data() as Product;
       const currentStock = productData.stockActual || 0;
       
-      let recipeItems: RecipeItem[] = [];
+      let recipeItems: any[] = [];
 
       if (data.recipeItemsOverride !== undefined) {
-        recipeItems = data.recipeItemsOverride;
+        recipeItems = data.recipeItemsOverride.map((ing: any) => ({
+          productId: ing.ingredientProductId || ing.productId,
+          quantity: ing.quantity,
+          unit: ing.unit
+        }));
       } else {
-        recipeItems = productData.recipeItems || [];
-        const recipeId = productData.recipeId || (productData as any).recetaId;
-
-        if (recipeItems.length === 0 && recipeId) {
-          const recipeRef = doc(db, 'recipes', recipeId);
-          const recipeDoc = await transaction.get(recipeRef);
-          if (recipeDoc.exists()) {
-            const recipeData = recipeDoc.data();
-            const ingredients = recipeData.ingredients || [];
-            recipeItems = ingredients.map((ing: any) => ({
-              productId: ing.productId,
-              quantity: ing.quantity,
-              unit: ing.unit || 'GRAMOS'
-            }));
-          }
+        const recipeRef = doc(db, 'recipes', data.productId);
+        const recipeDoc = await transaction.get(recipeRef);
+        if (recipeDoc.exists()) {
+          const recipeData = recipeDoc.data();
+          const items = recipeData.items || [];
+          recipeItems = items.map((ing: any) => ({
+            productId: ing.ingredientProductId,
+            quantity: ing.quantity,
+            unit: mapRecipeUnitToUnitType(ing.unit)
+          }));
         }
       }
 
@@ -92,6 +96,8 @@ export const productionRepository = {
       }
 
       // 3. calculations & WRITE PHASE
+      let stepCost = 0;
+      const recipeSnapshot: any[] = [];
       for (const ing of recipeItems) {
         const ingEntry = ingredientDocs[ing.productId];
         if (ingEntry) {
@@ -115,10 +121,31 @@ export const productionRepository = {
           }
           
           stockToDeduct = truncateDecimals(stockToDeduct, 3);
-          const newIngStock = truncateDecimals(currentIngStock - stockToDeduct, 3);
+
+          // Calculate default shrinkage (mermaPorDefecto) if ingredient type is MERCADERIA
+          let mermaQty = 0;
+          if (ingData.type === 'MERCADERIA' && ingData.mermaPorDefecto && ingData.mermaPorDefecto > 0) {
+            mermaQty = truncateDecimals(ingData.mermaPorDefecto * data.cantidad, 3);
+          }
+
+          const totalDeduct = truncateDecimals(stockToDeduct + mermaQty, 3);
+          const newIngStock = truncateDecimals(currentIngStock - totalDeduct, 3);
 
           transaction.update(ingEntry.ref, {
             stockActual: newIngStock
+          });
+
+          // Accumulate ingredient cost
+          const ingCost = truncateDecimals(totalDeduct * (ingData.costoActual || 0), 2);
+          stepCost += ingCost;
+
+          recipeSnapshot.push({
+            ingredientId: ing.productId,
+            ingredientName: ingData.nombre || 'Ingrediente',
+            quantity: truncateDecimals(totalDeduct, 3),
+            unit: ingData.unitType || 'KG',
+            unitCost: ingData.costoActual || 0,
+            totalCost: ingCost
           });
 
           // Movement for ingredient
@@ -132,6 +159,20 @@ export const productionRepository = {
             observaciones: `Consumo para producción de ${productData.nombre}` + (ing.pesoNeto ? ` | Peso Neto: ${ing.pesoNeto} KG` : ''),
             isDeleted: false
           });
+
+          // Movement for merma if mermaQty > 0
+          if (mermaQty > 0) {
+            const mermaMovRef = doc(collection(db, 'stock_movements'));
+            transaction.set(mermaMovRef, {
+              productId: ing.productId,
+              qty: -mermaQty,
+              type: 'MERMA_PRODUCCION',
+              date: new Date().toISOString(),
+              referenceId: data.orderId || '',
+              observaciones: `Merma estándar en producción de ${productData.nombre}`,
+              isDeleted: false
+            });
+          }
         }
       }
 
@@ -147,14 +188,32 @@ export const productionRepository = {
       transaction.set(movRef, {
         productId: data.productId,
         qty: truncatedProdQty,
-        type: 'PRODUCCION',
+        type: data.orderId ? 'PRODUCCION_PEDIDO' : 'PRODUCCION_STOCK',
         date: new Date().toISOString(),
         referenceId: data.orderId || '',
         observaciones: data.observaciones + (data.merma ? ` | Merma: ${data.merma}` : '') + (data.pesoReal ? ` | Peso Real: ${data.pesoReal}` : ''),
         isDeleted: false
       });
 
-      // 6. Update order status if applicable
+      // 6. Generar Package físico enriquecido si usePackages = true
+      if (usePackages) {
+        const pkgWeight = data.pesoReal || (productData.unitType === 'KG' ? data.cantidad : (data.cantidad * (productData.pesoObjetivoGramos || 0) / 1000));
+        const costPerKg = pkgWeight > 0 ? stepCost / pkgWeight : 0;
+        const pkgRef = doc(collection(db, 'packages'));
+        transaction.set(pkgRef, {
+          productId: data.productId,
+          productName: productData.nombre || 'Producto',
+          weight: truncateDecimals(pkgWeight, 3),
+          costPerKg: truncateDecimals(costPerKg, 2),
+          totalCost: truncateDecimals(stepCost, 2),
+          status: 'STOCK',
+          orderId: data.orderId || '',
+          producedAt: new Date().toISOString(),
+          recipeSnapshot
+        });
+      }
+
+      // 7. Update order status if applicable
       if (data.orderId && data.newOrderStatus) {
         const orderRef = doc(db, 'orders', data.orderId);
         transaction.update(orderRef, {
@@ -178,9 +237,12 @@ export const productionRepository = {
       newOrderStatus?: 'EN_PRODUCCION' | 'PRODUCIDO';
     },
     equivalences: Equivalencia[]
-  ): Promise<void> {
-    await runTransaction(db, async (transaction) => {
-      // --- READ PHASE: Fetch order and main products ---
+  ): Promise<void> {    await runTransaction(db, async (transaction) => {
+      // --- READ PHASE: Fetch settings, order and main products ---
+      const settingsRef = doc(db, 'settings', 'global');
+      const settingsSnap = await transaction.get(settingsRef);
+      const usePackages = settingsSnap.exists() ? (settingsSnap.data()?.usePackages ?? false) : false;
+
       let orderData: Order | null = null;
       let orderRef: any = null;
       if (data.orderId) {
@@ -213,26 +275,24 @@ export const productionRepository = {
         const mp = mainProductDocs.find(x => x.data.id === item.productId);
         if (!mp) continue;
 
-        let recipeItems: RecipeItem[] = [];
+        let recipeItems: any[] = [];
         if (item.recipeItemsOverride !== undefined) {
-          recipeItems = item.recipeItemsOverride;
+          recipeItems = item.recipeItemsOverride.map((ing: any) => ({
+            productId: ing.ingredientProductId || ing.productId,
+            quantity: ing.quantity,
+            unit: ing.unit
+          }));
         } else {
-          const productData = mp.data;
-          recipeItems = productData.recipeItems || [];
-          const recipeId = productData.recipeId || (productData as any).recetaId;
-
-          if (recipeItems.length === 0 && recipeId) {
-            const recipeRef = doc(db, 'recipes', recipeId);
-            const recipeDoc = await transaction.get(recipeRef);
-            if (recipeDoc.exists()) {
-              const recipeData = recipeDoc.data();
-              const ingredients = recipeData.ingredients || [];
-              recipeItems = ingredients.map((ing: any) => ({
-                productId: ing.productId,
-                quantity: ing.quantity,
-                unit: ing.unit || 'GRAMOS'
-              }));
-            }
+          const recipeRef = doc(db, 'recipes', item.productId);
+          const recipeDoc = await transaction.get(recipeRef);
+          if (recipeDoc.exists()) {
+            const recipeData = recipeDoc.data();
+            const items = recipeData.items || [];
+            recipeItems = items.map((ing: any) => ({
+              productId: ing.ingredientProductId,
+              quantity: ing.quantity,
+              unit: mapRecipeUnitToUnitType(ing.unit)
+            }));
           }
         }
 
@@ -267,20 +327,20 @@ export const productionRepository = {
         let baseQty = convertQuantityToBaseUnit(item.cantidad, item.unidad, productData);
         baseQty = truncateDecimals(baseQty, 3);
 
-        // 1. Discount finished stock (standard behavior for sales orders)
+        // 1. Increase finished stock (behavior for sales orders)
         const currentStock = stockUpdates[item.productId] !== undefined
           ? stockUpdates[item.productId]
           : (productData.stockActual || 0);
-        stockUpdates[item.productId] = truncateDecimals(currentStock - baseQty, 3);
+        stockUpdates[item.productId] = truncateDecimals(currentStock + baseQty, 3);
 
-        // Queue finished product sale movement (negative qty)
+        // Queue finished product production movement (positive qty)
         const movRef = doc(collection(db, 'stock_movements'));
         queuedMovements.push({
           ref: movRef,
           data: {
             productId: item.productId,
-            qty: -baseQty,
-            type: 'VENTA',
+            qty: baseQty,
+            type: data.orderId ? 'PRODUCCION_PEDIDO' : 'PRODUCCION_STOCK',
             date: new Date().toISOString(),
             referenceId: data.orderId || '',
             observaciones: `Preparación de Pedido: ${item.observaciones}` + (item.merma ? ` | Merma: ${item.merma}` : '') + (item.pesoReal ? ` | Peso Real: ${item.pesoReal}` : ''),
@@ -288,15 +348,81 @@ export const productionRepository = {
           }
         });
 
-        // 2. Process recipe ingredients (CONSUMPTION)
+        // 1b. Calculate cost and create Package document
+        let stepCost = 0;
+        const recipeSnapshot: any[] = [];
         const recipeInfo = itemsRecipes.find(r => r.itemId === `${item.productId}_${idx}`);
         if (recipeInfo) {
           for (const ing of recipeInfo.recipeItems) {
-            const ingEntry = ingredientDocs[ing.productId];
+            const ingEntry = ingredientDocs[ing.ingredientProductId];
             if (ingEntry) {
               const ingData = ingEntry.data;
-              const currentIngStock = stockUpdates[ing.productId] !== undefined
-                ? stockUpdates[ing.productId]
+              let stockToDeduct = 0;
+              if (ing.pesoNeto !== undefined && ing.pesoNeto > 0) {
+                stockToDeduct = convertQuantityToBaseUnit(ing.pesoNeto, 'KG', ingData);
+              } else {
+                const convertedQty = convertUnit(
+                  ing.quantity,
+                  ing.unit,
+                  ingData.unitType,
+                  ingData.nombre || '',
+                  '',
+                  equivalences
+                );
+                stockToDeduct = convertedQty * item.cantidad;
+              }
+              stockToDeduct = truncateDecimals(stockToDeduct, 3);
+
+              let mermaQty = 0;
+              if (ingData.type === 'MERCADERIA' && ingData.mermaPorDefecto && ingData.mermaPorDefecto > 0) {
+                mermaQty = truncateDecimals(ingData.mermaPorDefecto * item.cantidad, 3);
+              }
+
+              const totalDeduct = truncateDecimals(stockToDeduct + mermaQty, 3);
+              const ingCost = truncateDecimals(totalDeduct * (ingData.costoActual || 0), 2);
+              stepCost += ingCost;
+
+              recipeSnapshot.push({
+                ingredientId: ing.ingredientProductId,
+                ingredientName: ingData.nombre || 'Ingrediente',
+                quantity: truncateDecimals(totalDeduct, 3),
+                unit: ingData.unitType || 'KG',
+                unitCost: ingData.costoActual || 0,
+                totalCost: ingCost
+              });
+            }
+          }
+        }
+        const pkgWeight = item.pesoReal || (productData.unitType === 'KG' ? item.cantidad : (item.cantidad * (productData.pesoObjetivoGramos || 0) / 1000));
+        const costPerKg = pkgWeight > 0 ? stepCost / pkgWeight : 0;
+        
+        if (usePackages) {
+          const pkgRef = doc(collection(db, 'packages'));
+          queuedMovements.push({
+            ref: pkgRef,
+            data: {
+              productId: item.productId,
+              productName: productData.nombre || 'Producto',
+              weight: truncateDecimals(pkgWeight, 3),
+              costPerKg: truncateDecimals(costPerKg, 2),
+              totalCost: truncateDecimals(stepCost, 2),
+              status: 'STOCK',
+              orderId: data.orderId || '',
+              producedAt: new Date().toISOString(),
+              recipeSnapshot
+            }
+          });
+        }
+
+        // 2. Process recipe ingredients (CONSUMPTION)
+        const recipeInfoForIng = itemsRecipes.find(r => r.itemId === `${item.productId}_${idx}`);
+        if (recipeInfoForIng) {
+          for (const ing of recipeInfoForIng.recipeItems) {
+            const ingEntry = ingredientDocs[ing.ingredientProductId];
+            if (ingEntry) {
+              const ingData = ingEntry.data;
+              const currentIngStock = stockUpdates[ing.ingredientProductId] !== undefined
+                ? stockUpdates[ing.ingredientProductId]
                 : (ingData.stockActual || 0);
 
               let stockToDeduct = 0;
@@ -317,14 +443,21 @@ export const productionRepository = {
               }
 
               stockToDeduct = truncateDecimals(stockToDeduct, 3);
-              stockUpdates[ing.productId] = truncateDecimals(currentIngStock - stockToDeduct, 3);
+
+              let mermaQty = 0;
+              if (ingData.type === 'MERCADERIA' && ingData.mermaPorDefecto && ingData.mermaPorDefecto > 0) {
+                mermaQty = truncateDecimals(ingData.mermaPorDefecto * item.cantidad, 3);
+              }
+
+              const totalDeduct = truncateDecimals(stockToDeduct + mermaQty, 3);
+              stockUpdates[ing.ingredientProductId] = truncateDecimals(currentIngStock - totalDeduct, 3);
 
               // Queue ingredient consumption movement (negative qty, type PRODUCCION)
               const ingMovRef = doc(collection(db, 'stock_movements'));
               queuedMovements.push({
                 ref: ingMovRef,
                 data: {
-                  productId: ing.productId,
+                  productId: ing.ingredientProductId,
                   qty: -stockToDeduct,
                   type: 'PRODUCCION',
                   date: new Date().toISOString(),
@@ -333,6 +466,23 @@ export const productionRepository = {
                   isDeleted: false
                 }
               });
+
+              // Queue merma movement if mermaQty > 0
+              if (mermaQty > 0) {
+                const mermaMovRef = doc(collection(db, 'stock_movements'));
+                queuedMovements.push({
+                  ref: mermaMovRef,
+                  data: {
+                    productId: ing.ingredientProductId,
+                    qty: -mermaQty,
+                    type: 'MERMA_PRODUCCION',
+                    date: new Date().toISOString(),
+                    referenceId: data.orderId || '',
+                    observaciones: `Merma estándar en producción de ${productData.nombre} (Pedido)`,
+                    isDeleted: false
+                  }
+                });
+              }
             }
           }
         }
@@ -407,6 +557,10 @@ export const productionRepository = {
   ): Promise<void> {
     await runTransaction(db, async (transaction) => {
       // 1. READ PHASE
+      const settingsRef = doc(db, 'settings', 'global');
+      const settingsSnap = await transaction.get(settingsRef);
+      const usePackages = settingsSnap.exists() ? (settingsSnap.data()?.usePackages ?? false) : false;
+
       const orderRef = doc(db, 'orders', data.orderId);
       const orderDoc = await transaction.get(orderRef);
       if (!orderDoc.exists()) throw new Error(`Pedido ${data.orderId} no encontrado`);
@@ -417,25 +571,24 @@ export const productionRepository = {
       if (!productDoc.exists()) throw new Error(`Producto ${data.productId} no encontrado`);
       const productData = { id: productDoc.id, ...(productDoc.data() || {}) } as any as Product;
 
-      let recipeItems: RecipeItem[] = [];
+      let recipeItems: any[] = [];
       if (data.recipeItemsOverride !== undefined) {
-        recipeItems = data.recipeItemsOverride;
+        recipeItems = data.recipeItemsOverride.map((ing: any) => ({
+          productId: ing.ingredientProductId || ing.productId,
+          quantity: ing.quantity,
+          unit: ing.unit
+        }));
       } else {
-        recipeItems = productData.recipeItems || [];
-        const recipeId = productData.recipeId || (productData as any).recetaId;
-
-        if (recipeItems.length === 0 && recipeId) {
-          const recipeRef = doc(db, 'recipes', recipeId);
-          const recipeDoc = await transaction.get(recipeRef);
-          if (recipeDoc.exists()) {
-            const recipeData = recipeDoc.data();
-            const ingredients = recipeData.ingredients || [];
-            recipeItems = ingredients.map((ing: any) => ({
-              productId: ing.productId,
-              quantity: ing.quantity,
-              unit: ing.unit || 'GRAMOS'
-            }));
-          }
+        const recipeRef = doc(db, 'recipes', data.productId);
+        const recipeDoc = await transaction.get(recipeRef);
+        if (recipeDoc.exists()) {
+          const recipeData = recipeDoc.data();
+          const items = recipeData.items || [];
+          recipeItems = items.map((ing: any) => ({
+            productId: ing.ingredientProductId,
+            quantity: ing.quantity,
+            unit: mapRecipeUnitToUnitType(ing.unit)
+          }));
         }
       }
 
@@ -458,19 +611,22 @@ export const productionRepository = {
       baseQty = truncateDecimals(baseQty, 3);
 
       const currentStock = productData.stockActual || 0;
-      transaction.update(productRef, { stockActual: truncateDecimals(currentStock - baseQty, 3) });
+      // Increase finished stock (behavior for sales orders)
+      transaction.update(productRef, { stockActual: truncateDecimals(currentStock + baseQty, 3) });
 
       const movRef = doc(collection(db, 'stock_movements'));
       transaction.set(movRef, {
         productId: data.productId,
-        qty: -baseQty,
-        type: 'VENTA',
+        qty: baseQty,
+        type: 'PRODUCCION_PEDIDO',
         date: new Date().toISOString(),
         referenceId: data.orderId,
         observaciones: `Preparación de Pedido: ${data.observaciones}` + (data.merma ? ` | Merma: ${data.merma}` : '') + (data.pesoReal ? ` | Peso Real: ${data.pesoReal}` : ''),
         isDeleted: false
       });
 
+      let stepCost = 0;
+      const recipeSnapshot: any[] = [];
       for (const ing of recipeItems) {
         const ingEntry = ingredientDocs[ing.productId];
         if (ingEntry) {
@@ -493,8 +649,28 @@ export const productionRepository = {
           }
 
           stockToDeduct = truncateDecimals(stockToDeduct, 3);
-          const newIngStock = truncateDecimals(currentIngStock - stockToDeduct, 3);
+
+          let mermaQty = 0;
+          if (ingData.type === 'MERCADERIA' && ingData.mermaPorDefecto && ingData.mermaPorDefecto > 0) {
+            mermaQty = truncateDecimals(ingData.mermaPorDefecto * data.cantidad, 3);
+          }
+
+          const totalDeduct = truncateDecimals(stockToDeduct + mermaQty, 3);
+          const newIngStock = truncateDecimals(currentIngStock - totalDeduct, 3);
           transaction.update(ingEntry.ref, { stockActual: newIngStock });
+
+          // Accumulate ingredient cost
+          const ingCost = truncateDecimals(totalDeduct * (ingData.costoActual || 0), 2);
+          stepCost += ingCost;
+
+          recipeSnapshot.push({
+            ingredientId: ing.productId,
+            ingredientName: ingData.nombre || 'Ingrediente',
+            quantity: truncateDecimals(totalDeduct, 3),
+            unit: ingData.unitType || 'KG',
+            unitCost: ingData.costoActual || 0,
+            totalCost: ingCost
+          });
 
           const ingMovRef = doc(collection(db, 'stock_movements'));
           transaction.set(ingMovRef, {
@@ -506,7 +682,39 @@ export const productionRepository = {
             observaciones: `Consumo para producción de ${productData.nombre} (Pedido)` + (ing.pesoNeto ? ` | Peso Neto: ${ing.pesoNeto} KG` : ''),
             isDeleted: false
           });
+
+          // Movement for merma if mermaQty > 0
+          if (mermaQty > 0) {
+            const mermaMovRef = doc(collection(db, 'stock_movements'));
+            transaction.set(mermaMovRef, {
+              productId: ing.productId,
+              qty: -mermaQty,
+              type: 'MERMA_PRODUCCION',
+              date: new Date().toISOString(),
+              referenceId: data.orderId,
+              observaciones: `Merma estándar en producción de ${productData.nombre} (Pedido)`,
+              isDeleted: false
+            });
+          }
         }
+      }
+
+      // Create Package document if usePackages = true
+      if (usePackages) {
+        const pkgWeight = data.pesoReal || (productData.unitType === 'KG' ? data.cantidad : (data.cantidad * (productData.pesoObjetivoGramos || 0) / 1000));
+        const costPerKg = pkgWeight > 0 ? stepCost / pkgWeight : 0;
+        const pkgRef = doc(collection(db, 'packages'));
+        transaction.set(pkgRef, {
+          productId: data.productId,
+          productName: productData.nombre || 'Producto',
+          weight: truncateDecimals(pkgWeight, 3),
+          costPerKg: truncateDecimals(costPerKg, 2),
+          totalCost: truncateDecimals(stepCost, 2),
+          status: 'STOCK',
+          orderId: data.orderId || '',
+          producedAt: new Date().toISOString(),
+          recipeSnapshot
+        });
       }
 
       const updatedItems = [];

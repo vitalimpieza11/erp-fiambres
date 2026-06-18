@@ -18,52 +18,6 @@ export function validateProduct(product: Partial<Product>, catalog: Product[]): 
       field: 'nombre'
     } as DomainError;
   }
-
-  if (product.type === 'PRESENTACION') {
-    if (!product.recipeItems || product.recipeItems.length === 0) {
-      throw {
-        code: 'RECETA_VACIA',
-        message: 'Las presentaciones deben tener al menos un ingrediente en su receta.',
-        field: 'recipeItems'
-      } as DomainError;
-    }
-    
-    for (const item of product.recipeItems) {
-      if (!item.productId) {
-        throw {
-          code: 'PRODUCTO_NO_REFERENCIADO',
-          message: 'Debe seleccionar un producto para cada ingrediente de la receta.',
-          field: 'recipeItems.productId'
-        } as DomainError;
-      }
-      
-      const productExists = catalog.some(p => p.id === item.productId);
-      if (!productExists) {
-        throw {
-          code: 'INTEGRIDAD_REFERENCIAL',
-          message: 'El producto seleccionado como ingrediente no existe en el catálogo.',
-          field: 'recipeItems.productId'
-        } as DomainError;
-      }
-
-      if (!item.quantity || item.quantity <= 0) {
-        throw {
-          code: 'CANTIDAD_INVALIDA',
-          message: 'La cantidad del ingrediente debe ser mayor a cero.',
-          field: 'recipeItems.quantity'
-        } as DomainError;
-      }
-      
-      const validUnits: UnitType[] = ['KG', 'GRAMOS', 'UNIDADES', 'FETAS'];
-      if (!item.unit || !validUnits.includes(item.unit as UnitType)) {
-        throw {
-          code: 'UNIDAD_INVALIDA',
-          message: 'La unidad de medida del ingrediente no es válida.',
-          field: 'recipeItems.unit'
-        } as DomainError;
-      }
-    }
-  }
 }
 
 export const productsRepository = {
@@ -72,25 +26,33 @@ export const productsRepository = {
     return snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Product));
   },
 
-  async saveProduct(product: Partial<Product>, catalog: Product[]): Promise<void> {
+  async saveProduct(product: Partial<Product>, catalog: Product[]): Promise<string> {
     validateProduct(product, catalog);
 
     const dataToSave = {
       ...product,
-      precioSugerido: Number(product.precioSugerido || 0),
       precioComercial: Number(product.precioComercial || 0),
-      costoActual: Number(product.costoActual || 0),
       stockActual: truncateDecimals(Number(product.stockActual || 0), 3),
-    };
+    } as any;
 
-    if (product.type !== 'PRESENTACION') {
-      delete dataToSave.recipeItems;
+    if (product.type === 'PRESENTACION') {
+      // Cost of presentations is dynamic, do not store in DB
+      delete dataToSave.costoActual;
+    } else {
+      dataToSave.costoActual = Number(product.costoActual || 0);
     }
+
+    // Do not modify legacy recipe fields in DB during migration to support rollback
+    delete dataToSave.recipeItems;
+    delete dataToSave.recipeId;
+    delete dataToSave.recetaId;
 
     if (product.id) {
       await updateDoc(doc(db, 'products', product.id), dataToSave);
+      return product.id;
     } else {
-      await addDoc(COLLECTIONS.PRODUCTS, dataToSave);
+      const docRef = await addDoc(COLLECTIONS.PRODUCTS, dataToSave);
+      return docRef.id;
     }
   },
 

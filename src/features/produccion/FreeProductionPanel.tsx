@@ -4,7 +4,9 @@ import ProductionFields from './ProductionFields';
 import RecipeEditor from './RecipeEditor';
 import { convertQuantityToBaseUnit } from '../../lib/unitConverter';
 import type { Product, RecipeItem, Equivalencia } from '../../types/domain';
+import { mapRecipeUnitToUnitType } from '../../types/domain';
 import { truncateDecimals } from '../../lib/formatters';
+import { calculateProductionCostDetails } from '../../utils/costHelpers';
 
 interface FreeProductionPanelProps {
   isOpen: boolean;
@@ -51,22 +53,8 @@ export default function FreeProductionPanel({
 
   const resolvedRecipeItems = useMemo(() => {
     if (!selectedProdObj) return [];
-    let items = selectedProdObj.recipeItems || [];
-    if (items.length === 0) {
-      const recipeId = selectedProdObj.recipeId || (selectedProdObj as any).recetaId;
-      if (recipeId) {
-        const recipe = (recipes || []).find(r => r.id === recipeId);
-        if (recipe) {
-          const ingredients = recipe.ingredients || [];
-          items = ingredients.map((ing: any) => ({
-            productId: ing.productId,
-            quantity: ing.quantity,
-            unit: ing.unit || 'GRAMOS'
-          }));
-        }
-      }
-    }
-    return items;
+    const recipe = (recipes || []).find(r => r.productId === selectedProdObj.id);
+    return recipe ? recipe.items : [];
   }, [selectedProdObj, recipes]);
 
   useEffect(() => {
@@ -102,16 +90,12 @@ export default function FreeProductionPanel({
     if (customIngredients.length > 0 && selectedProduct) {
       let calculatedWeight = 0;
       customIngredients.forEach(ing => {
-        const ingProduct = products.find(p => p.id === ing.productId);
+        const ingProduct = products.find(p => p.id === ing.ingredientProductId);
         if (ingProduct && ingProduct.type !== 'INSUMO') {
-          if (ing.pesoNeto !== undefined && ing.pesoNeto > 0) {
-            calculatedWeight += ing.pesoNeto;
-          } else {
-            try {
-              calculatedWeight += convertQuantityToBaseUnit(ing.quantity, ing.unit, { ...ingProduct, unitType: 'KG' }) * prodQty;
-            } catch (e) {
-              console.error(e);
-            }
+          try {
+            calculatedWeight += convertQuantityToBaseUnit(ing.quantity, mapRecipeUnitToUnitType(ing.unit), { ...ingProduct, unitType: 'KG' }) * prodQty;
+          } catch (e) {
+            console.error(e);
           }
         }
       });
@@ -121,6 +105,17 @@ export default function FreeProductionPanel({
     }
   }, [customIngredients, prodQty, selectedProduct, products]);
 
+  const costDetails = useMemo(() => {
+    return calculateProductionCostDetails(
+      customIngredients,
+      prodQty,
+      prodWeight > 0 ? prodWeight : undefined,
+      selectedProdObj,
+      products,
+      equivalences
+    );
+  }, [customIngredients, prodQty, prodWeight, selectedProdObj, products, equivalences]);
+
   const handleProduce = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedProduct || prodQty <= 0) {
@@ -128,7 +123,7 @@ export default function FreeProductionPanel({
       return;
     }
     try {
-      const validOverride = customIngredients.filter(ing => ing.productId && ing.quantity > 0);
+      const validOverride = customIngredients.filter(ing => ing.ingredientProductId && ing.quantity > 0);
       await produce({
         productId: selectedProduct,
         cantidad: prodQty,
@@ -194,6 +189,69 @@ export default function FreeProductionPanel({
               equivalences={equivalences}
               prodQty={prodQty}
             />
+
+            {/* Panel de Costos de Producción Libre */}
+            {prodQty > 0 && (
+              <div style={{ 
+                background: '#f8fafc', 
+                border: '1px solid #e2e8f0', 
+                borderRadius: '12px', 
+                padding: '16px',
+                marginTop: '4px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '12px'
+              }}>
+                <h4 style={{ margin: 0, fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)', borderBottom: '1px solid #e2e8f0', paddingBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <span>📊</span> Análisis de Costos de Producción
+                </h4>
+                
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px' }}>
+                  <div style={{ background: '#fff', padding: '6px 10px', borderRadius: '8px', border: '1px solid #f1f5f9' }}>
+                    <span style={{ fontSize: '10px', color: 'var(--text-secondary)', display: 'block' }}>Mat. Prima</span>
+                    <strong style={{ fontSize: '13px', color: 'var(--text-primary)' }}>${costDetails.rawMaterialCost.toFixed(2)}</strong>
+                  </div>
+                  <div style={{ background: '#fff', padding: '6px 10px', borderRadius: '8px', border: '1px solid #f1f5f9' }}>
+                    <span style={{ fontSize: '10px', color: 'var(--text-secondary)', display: 'block' }}>Insumos/Emb.</span>
+                    <strong style={{ fontSize: '13px', color: 'var(--text-primary)' }}>${costDetails.packagingCost.toFixed(2)}</strong>
+                  </div>
+                  <div style={{ background: '#fffbeb', padding: '6px 10px', borderRadius: '8px', border: '1px solid #fef3c7' }}>
+                    <span style={{ fontSize: '10px', color: '#b45309', display: 'block' }}>Costo Total</span>
+                    <strong style={{ fontSize: '13px', color: '#b45309' }}>${costDetails.totalCost.toFixed(2)}</strong>
+                  </div>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                  <div style={{ background: '#fff', padding: '6px 10px', borderRadius: '8px', border: '1px solid #f1f5f9' }}>
+                    <span style={{ fontSize: '10px', color: 'var(--text-secondary)', display: 'block' }}>Costo Unitario</span>
+                    <strong style={{ fontSize: '12px', color: 'var(--text-primary)' }}>${costDetails.costPerUnit.toFixed(2)} / u</strong>
+                  </div>
+                  <div style={{ background: '#fff', padding: '6px 10px', borderRadius: '8px', border: '1px solid #f1f5f9' }}>
+                    <span style={{ fontSize: '10px', color: 'var(--text-secondary)', display: 'block' }}>Costo por Kg</span>
+                    <strong style={{ fontSize: '12px', color: 'var(--text-primary)' }}>${costDetails.costPerKg.toFixed(2)} / kg</strong>
+                  </div>
+                </div>
+
+                <div style={{ marginTop: '2px' }}>
+                  <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>
+                    Desglose de Ingredientes:
+                  </span>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '5px', maxHeight: '150px', overflowY: 'auto', paddingRight: '4px' }}>
+                    {costDetails.ingredients.map((ing, i) => (
+                      <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', padding: '3px 0', borderBottom: '1px dashed #f1f5f9' }}>
+                        <span style={{ color: 'var(--text-primary)' }}>
+                          • {ing.ingredientName} ({ing.quantityUsed} {ing.unit})
+                          <span style={{ fontSize: '9px', color: 'var(--text-secondary)', marginLeft: '4px' }}>
+                            [${ing.unitCost.toFixed(2)}/{ing.unit}]
+                          </span>
+                        </span>
+                        <strong style={{ color: 'var(--text-primary)' }}>${ing.totalCost.toFixed(2)}</strong>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         )}
 

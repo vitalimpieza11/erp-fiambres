@@ -1,16 +1,21 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useStock } from './useStock';
 import ExpandableCard from '../../components/ExpandableCard';
 import RightPanel from '../../components/RightPanel';
 import { Package, Activity, AlertCircle, AlertTriangle, TrendingUp } from 'lucide-react';
-
 import LoadingSpinner from '../../components/LoadingSpinner';
 import { truncateDecimals } from '../../lib/formatters';
+import { groupPresentacionesByCustomer } from '../../lib/groupByCustomer';
+import { useClientesStore } from '../../store/clientesStore';
 
 export default function Stock() {
   const { products, movements, loading, getCapacityData, registerAdjustment } = useStock();
+  const { customers, fetchClientesData } = useClientesStore();
 
   const [activeTab, setActiveTab] = useState<'ACTUAL' | 'MOVES' | 'CAPACITY'>('ACTUAL');
+
+  // Fetch clients for grouping
+  useEffect(() => { fetchClientesData(); }, [fetchClientesData]);
 
   // Filters
   const [searchStock, setSearchStock] = useState('');
@@ -26,7 +31,8 @@ export default function Stock() {
   const [adjObs, setAdjObs] = useState('');
 
   // Alerts
-  const alertsAgotado = useMemo(() => products.filter(p => (p.stockActual || 0) <= 0), [products]);
+  const alertsNegativo = useMemo(() => products.filter(p => (p.stockActual || 0) < 0), [products]);
+  const alertsAgotado = useMemo(() => products.filter(p => (p.stockActual || 0) === 0), [products]);
   const alertsBajo = useMemo(() => products.filter(p => (p.stockActual || 0) > 0 && (p.stockActual || 0) <= 10), [products]);
 
   // Filtered Stock
@@ -45,7 +51,16 @@ export default function Stock() {
         const prod = products.find(p => p.id === m.productId);
         const prodName = prod ? prod.nombre.toLowerCase() : '';
         const matchSearch = prodName.includes(searchMove.toLowerCase());
-        const matchType = moveTypeFilter ? m.type === moveTypeFilter : true;
+        
+        let matchType = true;
+        if (moveTypeFilter) {
+          if (moveTypeFilter === 'PRODUCCION') {
+            matchType = m.type === 'PRODUCCION' || m.type === 'PRODUCCION_STOCK' || m.type === 'PRODUCCION_PEDIDO';
+          } else {
+            matchType = m.type === moveTypeFilter;
+          }
+        }
+        
         return matchSearch && matchType;
       })
       .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
@@ -83,6 +98,17 @@ export default function Stock() {
 
       {/* Alertas */}
       <div className="alerts-grid" style={{ marginBottom: '32px' }}>
+        {alertsNegativo.length > 0 && (
+          <div className="alert-card danger" style={{ backgroundColor: '#fee2e2', border: '1px solid #ef4444' }}>
+            <div className="alert-icon"><AlertCircle size={24} color="#b91c1c" /></div>
+            <div className="alert-content">
+              <strong style={{ color: '#b91c1c' }}>{alertsNegativo.length} productos con STOCK NEGATIVO</strong>
+              <div style={{ fontSize: '13px', color: '#991b1b' }}>
+                {alertsNegativo.slice(0,3).map(p => p.nombre).join(', ')} {alertsNegativo.length > 3 && '...'}
+              </div>
+            </div>
+          </div>
+        )}
         {alertsAgotado.length > 0 && (
           <div className="alert-card danger">
             <div className="alert-icon"><AlertCircle size={24} /></div>
@@ -169,16 +195,23 @@ export default function Stock() {
                 title={p.nombre}
                 subtitle={p.type}
                 collapsedContent={
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginTop: '12px' }}>
-                    <Package size={20} color={(p.stockActual || 0) <= 0 ? '#ef4444' : (p.stockActual || 0) <= 10 ? '#f59e0b' : '#16a34a'} />
-                    <span style={{ 
-                      fontSize: '24px', 
-                      fontWeight: 'bold',
-                      color: (p.stockActual || 0) <= 0 ? '#ef4444' : (p.stockActual || 0) <= 10 ? '#f59e0b' : '#16a34a'
-                    }}>
-                      {truncateDecimals(p.stockActual || 0, 3)}
-                    </span>
-                    <span style={{ color: 'var(--text-secondary)' }}>{p.unitType}</span>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '12px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                      <Package size={20} color={(p.stockActual || 0) < 0 ? '#b91c1c' : (p.stockActual || 0) === 0 ? '#ef4444' : (p.stockActual || 0) <= 10 ? '#f59e0b' : '#16a34a'} />
+                      <span style={{ 
+                        fontSize: '24px', 
+                        fontWeight: 'bold',
+                        color: (p.stockActual || 0) < 0 ? '#b91c1c' : (p.stockActual || 0) === 0 ? '#ef4444' : (p.stockActual || 0) <= 10 ? '#f59e0b' : '#16a34a'
+                      }}>
+                        {truncateDecimals(p.stockActual || 0, 3)}
+                      </span>
+                      <span style={{ color: 'var(--text-secondary)' }}>{p.unitType}</span>
+                    </div>
+                    {(p.stockActual || 0) < 0 && (
+                      <div style={{ alignSelf: 'flex-start', background: '#fee2e2', color: '#b91c1c', fontSize: '11px', fontWeight: 'bold', padding: '2px 8px', borderRadius: '12px', border: '1px solid #fca5a5' }}>
+                        STOCK NEGATIVO
+                      </div>
+                    )}
                   </div>
                 }
                 expandedContent={
@@ -244,30 +277,63 @@ export default function Stock() {
       )}
 
       {activeTab === 'CAPACITY' && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '20px' }}>
-          {products.filter(p => p.type === 'PRESENTACION').map(p => {
-            const cap = getCapacityData(p.id);
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+          {(() => {
+            const pres = products.filter(p => p.type === 'PRESENTACION');
+            const { byCustomer, loose } = groupPresentacionesByCustomer(pres, customers);
+
+            const renderCard = (p: typeof products[number]) => {
+              const cap = getCapacityData(p.id);
+              return (
+                <ExpandableCard
+                  key={p.id}
+                  title={p.nombre}
+                  collapsedContent={
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginTop: '12px' }}>
+                      <TrendingUp size={20} color={cap.max > 0 ? "var(--alvacio-red)" : "var(--text-secondary)"} />
+                      <span style={{ fontSize: '24px', fontWeight: 'bold', color: cap.max > 0 ? 'var(--text-primary)' : 'var(--text-secondary)' }}>
+                        {cap.max}
+                      </span>
+                      <span style={{ color: 'var(--text-secondary)' }}>{p.unitType}</span>
+                    </div>
+                  }
+                  expandedContent={
+                    <div style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>
+                      Limitante: <strong>{cap.limitante}</strong>
+                    </div>
+                  }
+                />
+              );
+            };
+
             return (
-              <ExpandableCard
-                key={p.id}
-                title={p.nombre}
-                collapsedContent={
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginTop: '12px' }}>
-                    <TrendingUp size={20} color={cap.max > 0 ? "var(--alvacio-red)" : "var(--text-secondary)"} />
-                    <span style={{ fontSize: '24px', fontWeight: 'bold', color: cap.max > 0 ? 'var(--text-primary)' : 'var(--text-secondary)' }}>
-                      {cap.max}
-                    </span>
-                    <span style={{ color: 'var(--text-secondary)' }}>{p.unitType}</span>
+              <>
+                {byCustomer.map(grp => (
+                  <div key={grp.customer.id}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '12px', paddingBottom: '8px', borderBottom: '2px solid var(--border-color)' }}>
+                      <span style={{ fontSize: '14px', fontWeight: 700, color: '#3b5bdb' }}>👤 {grp.customer.nombre}</span>
+                      <span style={{ fontSize: '11px', background: '#dbe4ff', color: '#364fc7', padding: '2px 8px', borderRadius: '10px', fontWeight: 600 }}>{grp.products.length} presentación{grp.products.length !== 1 ? 'es' : ''}</span>
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '20px' }}>
+                      {grp.products.map(renderCard)}
+                    </div>
                   </div>
-                }
-                expandedContent={
-                  <div style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>
-                    Limitante: <strong>{cap.limitante}</strong>
+                ))}
+
+                {loose.length > 0 && (
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '12px', paddingBottom: '8px', borderBottom: '2px dashed #d1d5db' }}>
+                      <span style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-secondary)' }}>📦 Sin cliente asignado</span>
+                      <span style={{ fontSize: '11px', background: '#f3f4f6', color: '#6b7280', padding: '2px 8px', borderRadius: '10px', fontWeight: 600 }}>{loose.length} presentación{loose.length !== 1 ? 'es' : ''}</span>
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '20px' }}>
+                      {loose.map(renderCard)}
+                    </div>
                   </div>
-                }
-              />
+                )}
+              </>
             );
-          })}
+          })()}
         </div>
       )}
 

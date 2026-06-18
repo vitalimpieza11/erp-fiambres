@@ -19,7 +19,8 @@ interface ClientesState {
     date: string,
     sourceId: string,
     observaciones: string,
-    fromCaja: boolean
+    fromCaja: boolean,
+    accountId?: string
   ) => Promise<void>;
   registerAjuste: (
     customerId: string,
@@ -110,10 +111,10 @@ export const useClientesStore = create<ClientesState>((set, get) => ({
     }
   },
 
-  registerPago: async (customerId, amount, date, sourceId, observaciones, fromCaja) => {
+  registerPago: async (customerId, amount, date, sourceId, observaciones, fromCaja, accountId) => {
     set({ loading: true });
     try {
-      await clientesRepository.registerPago(customerId, amount, date, sourceId, observaciones, fromCaja);
+      await clientesRepository.registerPago(customerId, amount, date, sourceId, observaciones, fromCaja, accountId);
       const data = await clientesRepository.fetchClientesData();
       set({
         customers: data.customers,

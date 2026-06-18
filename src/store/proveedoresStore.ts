@@ -13,7 +13,7 @@ interface ProveedoresState {
   toggleSupplierStatus: (id: string, currentStatus: boolean) => Promise<void>;
   addMovement: (mov: Omit<SupplierMovement, 'id' | 'isDeleted' | 'deletedAt'>) => Promise<SupplierMovement>;
   registerCompra: (supplierId: string, amount: number, date: string, sourceId: string, observaciones: string) => Promise<void>;
-  registerPago: (supplierId: string, amount: number, date: string, sourceId: string, observaciones: string, fromCaja: boolean) => Promise<void>;
+  registerPago: (supplierId: string, amount: number, date: string, sourceId: string, observaciones: string, fromCaja: boolean, accountId?: string) => Promise<void>;
   registerAjuste: (supplierId: string, amount: number, date: string, observaciones: string) => Promise<void>;
   annulMovement: (movementId: string, reason: string) => Promise<void>;
 }
@@ -59,8 +59,8 @@ export const useProveedoresStore = create<ProveedoresState>((set, get) => ({
   registerCompra: async (supplierId, amount, date, sourceId, observaciones) => {
     await proveedoresRepository.registerCompra(supplierId, amount, date, sourceId, observaciones);
   },
-  registerPago: async (supplierId, amount, date, sourceId, observaciones, fromCaja) => {
-    await proveedoresRepository.registerPago(supplierId, amount, date, sourceId, observaciones, fromCaja);
+  registerPago: async (supplierId, amount, date, sourceId, observaciones, fromCaja, accountId) => {
+    await proveedoresRepository.registerPago(supplierId, amount, date, sourceId, observaciones, fromCaja, accountId);
   },
   registerAjuste: async (supplierId, amount, date, observaciones) => {
     await proveedoresRepository.registerAjuste(supplierId, amount, date, observaciones);

@@ -8,7 +8,7 @@ interface PurchasesState {
   isSubscribed: boolean;
   unsubscribeRef: (() => void) | null;
   subscribePurchases: () => () => void;
-  addPurchase: (purchaseData: Omit<Purchase, 'id' | 'isDeleted'>) => Promise<void>;
+  addPurchase: (purchaseData: Omit<Purchase, 'id' | 'isDeleted'> & { accountId?: string }) => Promise<void>;
   annulPurchase: (purchaseId: string, reason: string) => Promise<void>;
 }
 

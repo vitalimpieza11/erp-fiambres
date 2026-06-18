@@ -1,5 +1,6 @@
 import React, { useEffect, useCallback, useState } from 'react';
 import { useSociosStore } from '../../store/sociosStore';
+import { useFinancialAccountsStore } from '../../store/financialAccountsStore';
 import type { Shareholder } from '../../types/domain';
 
 export type MovFormType = 'APORTE_INICIAL' | 'APORTE_OPERATIVO' | 'RETIRO' | 'AJUSTE';
@@ -37,6 +38,21 @@ export function useSocios() {
   // RightPanel state
   const [panelMode, setPanelMode] = useState<'NEW_SOCIO' | 'EDIT_SOCIO' | 'MOVEMENT' | null>(null);
   const [selectedShareholderId, setSelectedShareholderId] = useState<string>('');
+
+  const { accounts, fetchAccounts } = useFinancialAccountsStore();
+  const [selectedAccountId, setSelectedAccountId] = useState('');
+
+  useEffect(() => {
+    fetchAccounts();
+  }, [fetchAccounts]);
+
+  useEffect(() => {
+    if (accounts.length > 0) {
+      const activeCash = accounts.find(a => a.activa && a.tipo === 'EFECTIVO');
+      const activeAny = accounts.find(a => a.activa);
+      setSelectedAccountId(activeCash?.id || activeAny?.id || '');
+    }
+  }, [accounts, panelMode]);
   
   // Partner Form State
   const [socioName, setSocioName] = useState('');
@@ -134,13 +150,18 @@ export function useSocios() {
     if (movType === 'RETIRO') cajaCategory = 'Distribución / Retiro de Socio';
 
     try {
+      if (impactCaja && !selectedAccountId) {
+        alert("Debe seleccionar una cuenta financiera.");
+        return;
+      }
       await addMovement({
         shareholderId: selectedShareholderId,
         sourceType,
         amount: Number(amount),
         description: description || movType.replace('_', ' '),
         impactCaja,
-        cajaCategory
+        cajaCategory,
+        accountId: impactCaja ? selectedAccountId : undefined
       });
       handleClosePanel();
     } catch (error) {
@@ -158,6 +179,8 @@ export function useSocios() {
     movType,
     description,
     impactCaja,
+    selectedAccountId,
+    accounts,
     saveShareholder,
     addMovement,
     handleClosePanel
@@ -231,6 +254,9 @@ export function useSocios() {
     handleSubmit,
     handleToggleStatus,
     handleAnnul,
-    filteredShareholders
+    filteredShareholders,
+    accounts,
+    selectedAccountId,
+    setSelectedAccountId
   };
 }

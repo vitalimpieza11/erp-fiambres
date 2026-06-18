@@ -1,11 +1,13 @@
 import { create } from 'zustand';
 import { stockRepository } from '../repositories/stock/stockRepository';
-import type { Product, StockMovement, Equivalencia } from '../types/domain';
+import { recipesRepository } from '../repositories/stock/recipesRepository';
+import type { Product, StockMovement, Equivalencia, Recipe } from '../types/domain';
 
 interface StockState {
   products: Product[];
   movements: StockMovement[];
   equivalences: Equivalencia[];
+  recipes: Recipe[];
   loading: boolean;
   fetchData: () => Promise<void>;
   registerAdjustment: (data: {
@@ -19,30 +21,39 @@ export const useStockStore = create<StockState>((set, get) => ({
   products: [],
   movements: [],
   equivalences: [],
+  recipes: [],
   loading: true,
   fetchData: async () => {
     const hasData = get().products.length > 0;
     if (hasData) {
-      stockRepository.fetchStockData().then((data) => {
+      Promise.all([
+        stockRepository.fetchStockData(),
+        recipesRepository.fetchRecipes()
+      ]).then(([stockData, recipesData]) => {
         set({
-          products: data.products,
-          movements: data.movements,
-          equivalences: data.equivalences
+          products: stockData.products,
+          movements: stockData.movements,
+          equivalences: stockData.equivalences,
+          recipes: recipesData
         });
-      }).catch(err => console.error("Background fetch stock error:", err));
+      }).catch(err => console.error("Background fetch stock/recipes error:", err));
       return;
     }
 
     set({ loading: true });
     try {
-      const data = await stockRepository.fetchStockData();
+      const [stockData, recipesData] = await Promise.all([
+        stockRepository.fetchStockData(),
+        recipesRepository.fetchRecipes()
+      ]);
       set({
-        products: data.products,
-        movements: data.movements,
-        equivalences: data.equivalences
+        products: stockData.products,
+        movements: stockData.movements,
+        equivalences: stockData.equivalences,
+        recipes: recipesData
       });
     } catch (error) {
-      console.error("Error fetching stock data in store:", error);
+      console.error("Error fetching stock/recipes data in store:", error);
     } finally {
       set({ loading: false });
     }
@@ -51,11 +62,15 @@ export const useStockStore = create<StockState>((set, get) => ({
     set({ loading: true });
     try {
       await stockRepository.registerAdjustment(data);
-      const freshData = await stockRepository.fetchStockData();
+      const [freshStockData, freshRecipesData] = await Promise.all([
+        stockRepository.fetchStockData(),
+        recipesRepository.fetchRecipes()
+      ]);
       set({
-        products: freshData.products,
-        movements: freshData.movements,
-        equivalences: freshData.equivalences
+        products: freshStockData.products,
+        movements: freshStockData.movements,
+        equivalences: freshStockData.equivalences,
+        recipes: freshRecipesData
       });
     } catch (error) {
       console.error("Error registering stock adjustment in store:", error);

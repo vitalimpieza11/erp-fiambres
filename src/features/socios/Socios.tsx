@@ -44,7 +44,10 @@ export default function Socios() {
     handleSubmit,
     handleToggleStatus,
     handleAnnul,
-    filteredShareholders
+    filteredShareholders,
+    accounts,
+    selectedAccountId,
+    setSelectedAccountId
   } = useSocios();
 
   if (loading && shareholders.length === 0) {
@@ -335,6 +338,24 @@ export default function Socios() {
                 </span>
               </label>
             </div>
+
+            {impactCaja && (
+              <div className="form-group">
+                <label>Cuenta Financiera *</label>
+                <select
+                  required
+                  value={selectedAccountId}
+                  onChange={e => setSelectedAccountId(e.target.value)}
+                >
+                  <option value="">Seleccione cuenta...</option>
+                  {accounts.filter(a => a.activa).map(a => (
+                    <option key={a.id} value={a.id}>
+                      {a.nombre} ({a.tipo})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
 
             <div style={{ display: 'flex', gap: '12px', marginTop: '32px' }}>
               <button type="button" className="btn-secondary" style={{ flex: 1 }} onClick={handleClosePanel}>Cancelar</button>

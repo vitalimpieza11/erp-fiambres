@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useClientes } from './useClientes';
 import { useProductsStore } from '../../store/productsStore';
+import { useFinancialAccountsStore } from '../../store/financialAccountsStore';
 import type { Customer, CustomerMovement } from '../../types/domain';
 import ExpandableCard from '../../components/ExpandableCard';
 import RightPanel from '../../components/RightPanel';
@@ -32,6 +33,7 @@ export default function Clientes() {
   } = useClientes();
 
   const { productos, fetchProductos, loading: loadingProducts } = useProductsStore();
+  const { accounts, fetchAccounts } = useFinancialAccountsStore();
 
   useEffect(() => {
     fetchProductos();
@@ -44,6 +46,19 @@ export default function Clientes() {
   // RightPanel states
   const [panelMode, setPanelMode] = useState<'NEW_CUSTOMER' | 'EDIT_CUSTOMER' | 'PAGO' | 'AJUSTE' | null>(null);
   const [selectedCustomerId, setSelectedCustomerId] = useState<string>('');
+  const [selectedAccountId, setSelectedAccountId] = useState('');
+
+  useEffect(() => {
+    fetchAccounts();
+  }, [fetchAccounts]);
+
+  useEffect(() => {
+    if (accounts.length > 0) {
+      const activeCash = accounts.find(a => a.activa && a.tipo === 'EFECTIVO');
+      const activeAny = accounts.find(a => a.activa);
+      setSelectedAccountId(activeCash?.id || activeAny?.id || '');
+    }
+  }, [accounts, panelMode]);
 
   // Customer Form states
   const [customerName, setCustomerName] = useState('');
@@ -152,7 +167,11 @@ export default function Clientes() {
 
     try {
       if (panelMode === 'PAGO') {
-        await registerPago(selectedCustomerId, amount, date, sourceId, observaciones, fromCaja);
+        if (fromCaja && !selectedAccountId) {
+          alert("Debe seleccionar una cuenta financiera.");
+          return;
+        }
+        await registerPago(selectedCustomerId, amount, date, sourceId, observaciones, fromCaja, fromCaja ? selectedAccountId : undefined);
       } else if (panelMode === 'AJUSTE') {
         await registerAjuste(selectedCustomerId, amount, date, observaciones);
       }
@@ -207,7 +226,7 @@ export default function Clientes() {
     // Filter out only finished products or active items that customers buy
     const listProducts = productos.filter(p => p.activo && (p.type === 'PRESENTACION' || p.type === 'MERCADERIA'));
     const tableRows = listProducts.map(p => {
-      const price = getProductPriceForCustomer(customer.id, p.id, p.precioComercial || p.precioSugerido || 0);
+      const price = getProductPriceForCustomer(customer.id, p.id, p.precioComercial || 0);
       return [
         p.nombre,
         p.type === 'PRESENTACION' ? 'Terminado' : 'Mercadería',
@@ -468,7 +487,7 @@ export default function Clientes() {
                             </thead>
                             <tbody>
                               {productos.filter(p => p.activo && (p.type === 'PRESENTACION' || p.type === 'MERCADERIA')).map(p => {
-                                const price = getProductPriceForCustomer(customer.id, p.id, p.precioComercial || p.precioSugerido || 0);
+                                const price = getProductPriceForCustomer(customer.id, p.id, p.precioComercial || 0);
                                 return (
                                   <tr key={p.id} style={{ borderBottom: '1px solid #f3f4f6' }}>
                                     <td style={{ padding: '8px' }}>{p.nombre}</td>
@@ -686,6 +705,24 @@ export default function Clientes() {
                     Registrar ingreso en Caja Diaria
                   </label>
                 </div>
+
+                {fromCaja && (
+                  <div className="form-group">
+                    <label>Cuenta de Destino *</label>
+                    <select
+                      required
+                      value={selectedAccountId}
+                      onChange={e => setSelectedAccountId(e.target.value)}
+                    >
+                      <option value="">Seleccione cuenta de destino...</option>
+                      {accounts.filter(a => a.activa).map(a => (
+                        <option key={a.id} value={a.id}>
+                          {a.nombre} ({a.tipo})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
               </>
             )}
 

@@ -48,7 +48,7 @@ export const proveedoresRepository = {
     });
   },
 
-  async registerPago(supplierId: string, amount: number, date: string, sourceId: string, observaciones: string, fromCaja: boolean): Promise<void> {
+  async registerPago(supplierId: string, amount: number, date: string, sourceId: string, observaciones: string, fromCaja: boolean, accountId?: string): Promise<void> {
     const paymentMov = await this.addMovement({
       supplierId,
       date,
@@ -73,6 +73,7 @@ export const proveedoresRepository = {
         sourceId: paymentMov.id,
         sourceType: 'PAGO',
         reversalOf: null,
+        accountId,
         isDeleted: false
       };
       await setDoc(cajaDocRef, cajaMov);
@@ -141,6 +142,7 @@ export const proveedoresRepository = {
             sourceId: cajaMov.id,
             sourceType: `REVERSAL_${original.type}`,
             reversalOf: cajaMov.id,
+            accountId: cajaMov.accountId,
             isDeleted: false
           };
           await setDoc(compCajaDocRef, compCajaMov);

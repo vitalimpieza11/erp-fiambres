@@ -51,7 +51,8 @@ export const clientesRepository = {
     date: string,
     sourceId: string,
     observaciones: string,
-    fromCaja: boolean
+    fromCaja: boolean,
+    accountId?: string
   ): Promise<void> {
     if (amount <= 0) throw new Error("El monto del pago debe ser mayor a cero.");
 
@@ -81,6 +82,7 @@ export const clientesRepository = {
           category: 'COBRO_CLIENTE',
           description: `Cobro en cuenta corriente del cliente: ${clientName}. ${observaciones}`,
           referenceId: moveRef.id,
+          accountId,
           isDeleted: false
         });
       }
@@ -107,6 +109,21 @@ export const clientesRepository = {
   },
 
   async annulMovement(movId: string, reason: string, original: CustomerMovement): Promise<void> {
+    // Find original caja movement to get its accountId
+    let originalAccountId: string | undefined = undefined;
+    if (original.type === 'PAGO') {
+      const cajaSnap = await getDocs(query(
+        COLLECTIONS.CAJA_MOVEMENTS,
+        where('referenceId', '==', movId),
+        where('type', '==', 'INCOME'),
+        where('category', '==', 'COBRO_CLIENTE'),
+        where('isDeleted', '==', false)
+      ));
+      if (!cajaSnap.empty) {
+        originalAccountId = (cajaSnap.docs[0].data() as any).accountId;
+      }
+    }
+
     await runTransaction(db, async (transaction) => {
       // 1. Marcar el movimiento original como anulado (anulación inmutable mediante movimiento compensatorio)
       const originalRef = doc(db, 'customer_movements', movId);
@@ -155,6 +172,7 @@ export const clientesRepository = {
           category: 'ANULACION_COBRO',
           description: `Anulación de cobro en cuenta corriente (Ref: ${movId}). Motivo: ${reason}`,
           referenceId: movId,
+          accountId: originalAccountId,
           isDeleted: false
         });
       }

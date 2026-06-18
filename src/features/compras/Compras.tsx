@@ -1,7 +1,8 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { usePurchases } from './usePurchases';
 import { useProveedores } from '../proveedores/useProveedores';
 import { useStock } from '../stock/useStock';
+import { useFinancialAccountsStore } from '../../store/financialAccountsStore';
 import type { Purchase, PurchaseItem } from '../../types/domain';
 import ExpandableCard from '../../components/ExpandableCard';
 import RightPanel from '../../components/RightPanel';
@@ -13,6 +14,7 @@ export default function Compras() {
   const { purchases, loading: purchasesLoading, addPurchase, annulPurchase } = usePurchases();
   const { suppliers, loading: suppliersLoading } = useProveedores();
   const { products, loading: stockLoading } = useStock();
+  const { accounts, fetchAccounts } = useFinancialAccountsStore();
   
   const loading = purchasesLoading || suppliersLoading || stockLoading;
 
@@ -25,6 +27,19 @@ export default function Compras() {
   const [paymentMethod, setPaymentMethod] = useState<'CONTADO' | 'CUENTA_CORRIENTE' | 'MIXTA'>('CONTADO');
   const [montoPagado, setMontoPagado] = useState(0);
   const [impuestos, setImpuestos] = useState(0);
+  const [selectedAccountId, setSelectedAccountId] = useState('');
+
+  useEffect(() => {
+    fetchAccounts();
+  }, [fetchAccounts]);
+
+  useEffect(() => {
+    if (accounts.length > 0) {
+      const activeCash = accounts.find(a => a.activa && a.tipo === 'EFECTIVO');
+      const activeAny = accounts.find(a => a.activa);
+      setSelectedAccountId(activeCash?.id || activeAny?.id || '');
+    }
+  }, [accounts, isEditing]);
 
   const handleNewPurchase = () => {
     setSupplierId('');
@@ -86,6 +101,9 @@ export default function Compras() {
       return alert("Complete correctamente todos los ítems.");
     }
     if (calcMontoCuentaCorriente < 0) return alert("El monto pagado no puede superar el total.");
+    if ((paymentMethod === 'CONTADO' || paymentMethod === 'MIXTA') && !selectedAccountId) {
+      return alert("Seleccione una cuenta financiera para registrar el pago.");
+    }
 
     await addPurchase({
       supplierId,
@@ -98,7 +116,8 @@ export default function Compras() {
       montoPagado: calcMontoPagado,
       montoCuentaCorriente: calcMontoCuentaCorriente,
       type: 'PURCHASE',
-      status: 'ACTIVE'
+      status: 'ACTIVE',
+      accountId: (paymentMethod === 'CONTADO' || paymentMethod === 'MIXTA') ? selectedAccountId : undefined
     });
     setIsEditing(false);
   };
@@ -219,32 +238,69 @@ export default function Compras() {
             </div>
             
             <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-              {items.map((item, idx) => (
-                <div key={idx} style={{ background: '#fff', padding: '16px', borderRadius: '12px', border: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                  <select required value={item.productId} onChange={e => updateItem(idx, 'productId', e.target.value)}>
-                    <option value="">Seleccione Producto</option>
-                    {products.filter(p => p.type === 'MERCADERIA' || p.type === 'INSUMO').map(p => (
-                      <option key={p.id} value={p.id}>{p.nombre}</option>
-                    ))}
-                  </select>
-                  
-                  <div style={{ display: 'flex', gap: '12px' }}>
-                    <div style={{ flex: 1 }}>
-                      <label style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Cant.</label>
-                      <input type="number" required min="0.1" step="0.1" value={item.quantity || ''} onChange={e => updateItem(idx, 'quantity', e.target.value)} />
+              {items.map((item, idx) => {
+                const isMercaderia = item.type === 'MERCADERIA';
+                const unitLabel = isMercaderia ? 'Kg' : 'Unidades';
+                const costLabel = isMercaderia ? 'Costo por Kg ($)' : 'Costo Unitario ($)';
+                const qtyLabel = isMercaderia ? 'Cantidad (Kg)' : 'Cantidad (Unidades)';
+
+                return (
+                  <div key={idx} style={{ background: '#fff', padding: '16px', borderRadius: '12px', border: '1px solid var(--border-color)', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                    <select required value={item.productId} onChange={e => updateItem(idx, 'productId', e.target.value)}>
+                      <option value="">Seleccione Producto</option>
+                      {products.filter(p => p.type === 'MERCADERIA' || p.type === 'INSUMO').map(p => (
+                        <option key={p.id} value={p.id}>{p.nombre} ({p.type})</option>
+                      ))}
+                    </select>
+
+                    <div style={{ display: 'flex', gap: '12px' }}>
+                      <div style={{ flex: 1 }}>
+                        <label style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px', display: 'block' }}>
+                          {qtyLabel}
+                        </label>
+                        <input
+                          type="number"
+                          required
+                          min="0.001"
+                          step="0.001"
+                          placeholder="0.000"
+                          value={item.quantity || ''}
+                          onChange={e => updateItem(idx, 'quantity', parseFloat(e.target.value) || 0)}
+                        />
+                      </div>
+                      <div style={{ flex: 1 }}>
+                        <label style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px', display: 'block' }}>
+                          {costLabel}
+                        </label>
+                        <input
+                          type="number"
+                          required
+                          min="0"
+                          step="0.01"
+                          placeholder="0.00"
+                          value={item.unitCost || ''}
+                          onChange={e => updateItem(idx, 'unitCost', parseFloat(e.target.value) || 0)}
+                        />
+                      </div>
                     </div>
-                    <div style={{ flex: 1 }}>
-                      <label style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Costo U.</label>
-                      <input type="number" required min="0" step="0.01" value={item.unitCost || ''} onChange={e => updateItem(idx, 'unitCost', e.target.value)} />
+
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '4px', padding: '8px 12px', background: 'var(--bg-color)', borderRadius: '8px' }}>
+                      <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
+                        {item.quantity > 0 && item.unitCost > 0
+                          ? `${item.quantity} ${unitLabel} × $${item.unitCost.toFixed(2)}`
+                          : 'Complete cantidad y costo'}
+                      </span>
+                      <span style={{ fontSize: '14px', fontWeight: 700, color: item.totalCost > 0 ? 'var(--text-primary)' : 'var(--text-secondary)' }}>
+                        ${item.totalCost.toFixed(2)}
+                      </span>
                     </div>
+
+                    <button type="button" onClick={() => removeItem(idx)} style={{ color: '#ef4444', background: 'transparent', textDecoration: 'underline', fontSize: '13px', alignSelf: 'flex-end' }}>
+                      Eliminar
+                    </button>
                   </div>
-                  
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '4px' }}>
-                    <span style={{ fontSize: '14px', fontWeight: 600 }}>Total: ${item.totalCost.toFixed(2)}</span>
-                    <button type="button" onClick={() => removeItem(idx)} style={{ color: '#ef4444', background: 'transparent', textDecoration: 'underline', fontSize: '13px' }}>Eliminar</button>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
               {items.length === 0 && <p style={{ textAlign: 'center', color: 'var(--text-secondary)', fontSize: '14px' }}>Sin ítems</p>}
             </div>
           </div>
@@ -262,6 +318,23 @@ export default function Compras() {
                 <option value="MIXTA">Mixta</option>
               </select>
             </div>
+            {(paymentMethod === 'CONTADO' || paymentMethod === 'MIXTA') && (
+              <div className="form-group">
+                <label>Cuenta de Egreso *</label>
+                <select
+                  required
+                  value={selectedAccountId}
+                  onChange={e => setSelectedAccountId(e.target.value)}
+                >
+                  <option value="">Seleccione cuenta de egreso...</option>
+                  {accounts.filter(a => a.activa).map(a => (
+                    <option key={a.id} value={a.id}>
+                      {a.nombre} ({a.tipo})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
             {paymentMethod === 'MIXTA' && (
               <div className="form-group">
                 <label>Monto Pagado en Caja ($)</label>

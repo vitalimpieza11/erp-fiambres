@@ -6,6 +6,9 @@ export function useFacturacion() {
   const orders = useSalesStore((state) => state.orders);
   const customers = useSalesStore((state) => state.customers);
   const products = useSalesStore((state) => state.products);
+  const recipes = useSalesStore((state) => state.recipes);
+  const equivalences = useSalesStore((state) => state.equivalences);
+  const packages = useSalesStore((state) => state.packages);
   const loading = useSalesStore((state) => state.loading);
   const fetchData = useSalesStore((state) => state.fetchData);
   const createSaleFromOrder = useSalesStore((state) => state.createSaleFromOrder);
@@ -30,6 +33,9 @@ export function useFacturacion() {
     orders,
     customers,
     products,
+    recipes,
+    equivalences,
+    packages,
     loading,
     pendingOrders,
     createSaleFromOrder,

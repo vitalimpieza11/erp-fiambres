@@ -40,19 +40,41 @@ export type PriceList = {
 export type ProductType = 'MERCADERIA' | 'INSUMO' | 'PRESENTACION';
 export type UnitType = 'KG' | 'GRAMOS' | 'UNIDADES' | 'FETAS';
 
+export type RecipeUnitType = 'gramos' | 'kilogramos' | 'unidades' | 'fetas';
+
 export type RecipeItem = {
-  productId: string;
+  ingredientProductId: string;
+  ingredientName: string;
   quantity: number;
-  unit: UnitType;
+  unit: RecipeUnitType;
   pesoNeto?: number;
 };
 
 export type Recipe = {
   id: string;
-  finishedProductId: string;
-  ingredientes: { productId: string; cantidad: number; unit?: string }[];
-  activo?: boolean;
+  productId: string;
+  productName: string;
+  createdAt: string;
+  updatedAt: string;
+  items: RecipeItem[];
 };
+
+export function mapRecipeUnitToUnitType(unit: RecipeUnitType): UnitType {
+  if (unit === 'kilogramos') return 'KG';
+  if (unit === 'gramos') return 'GRAMOS';
+  if (unit === 'unidades') return 'UNIDADES';
+  if (unit === 'fetas') return 'FETAS';
+  return 'KG';
+}
+
+export function mapUnitTypeToRecipeUnit(unit: string): RecipeUnitType {
+  const u = String(unit).toUpperCase().trim();
+  if (u === 'KG') return 'kilogramos';
+  if (u === 'GRAMOS') return 'gramos';
+  if (u === 'UNIDADES') return 'unidades';
+  if (u === 'FETAS') return 'fetas';
+  return 'gramos';
+}
 
 export type Product = { 
   id: string; 
@@ -60,16 +82,21 @@ export type Product = {
   type: ProductType; 
   unitType: UnitType;
   activo: boolean;
-  precioSugerido?: number;
   precioComercial?: number;
   recipeItems?: RecipeItem[];
   recipeId?: string;
   recetaId?: string;
   pesoFeta?: number;
   pesoObjetivoGramos?: number;
+  pesoObjetivoKg?: number;
+  // Cliente al que se destina esta presentación (solo aplica a PRESENTACION)
+  clienteAsignado?: string;
   // Legacy fields for other modules (to be deprecated)
   costoActual?: number;
   stockActual?: number;
+  costoUltimaCompra?: number;
+  fechaUltimaCompra?: string;
+  mermaPorDefecto?: number;
 }
 
 export type Equivalencia = {
@@ -90,7 +117,7 @@ export type StockMovement = {
   id: string;
   productId: string;
   qty: number;
-  type: 'PRODUCCION' | 'VENTA' | 'AJUSTE' | 'COMPRA';
+  type: 'PRODUCCION' | 'VENTA' | 'AJUSTE' | 'COMPRA' | 'PRODUCCION_STOCK' | 'PRODUCCION_PEDIDO' | 'MERMA_PRODUCCION';
   date: string;
   referenceId?: string;
   observaciones?: string;
@@ -138,7 +165,48 @@ export type SaleItem = {
   unidad: 'KG' | 'GRAMOS' | 'UNIDADES' | 'FETAS';
   precioUnitario: number;
   subtotal: number;
+  // Campos de infraestructura de costos (Fase 4 / Costo Histórico / Rentabilidad Real)
+  costoUnitario?: number;
+  costoTotal?: number;
+  rentabilidadBruta?: number;
+  // Nuevos campos para Rentabilidad Real y Peso Real
+  pesoReal?: number;
+  precioRealKg?: number;
+  importeReal?: number;
+  costoUnitarioHistorico?: number;
+  costoTotalHistorico?: number;
 };
+
+export type RecipeSnapshotItem = {
+  ingredientId: string;
+  ingredientName: string;
+  quantity: number;
+  unit: string;
+  unitCost: number;
+  totalCost: number;
+};
+
+export type Package = {
+  id?: string;
+  productId: string;
+  productName: string;
+  weight: number;          // peso real en Kg
+  costPerKg: number;       // costo de producción por Kg
+  totalCost: number;       // costPerKg * weight
+  status: 'STOCK' | 'SOLD';
+  orderId?: string;        // pedido asociado si aplica
+  saleId?: string;         // venta asociada si aplica
+  producedAt: string;      // fecha de producción (ISO String)
+  recipeSnapshot?: RecipeSnapshotItem[];
+};
+
+export type SystemSettings = {
+  id?: string;
+  usePackages: boolean;
+  allowNegativeStock: boolean;
+  margenObjetivo: number;
+};
+
 
 export type Sale = { 
   id: string; 
@@ -225,6 +293,7 @@ export type CajaMovement = {
   reversalOf?: string | null;
   isDeleted: boolean;
   deletedAt?: number;
+  accountId?: string;
 }
 
 export type Shareholder = {
@@ -248,3 +317,11 @@ export type ShareholderMovement = {
   isDeleted: boolean;
   deletedAt?: number;
 }
+
+export type FinancialAccount = {
+  id: string;
+  nombre: string;
+  tipo: 'EFECTIVO' | 'BANCO' | 'BILLETERA_VIRTUAL';
+  activa: boolean;
+  createdAt: number;
+};

@@ -1,12 +1,16 @@
 import { create } from 'zustand';
 import { salesRepository } from '../repositories/ventas/salesRepository';
 import type { Sale, Order, Customer, Product, SaleItem } from '../types/domain';
+import { useSettingsStore } from './settingsStore';
 
 interface SalesState {
   sales: Sale[];
   orders: Order[];
   customers: Customer[];
   products: Product[];
+  recipes: any[];
+  equivalences: any[];
+  packages: any[];
   loading: boolean;
   fetchData: () => Promise<void>;
   markOrderAsDelivered: (orderId: string) => Promise<void>;
@@ -17,7 +21,7 @@ interface SalesState {
     tipoComprobante?: 'FACTURA_A' | 'FACTURA_B' | 'FACTURA_C' | 'PRESUPUESTO' | 'REMITO'
   ) => Promise<void>;
   createQuickSale: (data: { customerId: string; date: string; items: SaleItem[]; totalAmount: number; observaciones?: string }) => Promise<void>;
-  cobrarSale: (sale: Sale, method: 'EFECTIVO_TRANSFERENCIA' | 'CUENTA_CORRIENTE') => Promise<void>;
+  cobrarSale: (sale: Sale, method: 'EFECTIVO_TRANSFERENCIA' | 'CUENTA_CORRIENTE', accountId?: string) => Promise<void>;
   anularSale: (sale: Sale) => Promise<void>;
   updateSale: (saleId: string, updatedData: Partial<Sale>) => Promise<void>;
   deleteSale: (sale: Sale) => Promise<void>;
@@ -28,8 +32,14 @@ export const useSalesStore = create<SalesState>((set, get) => ({
   orders: [],
   customers: [],
   products: [],
+  recipes: [],
+  equivalences: [],
+  packages: [],
   loading: true,
   fetchData: async () => {
+    // Load system settings in background
+    useSettingsStore.getState().fetchSettings().catch(e => console.error("Error fetching settings:", e));
+
     const hasData = get().sales.length > 0;
     if (hasData) {
       salesRepository.fetchSalesData().then((data) => {
@@ -37,7 +47,10 @@ export const useSalesStore = create<SalesState>((set, get) => ({
           sales: data.sales,
           orders: data.orders,
           customers: data.customers,
-          products: data.products
+          products: data.products,
+          recipes: data.recipes,
+          equivalences: data.equivalences,
+          packages: data.packages
         });
       }).catch(err => console.error("Background fetch sales error:", err));
       return;
@@ -50,7 +63,10 @@ export const useSalesStore = create<SalesState>((set, get) => ({
         sales: data.sales,
         orders: data.orders,
         customers: data.customers,
-        products: data.products
+        products: data.products,
+        recipes: data.recipes,
+        equivalences: data.equivalences,
+        packages: data.packages
       });
     } catch (error) {
       console.error("Error fetching sales data in store:", error);
@@ -67,7 +83,10 @@ export const useSalesStore = create<SalesState>((set, get) => ({
         sales: data.sales,
         orders: data.orders,
         customers: data.customers,
-        products: data.products
+        products: data.products,
+        recipes: data.recipes,
+        equivalences: data.equivalences,
+        packages: data.packages
       });
     } catch (error) {
       console.error("Error marking order as delivered in store:", error);
@@ -85,7 +104,10 @@ export const useSalesStore = create<SalesState>((set, get) => ({
         sales: data.sales,
         orders: data.orders,
         customers: data.customers,
-        products: data.products
+        products: data.products,
+        recipes: data.recipes,
+        equivalences: data.equivalences,
+        packages: data.packages
       });
     } catch (error) {
       console.error("Error creating sale from order in store:", error);
@@ -103,7 +125,10 @@ export const useSalesStore = create<SalesState>((set, get) => ({
         sales: freshData.sales,
         orders: freshData.orders,
         customers: freshData.customers,
-        products: freshData.products
+        products: freshData.products,
+        recipes: freshData.recipes,
+        equivalences: freshData.equivalences,
+        packages: freshData.packages
       });
     } catch (error) {
       console.error("Error creating quick sale in store:", error);
@@ -112,16 +137,19 @@ export const useSalesStore = create<SalesState>((set, get) => ({
       set({ loading: false });
     }
   },
-  cobrarSale: async (sale, method) => {
+  cobrarSale: async (sale, method, accountId) => {
     set({ loading: true });
     try {
-      await salesRepository.cobrarSale(sale, method);
+      await salesRepository.cobrarSale(sale, method, accountId);
       const data = await salesRepository.fetchSalesData();
       set({
         sales: data.sales,
         orders: data.orders,
         customers: data.customers,
-        products: data.products
+        products: data.products,
+        recipes: data.recipes,
+        equivalences: data.equivalences,
+        packages: data.packages
       });
     } catch (error) {
       console.error("Error in cobranza in store:", error);
@@ -139,7 +167,10 @@ export const useSalesStore = create<SalesState>((set, get) => ({
         sales: data.sales,
         orders: data.orders,
         customers: data.customers,
-        products: data.products
+        products: data.products,
+        recipes: data.recipes,
+        equivalences: data.equivalences,
+        packages: data.packages
       });
     } catch (error) {
       console.error("Error anulating sale in store:", error);
@@ -157,7 +188,10 @@ export const useSalesStore = create<SalesState>((set, get) => ({
         sales: data.sales,
         orders: data.orders,
         customers: data.customers,
-        products: data.products
+        products: data.products,
+        recipes: data.recipes,
+        equivalences: data.equivalences,
+        packages: data.packages
       });
     } catch (error) {
       console.error("Error updating sale in store:", error);
@@ -175,7 +209,10 @@ export const useSalesStore = create<SalesState>((set, get) => ({
         sales: data.sales,
         orders: data.orders,
         customers: data.customers,
-        products: data.products
+        products: data.products,
+        recipes: data.recipes,
+        equivalences: data.equivalences,
+        packages: data.packages
       });
     } catch (error) {
       console.error("Error deleting sale in store:", error);

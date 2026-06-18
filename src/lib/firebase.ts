@@ -32,5 +32,7 @@ export const COLLECTIONS = {
   PRICE_LISTS: collection(db, 'price_lists'),
   EQUIVALENCES: collection(db, 'equivalences'),
   SUPPLIER_MOVEMENTS: collection(db, 'supplier_movements'),
-  PURCHASES: collection(db, 'purchases')
+  PURCHASES: collection(db, 'purchases'),
+  PACKAGES: collection(db, 'packages'),
+  FINANCIAL_ACCOUNTS: collection(db, 'financial_accounts')
 };

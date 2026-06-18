@@ -1,4 +1,4 @@
-import { collection, onSnapshot, query, where, doc, setDoc, orderBy, limit } from 'firebase/firestore';
+import { collection, onSnapshot, query, where, doc, setDoc, updateDoc, getDocs, orderBy, limit } from 'firebase/firestore';
 import { db, COLLECTIONS } from '../../lib/firebase';
 import type { Purchase, StockMovement, CajaMovement, SupplierMovement } from '../../types/domain';
 import { truncateDecimals } from '../../lib/formatters';
@@ -21,9 +21,9 @@ export const purchasesRepository = {
     return unsubPurchases;
   },
 
-  async addPurchase(purchaseData: Omit<Purchase, 'id' | 'isDeleted'>): Promise<void> {
+  async addPurchase(purchaseData: Omit<Purchase, 'id' | 'isDeleted'> & { accountId?: string }): Promise<void> {
     const purchaseRef = doc(COLLECTIONS.PURCHASES);
-    const newPurchase: Purchase = {
+    const newPurchase: Purchase & { accountId?: string } = {
       ...purchaseData,
       id: purchaseRef.id,
       type: 'PURCHASE',
@@ -65,6 +65,7 @@ export const purchasesRepository = {
         reasonType: 'COMPRA_PROVEEDOR',
         operation: 'MOVEMENT',
         reversalOf: null,
+        accountId: purchaseData.accountId,
         isDeleted: false
       };
       await setDoc(cajaMovRef, cajaMov);
@@ -87,9 +88,34 @@ export const purchasesRepository = {
       };
       await setDoc(suppMovRef, suppMov);
     }
+
+    // 5. Actualizar automáticamente costos de productos en catálogo
+    for (const item of newPurchase.items) {
+      const prodRef = doc(db, 'products', item.productId);
+      await updateDoc(prodRef, {
+        costoActual: item.unitCost,
+        costoUltimaCompra: item.unitCost,
+        fechaUltimaCompra: newPurchase.date
+      });
+    }
   },
 
   async annulPurchase(purchaseId: string, reason: string, original: Purchase): Promise<void> {
+    // Query original caja movement to find its accountId
+    let originalAccountId: string | undefined = undefined;
+    if (original.montoPagado > 0) {
+      const cajaSnap = await getDocs(query(
+        COLLECTIONS.CAJA_MOVEMENTS,
+        where('sourceId', '==', original.id),
+        where('sourceType', '==', 'COMPRA'),
+        where('type', '==', 'EXPENSE'),
+        where('isDeleted', '==', false)
+      ));
+      if (!cajaSnap.empty) {
+        originalAccountId = (cajaSnap.docs[0].data() as any).accountId;
+      }
+    }
+
     // REGLA V2 OBLIGATORIA: Nunca borrar compras ni editar el evento original.
     // La anulación es un NUEVO EVENTO COMPENSATORIO. El evento original permanece intacto.
     const compPurchaseRef = doc(COLLECTIONS.PURCHASES);
@@ -135,6 +161,7 @@ export const purchasesRepository = {
         reasonType: 'REVERSAL_COMPRA_PROVEEDOR',
         operation: 'REVERSAL',
         reversalOf: original.id,
+        accountId: originalAccountId,
         isDeleted: false
       };
       await setDoc(cajaMovRef, cajaMov);

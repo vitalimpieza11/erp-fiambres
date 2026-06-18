@@ -6,7 +6,7 @@ interface ProductsState {
   productos: Product[];
   loading: boolean;
   fetchProductos: () => Promise<void>;
-  saveProduct: (product: Partial<Product>) => Promise<void>;
+  saveProduct: (product: Partial<Product>) => Promise<string>;
   toggleStatus: (id: string, currentStatus: boolean) => Promise<void>;
 }
 
@@ -36,9 +36,10 @@ export const useProductsStore = create<ProductsState>((set, get) => ({
   saveProduct: async (product) => {
     set({ loading: true });
     try {
-      await productsRepository.saveProduct(product, get().productos);
+      const id = await productsRepository.saveProduct(product, get().productos);
       const data = await productsRepository.fetchProducts();
       set({ productos: data });
+      return id;
     } catch (error) {
       console.error("Error saving product in store:", error);
       throw error;

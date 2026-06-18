@@ -1,5 +1,6 @@
-import { useMemo } from 'react';
+import { useMemo, useEffect } from 'react';
 import { useDashboardCache } from './useDashboardCache';
+import { useFinancialAccountsStore } from '../../store/financialAccountsStore';
 import { 
   Wallet, 
   TrendingUp, 
@@ -25,48 +26,60 @@ export default function Dashboard() {
     loading
   } = useDashboardCache();
 
+  const { accounts, fetchAccounts } = useFinancialAccountsStore();
 
+  useEffect(() => {
+    fetchAccounts();
+  }, [fetchAccounts]);
 
   // DATES
   const today = new Date();
   const startOfMonthStr = new Date(today.getFullYear(), today.getMonth(), 1).toISOString();
 
-  // 1. Caja actual (Efectivo - excluding bank movements)
+  // 1. Caja actual (Efectivo - type === 'EFECTIVO')
   const cajaActual = useMemo(() => {
     return cacheCaja.movements
       .filter(m => {
-        const desc = (m.description || '').toLowerCase();
-        const cat = (m.category || '').toLowerCase();
-        const isBanco = desc.includes('banco') || 
-                        desc.includes('transferencia') || 
-                        desc.includes('transf') || 
-                        desc.includes('deposito') || 
-                        desc.includes('depósito') ||
-                        desc.includes('cheque') ||
-                        cat.includes('banco') || 
-                        cat.includes('transferencia');
-        return !isBanco;
+        if (!m.accountId) {
+          const desc = (m.description || '').toLowerCase();
+          const cat = (m.category || '').toLowerCase();
+          const isBanco = desc.includes('banco') || 
+                          desc.includes('transferencia') || 
+                          desc.includes('transf') || 
+                          desc.includes('deposito') || 
+                          desc.includes('depósito') ||
+                          desc.includes('cheque') ||
+                          cat.includes('banco') || 
+                          cat.includes('transferencia');
+          return !isBanco;
+        }
+        const acc = accounts.find(a => a.id === m.accountId);
+        return acc ? acc.tipo === 'EFECTIVO' : true;
       })
       .reduce((acc, mov) => acc + (mov.type === 'INCOME' ? mov.amount : -mov.amount), 0);
-  }, [cacheCaja.movements]);
+  }, [cacheCaja.movements, accounts]);
 
-  // 2. Saldo bancos (Bank transactions)
+  // 2. Saldo bancos (Bank/Virtual Wallet transactions - type === 'BANCO' or 'BILLETERA_VIRTUAL')
   const saldoBancos = useMemo(() => {
     return cacheCaja.movements
       .filter(m => {
-        const desc = (m.description || '').toLowerCase();
-        const cat = (m.category || '').toLowerCase();
-        return desc.includes('banco') || 
-               desc.includes('transferencia') || 
-               desc.includes('transf') || 
-               desc.includes('deposito') || 
-               desc.includes('depósito') ||
-               desc.includes('cheque') ||
-               cat.includes('banco') || 
-               cat.includes('transferencia');
+        if (!m.accountId) {
+          const desc = (m.description || '').toLowerCase();
+          const cat = (m.category || '').toLowerCase();
+          return desc.includes('banco') || 
+                 desc.includes('transferencia') || 
+                 desc.includes('transf') || 
+                 desc.includes('deposito') || 
+                 desc.includes('depósito') ||
+                 desc.includes('cheque') ||
+                 cat.includes('banco') || 
+                 cat.includes('transferencia');
+        }
+        const acc = accounts.find(a => a.id === m.accountId);
+        return acc ? (acc.tipo === 'BANCO' || acc.tipo === 'BILLETERA_VIRTUAL') : false;
       })
       .reduce((acc, mov) => acc + (mov.type === 'INCOME' ? mov.amount : -mov.amount), 0);
-  }, [cacheCaja.movements]);
+  }, [cacheCaja.movements, accounts]);
 
   // 3. Por cobrar (Total customers debt)
   const porCobrar = useMemo(() => {
@@ -110,6 +123,9 @@ export default function Dashboard() {
       .reduce((acc, s) => {
         const saleCost = (s.items || []).reduce((itemAcc, item) => {
           const prod = cacheStock.products.find(p => p.id === item.productId);
+          if (prod && prod.type === 'PRESENTACION') {
+            return itemAcc + (item.costoTotalHistorico || item.costoTotal || 0);
+          }
           return itemAcc + (item.cantidad * (prod?.costoActual || 0));
         }, 0);
         return acc + saleCost;

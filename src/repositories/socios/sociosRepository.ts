@@ -1,4 +1,4 @@
-import { collection, onSnapshot, query, where, doc, setDoc } from 'firebase/firestore';
+import { collection, onSnapshot, query, where, doc, setDoc, getDoc } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
 import type { Shareholder, ShareholderMovement, CajaMovement } from '../../types/domain';
 
@@ -28,6 +28,7 @@ export const sociosRepository = {
     description: string;
     impactCaja: boolean;
     cajaCategory?: string;
+    accountId?: string;
   }): Promise<void> {
     const movId = doc(collection(db, 'shareholder_movements')).id;
     const date = new Date().toISOString();
@@ -60,6 +61,7 @@ export const sociosRepository = {
         operation: 'MOVEMENT',
         reasonType: `SOCIOS_${data.sourceType}`,
         sourceId: movId,
+        accountId: data.accountId,
         isDeleted: false
       };
       await setDoc(doc(db, 'caja_movements', cajaMovId), cajaMov);
@@ -71,6 +73,15 @@ export const sociosRepository = {
   async annulMovement(originalId: string, reason: string, original: ShareholderMovement): Promise<void> {
     const movId = doc(collection(db, 'shareholder_movements')).id;
     const date = new Date().toISOString();
+
+    // Query original caja movement to find its accountId
+    let originalAccountId: string | undefined = undefined;
+    if (original.linkedCajaMovementId) {
+      const cajaDoc = await getDoc(doc(db, 'caja_movements', original.linkedCajaMovementId));
+      if (cajaDoc.exists()) {
+        originalAccountId = (cajaDoc.data() as any).accountId;
+      }
+    }
 
     const compensatory: ShareholderMovement = {
       id: movId,
@@ -100,6 +111,7 @@ export const sociosRepository = {
         reasonType: `SOCIOS_ANULACION_${original.sourceType}`,
         sourceId: movId,
         reversalOf: original.linkedCajaMovementId,
+        accountId: originalAccountId,
         isDeleted: false
       };
       await setDoc(doc(db, 'caja_movements', cajaMovId), cajaCompensatory);
