@@ -31,6 +31,17 @@ export interface CapacityDetails {
 
 /**
  * Calculates the dynamic breakdown of costs for a production batch.
+ *
+ * CORRECCIÓN (2026-06-19):
+ * - Fórmula ANTERIOR: totalNeeded = convertedQtyPerUnit * prodQty
+ *   → usaba peso TEÓRICO de receta × nº de paquetes (ej: 2 KG × 2 = 4 KG)
+ * - Fórmula NUEVA: para ingredientes MERCADERIA (KG), se usa el peso real total
+ *   producido (realWeightKg) directamente como cantidad consumida.
+ *   Para ingredientes INSUMO (bolsas, etiquetas, etc.), se sigue usando prodQty.
+ *
+ * Ejemplo:
+ *   Paquete 1 = 1.475 kg, Paquete 2 = 1.340 kg → realWeightKg = 2.815 kg
+ *   Jamón cocido TRECER $5.800/kg → 2.815 × 5.800 = $16.327  ✓
  */
 export function calculateProductionCostDetails(
   recipeItems: RecipeItem[],
@@ -51,6 +62,16 @@ export function calculateProductionCostDetails(
 
   if (!recipeItems || recipeItems.length === 0 || !targetProduct || prodQty <= 0) {
     return defaultRes;
+  }
+
+  // Determinar peso real total producido en KG
+  let realWeightKg = prodWeightKg || 0;
+  if (realWeightKg <= 0) {
+    try {
+      realWeightKg = convertQuantityToBaseUnit(prodQty, targetProduct.unitType, { ...targetProduct, unitType: 'KG' });
+    } catch (err) {
+      realWeightKg = 0;
+    }
   }
 
   let rawMaterialCost = 0;
@@ -74,14 +95,25 @@ export function calculateProductionCostDetails(
         console.error(`Error al convertir unidad para el insumo ${item.ingredientName}:`, err);
       }
 
-      const totalNeeded = convertedQtyPerUnit * prodQty;
       const unitCost = ingredient.costoActual || 0;
-      const ingredientCost = totalNeeded * unitCost;
+      let totalNeeded: number;
+      let ingredientCost: number;
 
       if (ingredient.type === 'INSUMO') {
+        // Insumos (bolsas, etiquetas, etc.) → calcular por cantidad de paquetes
+        totalNeeded = convertedQtyPerUnit * prodQty;
+        ingredientCost = totalNeeded * unitCost;
         packagingCost += ingredientCost;
       } else {
-        // MERCADERIA or other falls under Materia Prima
+        // MERCADERIA (KG) → usar peso real total producido
+        // Si hay peso real disponible, lo usamos directamente.
+        // Si no hay peso real (ej: primer ingreso), usamos el teórico.
+        if (realWeightKg > 0) {
+          totalNeeded = realWeightKg;
+        } else {
+          totalNeeded = convertedQtyPerUnit * prodQty;
+        }
+        ingredientCost = totalNeeded * unitCost;
         rawMaterialCost += ingredientCost;
       }
 
@@ -99,15 +131,8 @@ export function calculateProductionCostDetails(
 
   const totalCost = rawMaterialCost + packagingCost;
 
-  // Calculate weight in KG to find cost per KG
-  let totalWeightKg = prodWeightKg || 0;
-  if (totalWeightKg <= 0) {
-    try {
-      totalWeightKg = convertQuantityToBaseUnit(prodQty, targetProduct.unitType, { ...targetProduct, unitType: 'KG' });
-    } catch (err) {
-      totalWeightKg = prodQty; // Fallback
-    }
-  }
+  // Calcular peso total en KG para costo por KG
+  const totalWeightKg = realWeightKg > 0 ? realWeightKg : (prodQty > 0 ? prodQty : 0);
 
   const costPerUnit = prodQty > 0 ? totalCost / prodQty : 0;
   const costPerKg = totalWeightKg > 0 ? totalCost / totalWeightKg : 0;
