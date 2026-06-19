@@ -106,10 +106,37 @@ export function calculateProductionCostDetails(
         packagingCost += ingredientCost;
       } else {
         // MERCADERIA (KG) → usar peso real total producido
-        // Si hay peso real disponible, lo usamos directamente.
-        // Si no hay peso real (ej: primer ingreso), usamos el teórico.
-        if (realWeightKg > 0) {
-          totalNeeded = realWeightKg;
+        if (realWeightKg > 0 && prodQty > 0) {
+          let theoreticalTotalWeightKg = 0;
+          try {
+            theoreticalTotalWeightKg = convertQuantityToBaseUnit(prodQty, targetProduct.unitType, { ...targetProduct, unitType: 'KG' });
+          } catch (err) {}
+          
+          let consumoTeoricoTotal = 0;
+          let consumoTeoricoPorKg = 0;
+
+          if (theoreticalTotalWeightKg > 0) {
+            consumoTeoricoTotal = convertedQtyPerUnit * prodQty;
+            consumoTeoricoPorKg = consumoTeoricoTotal / theoreticalTotalWeightKg;
+            totalNeeded = consumoTeoricoPorKg * realWeightKg;
+          } else {
+            totalNeeded = convertedQtyPerUnit * prodQty;
+          }
+
+          console.log({
+            ingredientName: ingredient.nombre || item.ingredientName,
+            ingredientType: ingredient.type,
+            prodQty,
+            theoreticalTotalWeightKg,
+            realWeightKg,
+            convertedQtyPerUnit,
+            consumoTeoricoTotal,
+            consumoTeoricoPorKg,
+            totalNeeded,
+            unitCost,
+            ingredientCost: totalNeeded * unitCost
+          });
+
         } else {
           totalNeeded = convertedQtyPerUnit * prodQty;
         }

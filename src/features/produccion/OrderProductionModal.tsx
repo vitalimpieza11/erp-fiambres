@@ -69,6 +69,7 @@ export default function OrderProductionModal({
 
   const costDetails = useMemo(() => {
     if (!currentItem) return null;
+    console.log("Calculando Costos en UI. currentItem.pesoReal recibido:", currentItem.pesoReal);
     return calculateProductionCostDetails(
       currentItem.recipeItems || [],
       currentItem.cantidad,
@@ -215,22 +216,7 @@ export default function OrderProductionModal({
     const currentItem = orderProdItems[activeStep];
     if (!currentItem) return;
 
-    let stepWeight = 0;
-    if (currentItem.recipeItems) {
-      currentItem.recipeItems.forEach(ing => {
-        const ingProduct = products.find(p => p.id === ing.ingredientProductId);
-        if (ingProduct && ingProduct.type !== 'INSUMO') {
-          try {
-            const qtyInKg = convertQuantityToBaseUnit(ing.quantity, mapRecipeUnitToUnitType(ing.unit), { ...ingProduct, unitType: 'KG' });
-            stepWeight += qtyInKg;
-          } catch (err) {
-            console.error("Error converting unit for weight calculation", err);
-          }
-        }
-      });
-    }
-
-    const finalWeight = stepWeight > 0 ? stepWeight : (currentItem.pesoReal || 0);
+    const finalWeight = currentItem.pesoReal || 0;
     const isLast = activeStep === orderProdItems.length - 1;
 
     try {
@@ -382,25 +368,13 @@ export default function OrderProductionModal({
                     onChange={(newRecipe) => {
                       const newItems = [...orderProdItems];
                       newItems[activeStep].recipeItems = newRecipe;
-                      
-                      let calculatedWeight = 0;
-                      newRecipe.forEach(ing => {
-                        const ingProduct = products.find(p => p.id === ing.ingredientProductId);
-                        if (ingProduct && ingProduct.type !== 'INSUMO') {
-                           try {
-                             calculatedWeight += convertQuantityToBaseUnit(ing.quantity, mapRecipeUnitToUnitType(ing.unit), { ...ingProduct, unitType: 'KG' });
-                           } catch (e) {
-                             console.error(e);
-                           }
-                        }
-                      });
-                      newItems[activeStep].pesoReal = calculatedWeight > 0 ? Number(calculatedWeight.toFixed(3)) : undefined;
-                      
                       setOrderProdItems(newItems);
                     }}
                     products={products}
                     equivalences={equivalences}
                     prodQty={currentItem.cantidad}
+                    pesoReal={currentItem.pesoReal}
+                    targetProduct={prod}
                   />
 
                   {/* Panel de Costos de Producción por Pedido */}

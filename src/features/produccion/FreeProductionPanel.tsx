@@ -87,7 +87,8 @@ export default function FreeProductionPanel({
   }, [isOpen, initialProductId, pendingTotals, products]);
 
   useEffect(() => {
-    if (customIngredients.length > 0 && selectedProduct) {
+    // Solo inicializar el peso si es 0, no lo sobreescribas cada vez
+    if (customIngredients.length > 0 && selectedProduct && prodWeight === 0) {
       let calculatedWeight = 0;
       customIngredients.forEach(ing => {
         const ingProduct = products.find(p => p.id === ing.ingredientProductId);
@@ -188,6 +189,8 @@ export default function FreeProductionPanel({
               products={products}
               equivalences={equivalences}
               prodQty={prodQty}
+              pesoReal={prodWeight > 0 ? prodWeight : undefined}
+              targetProduct={selectedProdObj}
             />
 
             {/* Panel de Costos de Producción Libre */}

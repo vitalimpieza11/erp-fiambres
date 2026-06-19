@@ -118,7 +118,21 @@ export const productionRepository = {
               '',
               equivalences
             );
-            stockToDeduct = convertedQty * data.cantidad;
+            if (ingData.type !== 'INSUMO' && data.pesoReal && data.pesoReal > 0) {
+              let theoreticalTotalWeightKg = 0;
+              try {
+                theoreticalTotalWeightKg = convertQuantityToBaseUnit(data.cantidad, productData.unitType || 'KG', { ...productData, unitType: 'KG' });
+              } catch (err) {}
+              if (theoreticalTotalWeightKg > 0) {
+                const consumoTeoricoTotal = convertedQty * data.cantidad;
+                const consumoTeoricoPorKg = consumoTeoricoTotal / theoreticalTotalWeightKg;
+                stockToDeduct = consumoTeoricoPorKg * data.pesoReal;
+              } else {
+                stockToDeduct = convertedQty * data.cantidad;
+              }
+            } else {
+              stockToDeduct = convertedQty * data.cantidad;
+            }
           }
           
           stockToDeduct = truncateDecimals(stockToDeduct, 3);
@@ -370,7 +384,21 @@ export const productionRepository = {
                   '',
                   equivalences
                 );
-                stockToDeduct = convertedQty * item.cantidad;
+                if (ingData.type !== 'INSUMO' && item.pesoReal && item.pesoReal > 0) {
+                  let theoreticalTotalWeightKg = 0;
+                  try {
+                    theoreticalTotalWeightKg = convertQuantityToBaseUnit(item.cantidad, productData.unitType || 'KG', { ...productData, unitType: 'KG' });
+                  } catch (err) {}
+                  if (theoreticalTotalWeightKg > 0) {
+                    const consumoTeoricoTotal = convertedQty * item.cantidad;
+                    const consumoTeoricoPorKg = consumoTeoricoTotal / theoreticalTotalWeightKg;
+                    stockToDeduct = consumoTeoricoPorKg * item.pesoReal;
+                  } else {
+                    stockToDeduct = convertedQty * item.cantidad;
+                  }
+                } else {
+                  stockToDeduct = convertedQty * item.cantidad;
+                }
               }
               stockToDeduct = truncateDecimals(stockToDeduct, 3);
 
@@ -440,7 +468,21 @@ export const productionRepository = {
                   equivalences
                 );
                 // Deduct ingredients proportional to the item quantity (step quantity)
-                stockToDeduct = convertedQty * item.cantidad;
+                if (ingData.type !== 'INSUMO' && item.pesoReal && item.pesoReal > 0) {
+                  let theoreticalTotalWeightKg = 0;
+                  try {
+                    theoreticalTotalWeightKg = convertQuantityToBaseUnit(item.cantidad, productData.unitType || 'KG', { ...productData, unitType: 'KG' });
+                  } catch (err) {}
+                  if (theoreticalTotalWeightKg > 0) {
+                    const consumoTeoricoTotal = convertedQty * item.cantidad;
+                    const consumoTeoricoPorKg = consumoTeoricoTotal / theoreticalTotalWeightKg;
+                    stockToDeduct = consumoTeoricoPorKg * item.pesoReal;
+                  } else {
+                    stockToDeduct = convertedQty * item.cantidad;
+                  }
+                } else {
+                  stockToDeduct = convertedQty * item.cantidad;
+                }
               }
 
               stockToDeduct = truncateDecimals(stockToDeduct, 3);
@@ -674,7 +716,21 @@ export const productionRepository = {
               '',
               equivalences
             );
-            stockToDeduct = convertedQty * data.cantidad;
+            if (ingData.type !== 'INSUMO' && data.pesoReal && data.pesoReal > 0) {
+              let theoreticalTotalWeightKg = 0;
+              try {
+                theoreticalTotalWeightKg = convertQuantityToBaseUnit(data.cantidad, productData.unitType || 'KG', { ...productData, unitType: 'KG' });
+              } catch (err) {}
+              if (theoreticalTotalWeightKg > 0) {
+                const consumoTeoricoTotal = convertedQty * data.cantidad;
+                const consumoTeoricoPorKg = consumoTeoricoTotal / theoreticalTotalWeightKg;
+                stockToDeduct = consumoTeoricoPorKg * data.pesoReal;
+              } else {
+                stockToDeduct = convertedQty * data.cantidad;
+              }
+            } else {
+              stockToDeduct = convertedQty * data.cantidad;
+            }
           }
 
           stockToDeduct = truncateDecimals(stockToDeduct, 3);

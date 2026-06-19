@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import type { Product, RecipeItem, Equivalencia } from '../../types/domain';
 import { mapRecipeUnitToUnitType, mapUnitTypeToRecipeUnit } from '../../types/domain';
 import { convertUnit } from '../../lib/unitConverter';
+import { convertQuantityToBaseUnit } from '../../lib/unitConverter';
 import { truncateDecimals } from '../../lib/formatters';
 
 interface RecipeEditorProps {
@@ -10,6 +11,8 @@ interface RecipeEditorProps {
   products: Product[];
   equivalences: Equivalencia[];
   prodQty: number;
+  pesoReal?: number;
+  targetProduct?: Product;
 }
 
 export default function RecipeEditor({
@@ -17,7 +20,9 @@ export default function RecipeEditor({
   onChange,
   products,
   equivalences,
-  prodQty
+  prodQty,
+  pesoReal,
+  targetProduct
 }: RecipeEditorProps) {
   
   const sortedProducts = useMemo(() => {
@@ -108,7 +113,21 @@ export default function RecipeEditor({
               console.error("Error al convertir unidad:", err);
             }
           }
-          const totalNeeded = convertedQty * (prodQty || 0);
+          
+          let totalNeeded = convertedQty * (prodQty || 0);
+          
+          if (ingProduct?.type !== 'INSUMO' && pesoReal && pesoReal > 0 && targetProduct) {
+            let theoreticalTotalWeightKg = 0;
+            try {
+              theoreticalTotalWeightKg = convertQuantityToBaseUnit(prodQty, targetProduct.unitType, { ...targetProduct, unitType: 'KG' });
+            } catch (err) {}
+            
+            if (theoreticalTotalWeightKg > 0) {
+              const consumoTeoricoPorKg = totalNeeded / theoreticalTotalWeightKg;
+              totalNeeded = consumoTeoricoPorKg * pesoReal;
+            }
+          }
+
           const currentStock = ingProduct ? (ingProduct.stockActual || 0) : 0;
           const hasEnough = currentStock >= totalNeeded;
 
