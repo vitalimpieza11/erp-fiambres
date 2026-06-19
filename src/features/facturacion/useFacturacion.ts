@@ -16,6 +16,7 @@ export function useFacturacion() {
   const anularSale = useSalesStore((state) => state.anularSale);
   const deleteSale = useSalesStore((state) => state.deleteSale);
   const markOrderAsDelivered = useSalesStore((state) => state.markOrderAsDelivered);
+  const deliverHistoricalSale = useSalesStore((state) => state.deliverHistoricalSale);
 
   useEffect(() => {
     fetchData();
@@ -43,6 +44,7 @@ export function useFacturacion() {
     anularSale,
     deleteSale,
     markOrderAsDelivered,
+    deliverHistoricalSale,
     fetchData,
   };
 }

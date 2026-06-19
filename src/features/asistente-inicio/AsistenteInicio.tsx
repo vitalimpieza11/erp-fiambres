@@ -1,8 +1,10 @@
-import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useState, useEffect, useMemo } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useStockStore } from '../../store/stockStore';
 import { useSociosStore } from '../../store/sociosStore';
 import { useFinancialAccountsStore } from '../../store/financialAccountsStore';
+import { useClientesStore } from '../../store/clientesStore';
+import { useProveedoresStore } from '../../store/proveedoresStore';
 import { initialLoadRepository, type InitialLoadData } from '../../repositories/initialLoad/initialLoadRepository';
 import { 
   Sparkles, 
@@ -18,316 +20,524 @@ import {
   DollarSign,
   Plus,
   Trash2,
-  Lock
+  Lock,
+  Search,
+  AlertTriangle,
+  Scale
 } from 'lucide-react';
 import './AsistenteInicio.css';
 
+// Helper for name similarity to prevent duplicates
+function normalizeName(name: string): string {
+  return name
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]/g, "")
+    .replace(/\b(distribuidora|dist|srl|sa|s\.r\.l\.|s\.a\.)\b/g, "");
+}
+
+function checkSimilarity(name1: string, name2: string): boolean {
+  const n1 = normalizeName(name1);
+  const n2 = normalizeName(name2);
+  if (!n1 || !n2) return false;
+  return n1.includes(n2) || n2.includes(n1);
+}
+
 export default function AsistenteInicio() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const queryMode = searchParams.get('mode') || 'initial'; // 'initial' or 'adjust'
+
   const { products, fetchData: fetchStock } = useStockStore();
-  const { shareholders, subscribeAll } = useSociosStore();
+  const { shareholders, subscribeAll: subscribeSocios } = useSociosStore();
   const { accounts, fetchAccounts } = useFinancialAccountsStore();
+  const { customers, fetchClientesData } = useClientesStore();
+  const { suppliers, subscribeAll: subscribeProveedores } = useProveedoresStore();
 
   const [step, setStep] = useState<number>(1);
   const [loading, setLoading] = useState<boolean>(false);
   const [success, setSuccess] = useState<boolean>(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  // Status de Idempotencia
+  // Status for Idempotency
   const [migrationStatus, setMigrationStatus] = useState<{ executed: boolean; executedAt?: string } | null>(null);
 
-  // Form State
-  const [fechaCorte, setFechaCorte] = useState<string>('2026-06-17');
+  // --- WIZARD STATES ---
+  const [fechaCorte, setFechaCorte] = useState<string>(() => {
+    const d = new Date();
+    return d.toISOString().split('T')[0];
+  });
 
-  // Stock Inicial State
-  const [stocksList, setStocksList] = useState<{
+  // Modo A: Socios con subtabla de movimientos
+  interface ShareholderMovementRow {
+    id: string;
+    date: string;
+    tipo: 'APORTE' | 'PRESTAMO';
+    tipoAporte?: 'DINERO' | 'BIEN';
+    descripcionBien?: string;
+    concepto: string;
+    amount: number;
+  }
+  const [aportesSocios, setAportesSocios] = useState<{
+    id: string;
+    name: string;
+    isNew: boolean;
+    movements: ShareholderMovementRow[];
+  }[]>([]);
+
+  // Passo 3 (Modo A & B): Cuentas financieras
+  const [cajaInicial, setCajaInicial] = useState<{
+    id: string;
+    name: string;
+    type: 'EFECTIVO' | 'BANCO' | 'BILLETERA_VIRTUAL';
+    isNew: boolean;
+    amount: number;
+  }[]>([]);
+
+  // Passo 4 (Modo A & B): Clientes con saldo pendiente
+  const [clientesDeudas, setClientesDeudas] = useState<{
+    id: string;
+    name: string;
+    isNew: boolean;
+    saldo: number;
+    observaciones: string;
+  }[]>([]);
+
+  // Passo 5 (Modo A & B): Proveedores con saldo pendiente
+  const [proveedoresDeudas, setProveedoresDeudas] = useState<{
+    id: string;
+    name: string;
+    isNew: boolean;
+    saldo: number;
+    observaciones: string;
+  }[]>([]);
+
+  // Passo 6 (Modo A & B): Stock MP / Insumos
+  const [stockMP, setStockMP] = useState<{
     productId: string;
-    nombre: string;
     stockFisico: number;
-    currentStock: number;
+    costoUnitario: number;
   }[]>([]);
 
-  // Insumos State
-  const [insumosList, setInsumosList] = useState<{
+  // Passo 7 (Modo A & B): Stock Presentaciones
+  const [stockPresentaciones, setStockPresentaciones] = useState<{
     productId: string;
-    nombre: string;
-    compraCosto: number;
-    cantidadComprada: number;
-    cantidadActual: number;
+    cantidad: number;
+    pesoPromedio: number;
+    unidadMedida: 'KG' | 'UNIDADES';
+    costoUnitario: number;
+    precioVenta: number;
   }[]>([]);
 
-  // Compras Históricas State
-  const [comprasHist, setComprasHist] = useState<{ date: string; amount: number }[]>([
-    { date: '2026-06-08', amount: 413989.00 },
-    { date: '2026-06-15', amount: 161458.05 },
-    { date: '2026-06-16', amount: 367652.50 }
-  ]);
-
-  // Ventas Históricas State
-  const [ventasHist, setVentasHist] = useState<{ date: string; amount: number; cost: number }[]>([
-    { date: '2026-06-12', amount: 391219.30, cost: 215000.00 },
-    { date: '2026-06-16', amount: 833113.00, cost: 458000.00 }
-  ]);
-
-  // Aportes State
-  const [aportesList, setAportesList] = useState<{
-    shareholderId: string;
-    shareholderName: string;
-    description: string;
-    amount: number;
+  // Passo 8 (Modo A): Compras Históricas Detalladas
+  interface CompraHistItem {
+    productId: string;
+    cantidad: number;
+    unidad: string;
+    costoUnitario: number;
+    subtotal: number;
+  }
+  const [comprasHist, setComprasHist] = useState<{
+    id: string;
+    supplierId: string;
+    supplierName: string;
+    isNewSupplier: boolean;
+    date: string;
+    estado: 'PAGADA' | 'PENDIENTE' | 'PARCIALMENTE PAGADA';
+    paymentType: 'CUENTA' | 'APORTE_SOCIO';
+    socioId?: string;
+    cuentaId?: string;
+    total: number;
+    pagado: number;
+    observaciones: string;
+    items: CompraHistItem[];
   }[]>([]);
 
-  // Préstamos State
-  const [prestamosList, setPrestamosList] = useState<{
-    shareholderId: string;
-    shareholderName: string;
-    description: string;
-    amount: number;
+  // Passo 9 (Modo A): Ventas Históricas Detalladas
+  interface VentaHistItem {
+    productId: string;
+    cantidad: number;
+    precioUnitario: number;
+    costoUnitario: number;
+    subtotal: number;
+    observacion?: string;
+  }
+  const [ventasHist, setVentasHist] = useState<{
+    id: string;
+    customerId: string;
+    customerName: string;
+    isNewCustomer: boolean;
+    date: string;
+    estado: 'COBRADA' | 'PENDIENTE' | 'PARCIALMENTE COBRADA';
+    deliveryStatus?: 'ENTREGADO' | 'PENDIENTE';
+    total: number;
+    cobrado: number;
+    observaciones: string;
+    items: VentaHistItem[];
   }[]>([]);
 
-  // Caja Inicial State
-  const [cajaInicialList, setCajaInicialList] = useState<{
-    accountId: string;
-    accountName: string;
-    amount: number;
-  }[]>([]);
-
-  // Check initial load status
-  const checkStatus = async () => {
-    try {
-      const status = await initialLoadRepository.getInitialLoadStatus();
-      setMigrationStatus(status);
-      if (status.executed && status.executedAt) {
-        setFechaCorte(status.executedAt.split('T')[0]);
-      }
-    } catch (err) {
-      console.error("Error reading initial load status:", err);
-    }
-  };
+  // Inline Creación Modal State
+  const [showInlineModal, setShowInlineModal] = useState<string | null>(null);
+  const [inlineData, setInlineData] = useState<any>({});
+  const [similarityWarning, setSimilarityWarning] = useState<string | null>(null);
 
   // Load stores data
   useEffect(() => {
+    const checkStatus = async () => {
+      try {
+        const status = await initialLoadRepository.getInitialLoadStatus();
+        setMigrationStatus(status);
+      } catch (err) {
+        console.error("Error reading status:", err);
+      }
+    };
     checkStatus();
     fetchStock();
-    const unsub = subscribeAll();
+    fetchClientesData();
+    const unsubSocios = subscribeSocios();
+    const unsubProveedores = subscribeProveedores();
     fetchAccounts();
     return () => {
-      unsub();
+      unsubSocios();
+      unsubProveedores();
     };
-  }, [fetchStock, subscribeAll, fetchAccounts]);
+  }, [fetchStock, fetchClientesData, subscribeSocios, subscribeProveedores, fetchAccounts]);
 
-  // Match and initialize products / shareholders / accounts once loaded
-  useEffect(() => {
-    if (products.length > 0 && stocksList.length === 0) {
-      // Find default products to populate
-      const matchedStocks = [
-        { key: 'trecer', name: 'Jamón cocido Trecer', val: 15.85 },
-        { key: 'paulina', name: 'Queso La Paulina', val: 17.66 },
-        { key: 'cheddar', name: 'Cheddar', val: 5.05 },
-        { key: 'grasseto', name: 'Jamón cocido Grasseto', val: 4.26 },
-        { key: 'crudo', name: 'Jamón crudo', val: 1.0 },
-        { key: 'panceta', name: 'Panceta', val: 2.31 }
-      ].map(p => {
-        const found = products.find(prod => prod.nombre.toLowerCase().includes(p.key) && prod.type === 'MERCADERIA');
-        return {
-          productId: found?.id || '',
-          nombre: found?.nombre || p.name,
-          stockFisico: p.val,
-          currentStock: found?.stockActual || 0
-        };
-      });
+  const isReadOnly = queryMode === 'initial' && !!migrationStatus?.executed;
 
-      setStocksList(matchedStocks.filter(s => s.productId !== ''));
-
-      // Find insumos
-      const matchedInsumos = [
-        { key: 'bolsa', name: 'Bolsas', costo: 278062.0, cantComp: 500, cantAct: 450 },
-        { key: 'folex', name: 'Folex', costo: 19200.0, cantComp: 4, cantAct: 4 }
-      ].map(ins => {
-        const found = products.find(prod => prod.nombre.toLowerCase().includes(ins.key) && prod.type === 'INSUMO');
-        return {
-          productId: found?.id || '',
-          nombre: found?.nombre || ins.name,
-          compraCosto: ins.costo,
-          cantidadComprada: ins.cantComp,
-          cantidadActual: ins.cantAct
-        };
-      });
-
-      setInsumosList(matchedInsumos.filter(i => i.productId !== ''));
+  // Normalization similarity check
+  const handleNameChange = (name: string, type: 'socio' | 'cuenta' | 'cliente' | 'proveedor') => {
+    setInlineData({ ...inlineData, nombre: name });
+    if (!name.trim()) {
+      setSimilarityWarning(null);
+      return;
     }
-  }, [products, stocksList.length]);
-
-  // Match and initialize shareholders data once loaded
-  useEffect(() => {
-    if (shareholders.length > 0 && aportesList.length === 0) {
-      const agus = shareholders.find(s => s.nombre.toLowerCase().includes('agus'));
-      const lucas = shareholders.find(s => s.nombre.toLowerCase().includes('lucas'));
-
-      const initialAportes: typeof aportesList = [];
-      const initialPrestamos: typeof prestamosList = [];
-
-      if (agus) {
-        initialAportes.push(
-          { shareholderId: agus.id, shareholderName: agus.nombre, description: 'Envasadora', amount: 691000 },
-          { shareholderId: agus.id, shareholderName: agus.nombre, description: 'Mercadería lote 1', amount: 53320 },
-          { shareholderId: agus.id, shareholderName: agus.nombre, description: 'Balanza', amount: 301000 },
-          { shareholderId: agus.id, shareholderName: agus.nombre, description: 'Limpieza e higiene', amount: 15000 },
-          { shareholderId: agus.id, shareholderName: agus.nombre, description: 'Mesa de trabajo', amount: 185000 },
-          { shareholderId: agus.id, shareholderName: agus.nombre, description: 'Mercadería lote 2', amount: 413990 }
-        );
-      }
-
-      if (lucas) {
-        initialAportes.push(
-          { shareholderId: lucas.id, shareholderName: lucas.nombre, description: 'Cortadora de fiambre', amount: 926000 },
-          { shareholderId: lucas.id, shareholderName: lucas.nombre, description: 'Limpieza', amount: 5000 },
-          { shareholderId: lucas.id, shareholderName: lucas.nombre, description: 'Impresora + etiquetas', amount: 366000 }
-        );
-
-        initialPrestamos.push({
-          shareholderId: lucas.id,
-          shareholderName: lucas.nombre,
-          description: 'Préstamo en efectivo (Pasivo)',
-          amount: 900000
-        });
-      }
-
-      setAportesList(initialAportes);
-      setPrestamosList(initialPrestamos);
+    let matchFound = false;
+    if (type === 'socio') {
+      matchFound = shareholders.some(s => checkSimilarity(s.nombre, name));
+    } else if (type === 'cuenta') {
+      matchFound = accounts.some(a => checkSimilarity(a.nombre, name));
+    } else if (type === 'cliente') {
+      matchFound = customers.some(c => checkSimilarity(c.nombre, name));
+    } else if (type === 'proveedor') {
+      matchFound = suppliers.some(s => checkSimilarity(s.nombre, name));
     }
-  }, [shareholders, aportesList.length]);
 
-  // Match accounts
-  useEffect(() => {
-    if (accounts.length > 0 && cajaInicialList.length === 0) {
-      setCajaInicialList(
-        accounts.map(acc => ({
-          accountId: acc.id,
-          accountName: acc.nombre,
-          amount: 0
-        }))
-      );
+    if (matchFound) {
+      setSimilarityWarning(`¡Advertencia! Existe un registro similar en la base de datos. Por favor, asegúrese de no duplicar.`);
+    } else {
+      setSimilarityWarning(null);
     }
-  }, [accounts, cajaInicialList.length]);
+  };
 
-  const addStockRow = () => {
-    if (migrationStatus?.executed) return;
-    const unselected = products.find(p => p.type === 'MERCADERIA' && !stocksList.some(s => s.productId === p.id));
-    if (unselected) {
-      setStocksList([...stocksList, {
-        productId: unselected.id,
-        nombre: unselected.nombre,
-        stockFisico: 0,
-        currentStock: unselected.stockActual || 0
+  const submitInlineCreation = () => {
+    const tempId = `temp-${Date.now()}`;
+    const name = inlineData.nombre || '';
+    if (!name.trim()) return;
+
+    if (showInlineModal === 'socio') {
+      setAportesSocios([...aportesSocios, {
+        id: tempId,
+        name,
+        isNew: true,
+        movements: []
+      }]);
+    } else if (showInlineModal === 'cuenta') {
+      setCajaInicial([...cajaInicial, {
+        id: tempId,
+        name,
+        type: inlineData.tipo || 'EFECTIVO',
+        isNew: true,
+        amount: 0
+      }]);
+    } else if (showInlineModal === 'cliente') {
+      setClientesDeudas([...clientesDeudas, {
+        id: tempId,
+        name,
+        isNew: true,
+        saldo: 0,
+        observaciones: ''
+      }]);
+    } else if (showInlineModal === 'proveedor') {
+      setProveedoresDeudas([...proveedoresDeudas, {
+        id: tempId,
+        name,
+        isNew: true,
+        saldo: 0,
+        observaciones: ''
       }]);
     }
+    setShowInlineModal(null);
+    setInlineData({});
+    setSimilarityWarning(null);
   };
 
-  const removeStockRow = (index: number) => {
-    if (migrationStatus?.executed) return;
-    setStocksList(stocksList.filter((_, i) => i !== index));
-  };
+  // Steps Lists
+  const stepsA = [
+    { num: 1, label: 'Fecha de Corte', icon: <Calendar size={18} /> },
+    { num: 2, label: 'Socios', icon: <Users size={18} /> },
+    { num: 3, label: 'Cajas', icon: <Wallet size={18} /> },
+    { num: 4, label: 'Clientes CC', icon: <Users size={18} /> },
+    { num: 5, label: 'Proveedores CC', icon: <Users size={18} /> },
+    { num: 6, label: 'Stock MP', icon: <Layers size={18} /> },
+    { num: 7, label: 'Stock Pres', icon: <Scale size={18} /> },
+    { num: 8, label: 'Compras Hist.', icon: <TrendingUp size={18} /> },
+    { num: 9, label: 'Ventas Hist.', icon: <TrendingUp size={18} /> },
+    { num: 10, label: 'Balance Contable', icon: <Info size={18} /> },
+    { num: 11, label: 'Confirmación', icon: <CheckCircle size={18} /> }
+  ];
 
-  const updateStockRow = (index: number, field: string, value: any) => {
-    if (migrationStatus?.executed) return;
-    const newList = [...stocksList];
-    if (field === 'productId') {
-      const prod = products.find(p => p.id === value);
-      if (prod) {
-        newList[index] = {
-          ...newList[index],
-          productId: prod.id,
-          nombre: prod.nombre,
-          currentStock: prod.stockActual || 0
-        };
-      }
-    } else {
-      newList[index] = { ...newList[index], [field]: value };
-    }
-    setStocksList(newList);
-  };
+  const stepsB = [
+    { num: 1, label: 'Fecha de Corte', icon: <Calendar size={18} /> },
+    { num: 2, label: 'Ajuste Caja', icon: <Wallet size={18} /> },
+    { num: 3, label: 'Ajuste Clientes', icon: <Users size={18} /> },
+    { num: 4, label: 'Ajuste Prov', icon: <Users size={18} /> },
+    { num: 5, label: 'Ajuste Stock MP', icon: <Layers size={18} /> },
+    { num: 6, label: 'Ajuste Stock Pres', icon: <Scale size={18} /> },
+    { num: 7, label: 'Confirmación', icon: <CheckCircle size={18} /> }
+  ];
 
-  const updateInsumoRow = (index: number, field: string, value: number) => {
-    if (migrationStatus?.executed) return;
-    const newList = [...insumosList];
-    newList[index] = { ...newList[index], [field]: value };
-    setInsumosList(newList);
-  };
+  const activeSteps = queryMode === 'initial' ? stepsA : stepsB;
+  const maxStep = activeSteps.length;
+
+  const totals = useMemo(() => {
+    // Calculo de aportes y prestamos multiconcepto
+    const totalAportes = aportesSocios.reduce((acc, s) => {
+      const shAportes = (s.movements || []).filter(m => m.tipo === 'APORTE').reduce((sum, m) => sum + m.amount, 0);
+      return acc + shAportes;
+    }, 0);
+    const totalAportesBienes = aportesSocios.reduce((acc, s) => {
+      const shAportes = (s.movements || []).filter(m => m.tipo === 'APORTE' && m.tipoAporte === 'BIEN').reduce((sum, m) => sum + m.amount, 0);
+      return acc + shAportes;
+    }, 0);
+    const totalPrestamos = aportesSocios.reduce((acc, s) => {
+      const shLoans = (s.movements || []).filter(m => m.tipo === 'PRESTAMO').reduce((sum, m) => sum + m.amount, 0);
+      return acc + shLoans;
+    }, 0);
+
+    const totalCajas = cajaInicial.reduce((acc, c) => acc + c.amount, 0);
+    const totalClientesCc = clientesDeudas.reduce((acc, cl) => acc + cl.saldo, 0);
+    const totalProveedoresCc = proveedoresDeudas.reduce((acc, pr) => acc + pr.saldo, 0);
+    const totalStockMP = stockMP.reduce((acc, st) => acc + (st.stockFisico * st.costoUnitario), 0);
+    const totalStockPresCosto = stockPresentaciones.reduce((acc, pr) => acc + (pr.cantidad * pr.costoUnitario), 0);
+    const totalStockPresVenta = stockPresentaciones.reduce((acc, pr) => acc + (pr.cantidad * pr.precioVenta), 0);
+    const totalWeightPres = stockPresentaciones.reduce((acc, pr) => acc + (pr.unidadMedida === 'KG' ? pr.cantidad * pr.pesoPromedio : pr.cantidad), 0);
+
+    // Compras y Ventas históricas
+    const comprasHistTotal = comprasHist.reduce((acc, c) => acc + c.total, 0);
+    const comprasHistPagadas = comprasHist.reduce((acc, c) => acc + c.pagado, 0);
+    const comprasHistDeuda = comprasHistTotal - comprasHistPagadas;
+
+    const comprasHistAportadasSocios = comprasHist.reduce((acc, c) => {
+      if (c.paymentType === 'APORTE_SOCIO') return acc + c.pagado;
+      return acc;
+    }, 0);
+
+    const ventasHistTotal = ventasHist.reduce((acc, v) => acc + v.total, 0);
+    const ventasHistCobradas = ventasHist.reduce((acc, v) => acc + v.cobrado, 0);
+    const ventasHistPendientes = ventasHistTotal - ventasHistCobradas;
+
+    const ventasHistCMV = ventasHist.reduce((acc, v) => {
+      return acc + v.items.reduce((sum, it) => sum + (it.cantidad * it.costoUnitario), 0);
+    }, 0);
+    const ventasHistGanancia = ventasHistTotal - ventasHistCMV;
+
+    // Ecuación de balance general:
+    // Activo = Caja + Clientes Pendientes (Paso 4 + Ventas pendientes) + Stock (MP + Presentaciones costo) + Bienes Aportados
+    const activo = totalCajas + totalClientesCc + ventasHistPendientes + totalStockMP + totalStockPresCosto + totalAportesBienes;
+    // Pasivo = Proveedores (Paso 5 + Compras pendientes) + Préstamos socios
+    const pasivo = totalProveedoresCc + comprasHistDeuda + totalPrestamos;
+    // Patrimonio = Capital socios + Ganancias acumuladas + Compras pagadas mediante aporte de socio
+    const patrimonio = totalAportes + ventasHistGanancia + comprasHistAportadasSocios;
+
+    const diferenciaBalance = activo - (pasivo + patrimonio);
+
+    return {
+      totalAportes,
+      totalAportesBienes,
+      totalPrestamos,
+      totalCajas,
+      totalClientesCc,
+      totalProveedoresCc,
+      totalStockMP,
+      totalStockPresCosto,
+      totalStockPresVenta,
+      totalWeightPres,
+      comprasHistTotal,
+      comprasHistPagadas,
+      comprasHistDeuda,
+      comprasHistAportadasSocios,
+      ventasHistTotal,
+      ventasHistCobradas,
+      ventasHistPendientes,
+      ventasHistCMV,
+      ventasHistGanancia,
+      activo,
+      pasivo,
+      patrimonio,
+      diferenciaBalance
+    };
+  }, [aportesSocios, cajaInicial, clientesDeudas, proveedoresDeudas, stockMP, stockPresentaciones, comprasHist, ventasHist]);
 
   const handleExecute = async () => {
-    if (migrationStatus?.executed) return;
+    if (isReadOnly) return;
     setLoading(true);
     setErrorMsg(null);
     try {
-      // Re-verificar status antes de mandar
-      const currentStatus = await initialLoadRepository.getInitialLoadStatus();
-      if (currentStatus.executed) {
-        setMigrationStatus(currentStatus);
-        throw new Error("La migración inicial ya fue ejecutada.");
+      if (queryMode === 'initial') {
+        const payload: InitialLoadData = {
+          fechaCorte,
+          isAdjustOnly: false,
+          stocks: stockMP.map(s => ({
+            productId: s.productId,
+            stockFisico: Number(s.stockFisico),
+            costoUnitario: Number(s.costoUnitario)
+          })),
+          presentaciones: stockPresentaciones.map(p => ({
+            productId: p.productId,
+            cantidad: Number(p.cantidad),
+            pesoPromedio: Number(p.pesoPromedio),
+            unidadMedida: p.unidadMedida,
+            costoUnitario: Number(p.costoUnitario),
+            precioVenta: Number(p.precioVenta)
+          })),
+          comprasHistoricas: comprasHist.map(c => ({
+            date: c.date,
+            supplierId: c.supplierId,
+            supplierName: c.supplierName,
+            isNewSupplier: c.isNewSupplier,
+            estado: c.estado,
+            paymentType: c.paymentType,
+            socioId: c.socioId,
+            cuentaId: c.cuentaId,
+            total: Number(c.total),
+            pagado: Number(c.pagado),
+            observaciones: c.observaciones,
+            items: c.items.map(it => ({
+              productId: it.productId,
+              cantidad: Number(it.cantidad),
+              unidad: it.unidad,
+              costoUnitario: Number(it.costoUnitario),
+              subtotal: Number(it.subtotal)
+            }))
+          })),
+          ventasHistoricas: ventasHist.map(v => ({
+            date: v.date,
+            customerId: v.customerId,
+            customerName: v.customerName,
+            isNewCustomer: v.isNewCustomer,
+            estado: v.estado,
+            total: Number(v.total),
+            cobrado: Number(v.cobrado),
+            observaciones: v.observaciones,
+            items: v.items.map(it => ({
+              productId: it.productId,
+              cantidad: Number(it.cantidad),
+              precioUnitario: Number(it.precioUnitario),
+              costoUnitario: Number(it.costoUnitario),
+              subtotal: Number(it.subtotal),
+              observacion: it.observacion
+            }))
+          })),
+          aportes: aportesSocios.map(a => ({
+            shareholderId: a.id,
+            shareholderName: a.name,
+            isNewShareholder: a.isNew,
+            movements: a.movements.map(m => ({
+              date: m.date,
+              tipo: m.tipo,
+              concepto: m.concepto,
+              amount: Number(m.amount)
+            }))
+          })),
+          cajaInicial: cajaInicial.map(c => ({
+            accountId: c.id,
+            accountName: c.name,
+            accountType: c.type,
+            isNewAccount: c.isNew,
+            amount: Number(c.amount)
+          })),
+          clientesIniciales: clientesDeudas.map(cl => ({
+            customerId: cl.id,
+            customerName: cl.name,
+            isNewCustomer: cl.isNew,
+            saldo: Number(cl.saldo),
+            observaciones: cl.observaciones
+          })),
+          proveedoresIniciales: proveedoresDeudas.map(pr => ({
+            supplierId: pr.id,
+            supplierName: pr.name,
+            isNewSupplier: pr.isNew,
+            saldo: Number(pr.saldo),
+            observaciones: pr.observaciones
+          })),
+          ajusteDiferenciaBalance: totals.diferenciaBalance
+        };
+
+        await initialLoadRepository.executeInitialLoad(payload);
+      } else {
+        // Modo B
+        const currentBalances = {
+          accounts: accounts.reduce((acc, a) => ({ ...acc, [a.id]: 0 }), {} as Record<string, number>),
+          customers: customers.reduce((acc, c) => ({ ...acc, [c.id]: 0 }), {} as Record<string, number>),
+          suppliers: suppliers.reduce((acc, s) => ({ ...acc, [s.id]: 0 }), {} as Record<string, number>),
+          products: products.reduce((acc, p) => ({ ...acc, [p.id]: p.stockActual || 0 }), {} as Record<string, number>)
+        };
+
+        const payload: InitialLoadData = {
+          fechaCorte,
+          isAdjustOnly: true,
+          stocks: stockMP.map(s => ({
+            productId: s.productId,
+            stockFisico: Number(s.stockFisico),
+            costoUnitario: Number(s.costoUnitario)
+          })),
+          presentaciones: stockPresentaciones.map(p => ({
+            productId: p.productId,
+            cantidad: Number(p.cantidad),
+            pesoPromedio: Number(p.pesoPromedio),
+            unidadMedida: p.unidadMedida,
+            costoUnitario: Number(p.costoUnitario),
+            precioVenta: Number(p.precioVenta)
+          })),
+          comprasHistoricas: [],
+          ventasHistoricas: [],
+          aportes: [],
+          cajaInicial: cajaInicial.map(c => ({
+            accountId: c.id,
+            accountName: c.name,
+            accountType: c.type,
+            isNewAccount: c.isNew,
+            amount: Number(c.amount)
+          })),
+          clientesIniciales: clientesDeudas.map(cl => ({
+            customerId: cl.id,
+            customerName: cl.name,
+            isNewCustomer: cl.isNew,
+            saldo: Number(cl.saldo),
+            observaciones: cl.observaciones
+          })),
+          proveedoresIniciales: proveedoresDeudas.map(pr => ({
+            supplierId: pr.id,
+            supplierName: pr.name,
+            isNewSupplier: pr.isNew,
+            saldo: Number(pr.saldo),
+            observaciones: pr.observaciones
+          })),
+          ajusteDiferenciaBalance: totals.diferenciaBalance
+        };
+
+        await initialLoadRepository.executeSaldosAdjustment(payload, currentBalances);
       }
-
-      const payload: InitialLoadData = {
-        fechaCorte,
-        stocks: stocksList.map(s => ({
-          productId: s.productId,
-          stockFisico: Number(s.stockFisico),
-          currentStock: s.currentStock
-        })),
-        insumos: insumosList.map(i => ({
-          productId: i.productId,
-          nombre: i.nombre,
-          compraCosto: Number(i.compraCosto),
-          cantidadComprada: Number(i.cantidadComprada),
-          cantidadActual: Number(i.cantidadActual)
-        })),
-        comprasHistoricas: comprasHist.map(c => ({
-          date: c.date,
-          amount: Number(c.amount)
-        })),
-        ventasHistoricas: ventasHist.map(v => ({
-          date: v.date,
-          amount: Number(v.amount),
-          cost: Number(v.cost)
-        })),
-        aportes: aportesList.map(a => ({
-          shareholderId: a.shareholderId,
-          description: a.description,
-          amount: Number(a.amount)
-        })),
-        prestamos: prestamosList.map(p => ({
-          shareholderId: p.shareholderId,
-          shareholderName: p.shareholderName,
-          description: p.description,
-          amount: Number(p.amount)
-        })),
-        cajaInicial: cajaInicialList.map(c => ({
-          accountId: c.accountId,
-          amount: Number(c.amount)
-        }))
-      };
-
-      await initialLoadRepository.executeInitialLoad(payload);
       setSuccess(true);
-      await checkStatus();
     } catch (err: any) {
       console.error(err);
-      setErrorMsg(err.message || 'Ocurrió un error inesperado al procesar la carga inicial.');
+      setErrorMsg(err.message || 'Error al procesar la carga/ajuste inicial.');
     } finally {
       setLoading(false);
     }
   };
-
-  const steps = [
-    { num: 1, label: 'Fecha de Corte', icon: <Calendar size={18} /> },
-    { num: 2, label: 'Stock Inicial', icon: <Layers size={18} /> },
-    { num: 3, label: 'Historial', icon: <TrendingUp size={18} /> },
-    { num: 4, label: 'Socios', icon: <Users size={18} /> },
-    { num: 5, label: 'Caja Inicial', icon: <Wallet size={18} /> },
-    { num: 6, label: 'Confirmación', icon: <CheckCircle size={18} /> }
-  ];
-
-  const isReadOnly = !!migrationStatus?.executed;
 
   return (
     <div className="asistente-container">
@@ -336,8 +546,14 @@ export default function AsistenteInicio() {
           <Sparkles size={24} color="#fff" />
         </div>
         <div>
-          <h1 className="asistente-title">Asistente de Configuración Inicial</h1>
-          <p className="asistente-subtitle">Migración y carga contable de negocio en marcha al ERP Al Vacío</p>
+          <h1 className="asistente-title">
+            {queryMode === 'initial' ? 'Asistente de Configuración Inicial' : 'Herramienta de Ajuste de Saldos'}
+          </h1>
+          <p className="asistente-subtitle">
+            {queryMode === 'initial' 
+              ? 'Carga completa de saldos de negocio en marcha' 
+              : 'Corregir saldos del sistema mediante movimientos de ajuste'}
+          </p>
         </div>
       </div>
 
@@ -345,14 +561,14 @@ export default function AsistenteInicio() {
         <div className="asistente-error-alert" style={{ background: '#fef3c7', borderColor: '#f59e0b', color: '#b45309' }}>
           <Lock size={20} />
           <div>
-            <strong>Mapeo contable bloqueado:</strong> La migración inicial ya fue ejecutada y consolidada en este entorno el {migrationStatus?.executedAt ? new Date(migrationStatus.executedAt).toLocaleString() : ''}. El asistente ahora está en modo de solo lectura.
+            <strong>Bloqueado:</strong> La migración inicial ya fue ejecutada. Utilice la herramienta de "Ajuste de Saldos" desde Configuración.
           </div>
         </div>
       )}
 
       {/* Steppers */}
       <div className="stepper-bar">
-        {steps.map(s => (
+        {activeSteps.map(s => (
           <div key={s.num} className={`step-item ${step === s.num ? 'active' : step > s.num ? 'completed' : ''}`}>
             <div className="step-circle">{s.icon}</div>
             <span className="step-label">{s.label}</span>
@@ -370,33 +586,27 @@ export default function AsistenteInicio() {
       {success ? (
         <div className="asistente-success-card">
           <CheckCircle size={60} color="var(--success-color, #24b47e)" />
-          <h2>¡Carga Inicial Completada con Éxito!</h2>
+          <h2>¡Proceso Completado con Éxito!</h2>
           <p>
-            El stock físico, los insumos, aportes de socios, préstamos, caja inicial y antecedentes 
-            históricos se han cargado y consolidado de forma atómica en el sistema.
+            {queryMode === 'initial' 
+              ? 'La migración inicial se ha cargado de manera atómica.' 
+              : 'Se han generado los movimientos de ajuste por diferencia SALDO_INICIAL_MIGRACION.'}
           </p>
-          <div className="success-stats">
-            <div>Stock Configurado: <strong>{stocksList.length + insumosList.length} ítems</strong></div>
-            <div>Aportes de Socios: <strong>{aportesList.length} registros</strong></div>
-            <div>Deudas Socios: <strong>${prestamosList.reduce((acc, p) => acc + p.amount, 0).toLocaleString()}</strong></div>
-          </div>
           <button className="asistente-btn-primary" onClick={() => navigate('/dashboard')}>
             Ir al Dashboard Principal
           </button>
         </div>
       ) : (
         <div className="asistente-card">
-          {/* Step 1: Fecha de Corte */}
+          {/* STEP 1: Fecha de Corte (Modo A y B) */}
           {step === 1 && (
             <div className="step-content">
               <h3>Definición de Fecha de Corte</h3>
               <p className="step-desc">
-                Establece el límite donde se consolida el saldo inicial contable y de stock. 
-                Los movimientos operativos reales (compras, ventas, mermas) comenzarán a registrarse a partir de esta fecha.
+                Establece la fecha límite de la migración. Las compras y ventas anteriores se considerarán históricas.
               </p>
-
               <div className="form-group-corte">
-                <label>Fecha de Inicio Operativo</label>
+                <label>Fecha de Corte</label>
                 <input 
                   type="date" 
                   value={fechaCorte} 
@@ -405,423 +615,1283 @@ export default function AsistenteInicio() {
                   disabled={isReadOnly}
                 />
               </div>
+            </div>
+          )}
 
-              <div className="corte-info-box">
-                <Info size={20} />
-                <div>
-                  <h4>Consolidación de Saldos</h4>
-                  <p>
-                    Toda transacción realizada con fecha anterior al <strong>17/06</strong> quedará agrupada 
-                    únicamente como histórico contable y de trazabilidad, sin modificar el flujo de caja del ERP.
-                  </p>
-                </div>
+          {/* PASO 2 (Modo A): Socios - Subtabla de Movimientos Multiconcepto */}
+          {queryMode === 'initial' && step === 2 && (
+            <div className="step-content">
+              <h3>Socios y Aportes Multiconcepto</h3>
+              <p className="step-desc">Registre aportes de capital y préstamos individuales para cada uno de los socios fundadores.</p>
+              
+              <div style={{ display: 'flex', gap: '12px', marginBottom: '24px' }}>
+                <select 
+                  className="table-select" 
+                  style={{ maxWidth: '250px' }}
+                  onChange={e => {
+                    const val = e.target.value;
+                    if (val) {
+                      const sh = shareholders.find(s => s.id === val);
+                      if (sh && !aportesSocios.some(s => s.id === sh.id)) {
+                        setAportesSocios([...aportesSocios, {
+                          id: sh.id,
+                          name: sh.nombre,
+                          isNew: false,
+                          movements: []
+                        }]);
+                      }
+                      e.target.value = '';
+                    }
+                  }}
+                >
+                  <option value="">-- Vincular Socio Existente --</option>
+                  {shareholders.map(s => (
+                    <option key={s.id} value={s.id}>{s.nombre}</option>
+                  ))}
+                </select>
+                <button className="asistente-btn-secondary" onClick={() => setShowInlineModal('socio')}>
+                  <Plus size={16} /> + Crear Socio Nuevo
+                </button>
+              </div>
+
+              {aportesSocios.map((socio, idx) => {
+                const shAportesTotal = (socio.movements || []).filter(m => m.tipo === 'APORTE').reduce((sum, m) => sum + m.amount, 0);
+                const shLoansTotal = (socio.movements || []).filter(m => m.tipo === 'PRESTAMO').reduce((sum, m) => sum + m.amount, 0);
+
+                return (
+                  <div key={socio.id} className="apple-card" style={{ padding: '20px', marginBottom: '24px', backgroundColor: '#fafafa', border: '1px solid #e5e5ea' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                      <span style={{ fontSize: '16px', fontWeight: 700 }}>👤 Socio: {socio.name}</span>
+                      <div style={{ display: 'flex', gap: '16px', fontSize: '13px' }}>
+                        <div>Total Aportado: <strong style={{ color: '#16a34a' }}>${shAportesTotal.toLocaleString()}</strong></div>
+                        <div>Total Prestado: <strong style={{ color: '#2563eb' }}>${shLoansTotal.toLocaleString()}</strong></div>
+                        <button className="btn-icon-danger" onClick={() => setAportesSocios(aportesSocios.filter(s => s.id !== socio.id))}>
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
+                    </div>
+
+                    <table className="asistente-table" style={{ fontSize: '12px' }}>
+                      <thead>
+                        <tr>
+                          <th>Fecha</th>
+                          <th>Tipo</th>
+                          <th>Clase de Aporte</th>
+                          <th>Concepto / Observaciones</th>
+                          <th>Monto / Valor Asignado</th>
+                          <th>Acción</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(socio.movements || []).map((mov, movIdx) => (
+                          <tr key={mov.id}>
+                            <td>
+                              <input 
+                                type="date" 
+                                value={mov.date} 
+                                onChange={e => {
+                                  const newS = [...aportesSocios];
+                                  newS[idx].movements[movIdx].date = e.target.value;
+                                  setAportesSocios(newS);
+                                }}
+                                className="table-input"
+                              />
+                            </td>
+                            <td>
+                              <select
+                                value={mov.tipo}
+                                onChange={e => {
+                                  const newS = [...aportesSocios];
+                                  newS[idx].movements[movIdx].tipo = e.target.value as any;
+                                  if (e.target.value === 'APORTE') {
+                                    newS[idx].movements[movIdx].tipoAporte = 'DINERO';
+                                    newS[idx].movements[movIdx].descripcionBien = '';
+                                  } else {
+                                    delete newS[idx].movements[movIdx].tipoAporte;
+                                    delete newS[idx].movements[movIdx].descripcionBien;
+                                  }
+                                  setAportesSocios(newS);
+                                }}
+                                className="table-select"
+                              >
+                                <option value="APORTE">APORTE (Capital)</option>
+                                <option value="PRESTAMO">PRESTAMO (Pasivo)</option>
+                              </select>
+                            </td>
+                            <td>
+                              {mov.tipo === 'APORTE' ? (
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                  <select
+                                    value={mov.tipoAporte || 'DINERO'}
+                                    onChange={e => {
+                                      const newS = [...aportesSocios];
+                                      newS[idx].movements[movIdx].tipoAporte = e.target.value as any;
+                                      setAportesSocios(newS);
+                                    }}
+                                    className="table-select"
+                                  >
+                                    <option value="DINERO">Dinero</option>
+                                    <option value="BIEN">Bien Físico</option>
+                                  </select>
+                                  {mov.tipoAporte === 'BIEN' && (
+                                    <input 
+                                      type="text" 
+                                      value={mov.descripcionBien || ''} 
+                                      onChange={e => {
+                                        const newS = [...aportesSocios];
+                                        newS[idx].movements[movIdx].descripcionBien = e.target.value;
+                                        setAportesSocios(newS);
+                                      }}
+                                      className="table-input"
+                                      placeholder="Descripción (Cámara, Auto...)"
+                                    />
+                                  )}
+                                </div>
+                              ) : (
+                                <span style={{ color: 'var(--text-secondary)' }}>--</span>
+                              )}
+                            </td>
+                            <td>
+                              <input 
+                                type="text" 
+                                value={mov.concepto} 
+                                onChange={e => {
+                                  const newS = [...aportesSocios];
+                                  newS[idx].movements[movIdx].concepto = e.target.value;
+                                  setAportesSocios(newS);
+                                }}
+                                className="table-input"
+                                placeholder={mov.tipoAporte === 'BIEN' ? "Obs del bien..." : "Ej: Efectivo..."}
+                              />
+                            </td>
+                            <td>
+                              <input 
+                                type="number" 
+                                value={mov.amount || ''} 
+                                onChange={e => {
+                                  const newS = [...aportesSocios];
+                                  newS[idx].movements[movIdx].amount = Number(e.target.value);
+                                  setAportesSocios(newS);
+                                }}
+                                className="table-input"
+                                placeholder={mov.tipoAporte === 'BIEN' ? "Valor Asignado" : "$ Monto"}
+                              />
+                            </td>
+                            <td>
+                              <button 
+                                className="btn-icon-danger" 
+                                onClick={() => {
+                                  const newS = [...aportesSocios];
+                                  newS[idx].movements = newS[idx].movements.filter(m => m.id !== mov.id);
+                                  setAportesSocios(newS);
+                                }}
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+
+                    <button 
+                      className="asistente-btn-secondary add-row-btn"
+                      onClick={() => {
+                        const newS = [...aportesSocios];
+                        newS[idx].movements.push({
+                          id: `mov-${Date.now()}-${Math.random()}`,
+                          date: fechaCorte,
+                          tipo: 'APORTE',
+                          concepto: '',
+                          amount: 0
+                        });
+                        setAportesSocios(newS);
+                      }}
+                    >
+                      + Agregar Movimiento
+                    </button>
+                  </div>
+                );
+              })}
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '24px', fontSize: '15px', fontWeight: 700, borderTop: '1px solid var(--border-color)', paddingTop: '16px' }}>
+                <div>Total General Capital Aportado: <span style={{ color: '#16a34a' }}>${totals.totalAportes.toLocaleString()}</span></div>
+                <div>Total General Préstamos: <span style={{ color: '#2563eb' }}>${totals.totalPrestamos.toLocaleString()}</span></div>
               </div>
             </div>
           )}
 
-          {/* Step 2: Stock Inicial */}
-          {step === 2 && (
+          {/* PASO 3 (Modo A) / PASO 2 (Modo B): Caja y Cuentas */}
+          {((queryMode === 'initial' && step === 3) || (queryMode === 'adjust' && step === 2)) && (
             <div className="step-content">
-              <h3>Stock Físico Inicial & Insumos</h3>
-              <p className="step-desc">
-                Carga el inventario real al día de hoy. Estos valores generarán movimientos de stock 
-                tipo <strong>AJUSTE INICIAL</strong> sin afectar deudas con proveedores ni saldos de caja.
-              </p>
+              <h3>Caja e Inicialización de Saldos Financieros</h3>
+              <p className="step-desc">Declare el balance de sus cuentas financieras al momento de corte.</p>
+              <table className="asistente-table">
+                <thead>
+                  <tr>
+                    <th>Cuenta</th>
+                    <th>Tipo</th>
+                    <th>Saldo</th>
+                    <th>Acciones</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {cajaInicial.map((row, index) => (
+                    <tr key={row.id}>
+                      <td><strong>{row.name}</strong></td>
+                      <td>{row.type}</td>
+                      <td>
+                        <input 
+                          type="number" 
+                          value={row.amount || ''} 
+                          onChange={e => {
+                            const newC = [...cajaInicial];
+                            newC[index].amount = Number(e.target.value);
+                            setCajaInicial(newC);
+                          }}
+                          className="table-input"
+                          placeholder="$ 0"
+                        />
+                      </td>
+                      <td>
+                        <button className="btn-icon-danger" onClick={() => setCajaInicial(cajaInicial.filter(c => c.id !== row.id))}>
+                          <Trash2 size={16} />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <div style={{ display: 'flex', gap: '12px' }}>
+                <select 
+                  className="table-select" 
+                  style={{ maxWidth: '250px' }}
+                  onChange={e => {
+                    const val = e.target.value;
+                    if (val) {
+                      const acc = accounts.find(a => a.id === val);
+                      if (acc && !cajaInicial.some(c => c.id === acc.id)) {
+                        setCajaInicial([...cajaInicial, {
+                          id: acc.id,
+                          name: acc.nombre,
+                          type: acc.tipo,
+                          isNew: false,
+                          amount: 0
+                        }]);
+                      }
+                      e.target.value = '';
+                    }
+                  }}
+                >
+                  <option value="">-- Vincular Cuenta Existente --</option>
+                  {accounts.map(a => (
+                    <option key={a.id} value={a.id}>{a.nombre} ({a.tipo})</option>
+                  ))}
+                </select>
+                <button className="asistente-btn-secondary" onClick={() => setShowInlineModal('cuenta')}>
+                  <Plus size={16} /> + Crear Cuenta Nueva
+                </button>
+              </div>
+            </div>
+          )}
 
-              <h4>1. Mercadería Existente</h4>
+          {/* PASO 4 (Modo A) / PASO 3 (Modo B): Clientes con deuda */}
+          {((queryMode === 'initial' && step === 4) || (queryMode === 'adjust' && step === 3)) && (
+            <div className="step-content">
+              <h3>Clientes con Saldo Pendiente</h3>
+              <p className="step-desc">Registre los saldos deudores de clientes en cuenta corriente.</p>
+              <table className="asistente-table">
+                <thead>
+                  <tr>
+                    <th>Cliente</th>
+                    <th>Saldo Pendiente</th>
+                    <th>Observaciones</th>
+                    <th>Acciones</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {clientesDeudas.map((row, index) => (
+                    <tr key={row.id}>
+                      <td><strong>{row.name}</strong></td>
+                      <td>
+                        <input 
+                          type="number" 
+                          value={row.saldo || ''} 
+                          onChange={e => {
+                            const newC = [...clientesDeudas];
+                            newC[index].saldo = Number(e.target.value);
+                            setClientesDeudas(newC);
+                          }}
+                          className="table-input"
+                          placeholder="$ 0"
+                        />
+                      </td>
+                      <td>
+                        <input 
+                          type="text" 
+                          value={row.observaciones} 
+                          onChange={e => {
+                            const newC = [...clientesDeudas];
+                            newC[index].observaciones = e.target.value;
+                            setClientesDeudas(newC);
+                          }}
+                          className="table-input"
+                          placeholder="Obs..."
+                        />
+                      </td>
+                      <td>
+                        <button className="btn-icon-danger" onClick={() => setClientesDeudas(clientesDeudas.filter(c => c.id !== row.id))}>
+                          <Trash2 size={16} />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <div style={{ display: 'flex', gap: '12px' }}>
+                <select 
+                  className="table-select" 
+                  style={{ maxWidth: '250px' }}
+                  onChange={e => {
+                    const val = e.target.value;
+                    if (val) {
+                      const cust = customers.find(c => c.id === val);
+                      if (cust && !clientesDeudas.some(c => c.id === cust.id)) {
+                        setClientesDeudas([...clientesDeudas, {
+                          id: cust.id,
+                          name: cust.nombre,
+                          isNew: false,
+                          saldo: 0,
+                          observaciones: ''
+                        }]);
+                      }
+                      e.target.value = '';
+                    }
+                  }}
+                >
+                  <option value="">-- Vincular Cliente Existente --</option>
+                  {customers.map(c => (
+                    <option key={c.id} value={c.id}>{c.nombre}</option>
+                  ))}
+                </select>
+                <button className="asistente-btn-secondary" onClick={() => setShowInlineModal('cliente')}>
+                  <Plus size={16} /> + Crear Cliente Nuevo
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* PASO 5 (Modo A) / PASO 4 (Modo B): Proveedores con deuda */}
+          {((queryMode === 'initial' && step === 5) || (queryMode === 'adjust' && step === 4)) && (
+            <div className="step-content">
+              <h3>Proveedores con Saldo Pendiente</h3>
+              <p className="step-desc">Registre los saldos deudores con proveedores (Cuentas a Pagar).</p>
+              <table className="asistente-table">
+                <thead>
+                  <tr>
+                    <th>Proveedor</th>
+                    <th>Saldo Pendiente</th>
+                    <th>Observaciones</th>
+                    <th>Acciones</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {proveedoresDeudas.map((row, index) => (
+                    <tr key={row.id}>
+                      <td><strong>{row.name}</strong></td>
+                      <td>
+                        <input 
+                          type="number" 
+                          value={row.saldo || ''} 
+                          onChange={e => {
+                            const newP = [...proveedoresDeudas];
+                            newP[index].saldo = Number(e.target.value);
+                            setProveedoresDeudas(newP);
+                          }}
+                          className="table-input"
+                          placeholder="$ 0"
+                        />
+                      </td>
+                      <td>
+                        <input 
+                          type="text" 
+                          value={row.observaciones} 
+                          onChange={e => {
+                            const newP = [...proveedoresDeudas];
+                            newP[index].observaciones = e.target.value;
+                            setProveedoresDeudas(newP);
+                          }}
+                          className="table-input"
+                          placeholder="Obs..."
+                        />
+                      </td>
+                      <td>
+                        <button className="btn-icon-danger" onClick={() => setProveedoresDeudas(proveedoresDeudas.filter(p => p.id !== row.id))}>
+                          <Trash2 size={16} />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <div style={{ display: 'flex', gap: '12px' }}>
+                <select 
+                  className="table-select" 
+                  style={{ maxWidth: '250px' }}
+                  onChange={e => {
+                    const val = e.target.value;
+                    if (val) {
+                      const supp = suppliers.find(s => s.id === val);
+                      if (supp && !proveedoresDeudas.some(p => p.id === supp.id)) {
+                        setProveedoresDeudas([...proveedoresDeudas, {
+                          id: supp.id,
+                          name: supp.nombre,
+                          isNew: false,
+                          saldo: 0,
+                          observaciones: ''
+                        }]);
+                      }
+                      e.target.value = '';
+                    }
+                  }}
+                >
+                  <option value="">-- Vincular Proveedor Existente --</option>
+                  {suppliers.map(s => (
+                    <option key={s.id} value={s.id}>{s.nombre}</option>
+                  ))}
+                </select>
+                <button className="asistente-btn-secondary" onClick={() => setShowInlineModal('proveedor')}>
+                  <Plus size={16} /> + Crear Proveedor Nuevo
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* PASO 6 (Modo A) / PASO 5 (Modo B): Stock Materias Primas */}
+          {((queryMode === 'initial' && step === 6) || (queryMode === 'adjust' && step === 5)) && (
+            <div className="step-content">
+              <h3>Stock Físico Inicial de Materias Primas & Insumos</h3>
+              <p className="step-desc">Establezca el inventario de materias primas e insumos (cálculo auto de subtotal y total).</p>
               <table className="asistente-table">
                 <thead>
                   <tr>
                     <th>Producto</th>
-                    <th>Stock Físico (Kg / Uni)</th>
-                    {!isReadOnly && <th>Acciones</th>}
+                    <th>Unidad</th>
+                    <th>Cantidad</th>
+                    <th>Costo Unitario</th>
+                    <th>Subtotal</th>
+                    <th>Acciones</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {stocksList.map((row, index) => (
-                    <tr key={index}>
-                      <td>
-                        <select 
-                          value={row.productId} 
-                          onChange={e => updateStockRow(index, 'productId', e.target.value)}
-                          className="table-select"
-                          disabled={isReadOnly}
-                        >
-                          {products.filter(p => p.type === 'MERCADERIA').map(p => (
-                            <option key={p.id} value={p.id}>{p.nombre}</option>
-                          ))}
-                        </select>
-                      </td>
-                      <td>
-                        <div className="number-input-wrapper">
+                  {stockMP.map((row, index) => {
+                    const prod = products.find(p => p.id === row.productId);
+                    return (
+                      <tr key={row.productId}>
+                        <td><strong>{prod?.nombre || 'Desconocido'}</strong></td>
+                        <td>{prod?.unitType || 'KG'}</td>
+                        <td>
                           <input 
                             type="number" 
-                            step="any"
-                            value={row.stockFisico} 
-                            onChange={e => updateStockRow(index, 'stockFisico', parseFloat(e.target.value) || 0)}
+                            value={row.stockFisico || ''} 
+                            onChange={e => {
+                              const newS = [...stockMP];
+                              newS[index].stockFisico = Number(e.target.value);
+                              setStockMP(newS);
+                            }}
                             className="table-input"
-                            disabled={isReadOnly}
+                            placeholder="0"
                           />
-                          <span className="unit-label">Kg</span>
-                        </div>
-                      </td>
-                      {!isReadOnly && (
+                        </td>
                         <td>
-                          <button className="btn-icon-danger" onClick={() => removeStockRow(index)}>
+                          <input 
+                            type="number" 
+                            value={row.costoUnitario || ''} 
+                            onChange={e => {
+                              const newS = [...stockMP];
+                              newS[index].costoUnitario = Number(e.target.value);
+                              setStockMP(newS);
+                            }}
+                            className="table-input"
+                            placeholder="$ 0.00"
+                          />
+                        </td>
+                        <td style={{ fontWeight: 600 }}>
+                          ${(row.stockFisico * row.costoUnitario).toFixed(2)}
+                        </td>
+                        <td>
+                          <button className="btn-icon-danger" onClick={() => setStockMP(stockMP.filter(s => s.productId !== row.productId))}>
                             <Trash2 size={16} />
                           </button>
                         </td>
-                      )}
-                    </tr>
-                  ))}
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
-              {!isReadOnly && (
-                <button className="asistente-btn-secondary add-row-btn" onClick={addStockRow}>
-                  <Plus size={16} /> Agregar Producto
-                </button>
-              )}
-
-              <h4 style={{ marginTop: '24px' }}>2. Insumos en Inventario</h4>
-              <table className="asistente-table">
-                <thead>
-                  <tr>
-                    <th>Insumo</th>
-                    <th>Costo Compra</th>
-                    <th>Cant. Comprada</th>
-                    <th>Stock Actual</th>
-                    <th>Costo Unitario (Auto)</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {insumosList.map((row, index) => (
-                    <tr key={index}>
-                      <td><strong>{row.nombre}</strong></td>
-                      <td>
-                        <input 
-                          type="number" 
-                          value={row.compraCosto} 
-                          onChange={e => updateInsumoRow(index, 'compraCosto', parseFloat(e.target.value) || 0)}
-                          className="table-input"
-                          disabled={isReadOnly}
-                        />
-                      </td>
-                      <td>
-                        <input 
-                          type="number" 
-                          value={row.cantidadComprada} 
-                          onChange={e => updateInsumoRow(index, 'cantidadComprada', parseFloat(e.target.value) || 0)}
-                          className="table-input"
-                          disabled={isReadOnly}
-                        />
-                      </td>
-                      <td>
-                        <input 
-                          type="number" 
-                          value={row.cantidadActual} 
-                          onChange={e => updateInsumoRow(index, 'cantidadActual', parseFloat(e.target.value) || 0)}
-                          className="table-input"
-                          disabled={isReadOnly}
-                        />
-                      </td>
-                      <td style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>
-                        ${((row.cantidadComprada > 0 ? row.compraCosto / row.cantidadComprada : 0)).toFixed(2)}
-                      </td>
-                    </tr>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '16px' }}>
+                <select 
+                  className="table-select" 
+                  style={{ maxWidth: '300px' }}
+                  onChange={e => {
+                    const val = e.target.value;
+                    if (val) {
+                      const p = products.find(prod => prod.id === val);
+                      if (p && !stockMP.some(s => s.productId === p.id)) {
+                        setStockMP([...stockMP, {
+                          productId: p.id,
+                          stockFisico: 0,
+                          costoUnitario: p.costoActual || 0
+                        }]);
+                      }
+                      e.target.value = '';
+                    }
+                  }}
+                >
+                  <option value="">-- Seleccionar Materia Prima / Insumo --</option>
+                  {products.filter(p => p.type === 'MERCADERIA' || p.type === 'INSUMO').map(p => (
+                    <option key={p.id} value={p.id}>{p.nombre} ({p.unitType})</option>
                   ))}
-                </tbody>
-              </table>
+                </select>
+                <div style={{ fontSize: '16px', fontWeight: 700 }}>
+                  Total MP Valorizado: <span style={{ color: 'var(--alvacio-red)' }}>${totals.totalStockMP.toFixed(2)}</span>
+                </div>
+              </div>
             </div>
           )}
 
-          {/* Step 3: Historial */}
-          {step === 3 && (
+          {/* PASO 7 (Modo A) / PASO 6 (Modo B): Stock Presentaciones */}
+          {((queryMode === 'initial' && step === 7) || (queryMode === 'adjust' && step === 6)) && (
             <div className="step-content">
-              <h3>Historial Operativo Pre-Sistema</h3>
-              <p className="step-desc">
-                Ingresa los registros consolidados de compras y ventas históricas previas a la fecha de corte. 
-                Se utilizarán únicamente con propósitos analíticos y estados de resultados históricos.
-              </p>
-
-              <h4>Compras de Mercadería Consumida Históricamente</h4>
+              <h3>Stock Físico Inicial de Presentaciones Terminadas</h3>
+              <p className="step-desc">Cargue el inventario de elaboraciones listas para despacho con control físico de peso real.</p>
               <table className="asistente-table">
                 <thead>
                   <tr>
-                    <th>Fecha</th>
-                    <th>Monto Consolidado</th>
+                    <th>Presentación</th>
+                    <th>Cantidad (u)</th>
+                    <th>Peso Promedio</th>
+                    <th>Unidad</th>
+                    <th>Peso Total</th>
+                    <th>Costo Real</th>
+                    <th>Precio Venta</th>
+                    <th>M. Potencial</th>
+                    <th>Acciones</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {comprasHist.map((item, index) => (
-                    <tr key={index}>
-                      <td><strong>{item.date.split('-').reverse().join('/')}</strong></td>
-                      <td>
-                        <div className="price-input-wrapper">
-                          <DollarSign size={14} />
+                  {stockPresentaciones.map((row, index) => {
+                    const prod = products.find(p => p.id === row.productId);
+                    const weightTotal = row.cantidad * row.pesoPromedio;
+                    const costTotal = row.cantidad * row.costoUnitario;
+                    const saleTotal = row.cantidad * row.precioVenta;
+                    const margin = saleTotal - costTotal;
+
+                    return (
+                      <tr key={row.productId}>
+                        <td><strong>{prod?.nombre || 'Desconocido'}</strong></td>
+                        <td>
                           <input 
                             type="number" 
-                            value={item.amount}
+                            value={row.cantidad || ''} 
+                            onChange={e => {
+                              const newS = [...stockPresentaciones];
+                              newS[index].cantidad = Number(e.target.value);
+                              setStockPresentaciones(newS);
+                            }}
+                            className="table-input"
+                            placeholder="0"
+                          />
+                        </td>
+                        <td>
+                          <input 
+                            type="number" 
+                            step="0.001"
+                            value={row.pesoPromedio || ''} 
+                            onChange={e => {
+                              const newS = [...stockPresentaciones];
+                              newS[index].pesoPromedio = Number(e.target.value);
+                              setStockPresentaciones(newS);
+                            }}
+                            className="table-input"
+                            placeholder="0.15"
+                          />
+                        </td>
+                        <td>
+                          <select
+                            value={row.unidadMedida}
+                            onChange={e => {
+                              const newS = [...stockPresentaciones];
+                              newS[index].unidadMedida = e.target.value as any;
+                              setStockPresentaciones(newS);
+                            }}
+                            className="table-select"
+                          >
+                            <option value="KG">KG</option>
+                            <option value="UNIDADES">UNIDADES</option>
+                          </select>
+                        </td>
+                        <td style={{ fontWeight: 600 }}>{weightTotal.toFixed(3)} Kg</td>
+                        <td>
+                          <input 
+                            type="number" 
+                            value={row.costoUnitario || ''} 
+                            onChange={e => {
+                              const newS = [...stockPresentaciones];
+                              newS[index].costoUnitario = Number(e.target.value);
+                              setStockPresentaciones(newS);
+                            }}
+                            className="table-input"
+                            placeholder="$ 0"
+                          />
+                        </td>
+                        <td>
+                          <input 
+                            type="number" 
+                            value={row.precioVenta || ''} 
+                            onChange={e => {
+                              const newS = [...stockPresentaciones];
+                              newS[index].precioVenta = Number(e.target.value);
+                              setStockPresentaciones(newS);
+                            }}
+                            className="table-input"
+                            placeholder="$ 0"
+                          />
+                        </td>
+                        <td style={{ color: margin >= 0 ? '#16a34a' : '#ef4444', fontWeight: 600 }}>
+                          ${margin.toFixed(2)}
+                        </td>
+                        <td>
+                          <button className="btn-icon-danger" onClick={() => setStockPresentaciones(stockPresentaciones.filter(s => s.productId !== row.productId))}>
+                            <Trash2 size={16} />
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '16px' }}>
+                <select 
+                  className="table-select" 
+                  style={{ maxWidth: '300px' }}
+                  onChange={e => {
+                    const val = e.target.value;
+                    if (val) {
+                      const p = products.find(prod => prod.id === val);
+                      if (p && !stockPresentaciones.some(s => s.productId === p.id)) {
+                        setStockPresentaciones([...stockPresentaciones, {
+                          productId: p.id,
+                          cantidad: 0,
+                          pesoPromedio: p.pesoObjetivoKg || p.pesoObjetivoGramos ? (p.pesoObjetivoKg || (p.pesoObjetivoGramos ? p.pesoObjetivoGramos / 1000 : 0.15)) : 0.15,
+                          unidadMedida: p.unitType === 'KG' ? 'KG' : 'UNIDADES',
+                          costoUnitario: 0,
+                          precioVenta: p.precioComercial || 0
+                        }]);
+                      }
+                      e.target.value = '';
+                    }
+                  }}
+                >
+                  <option value="">-- Seleccionar Presentación Terminada --</option>
+                  {products.filter(p => p.type === 'PRESENTACION').map(p => (
+                    <option key={p.id} value={p.id}>{p.nombre}</option>
+                  ))}
+                </select>
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '4px' }}>
+                  <div style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Peso Total: <strong>{totals.totalWeightPres.toFixed(3)} Kg</strong></div>
+                  <div style={{ fontSize: '16px', fontWeight: 700 }}>
+                    Total Costo Presentaciones: <span style={{ color: 'var(--alvacio-red)' }}>${totals.totalStockPresCosto.toFixed(2)}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* PASO 8 (Modo A): Compras Históricas Detalladas */}
+          {queryMode === 'initial' && step === 8 && (
+            <div className="step-content">
+              <h3>Compras Históricas a Migrar (Pre-Sistema)</h3>
+              <p className="step-desc">Registre compras realizadas antes de la fecha de corte. Especifique el detalle de productos para reconstruir costos.</p>
+              
+              <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '16px' }}>
+                <button 
+                  className="asistente-btn-secondary"
+                  onClick={() => {
+                    const tempId = `compra-${Date.now()}`;
+                    setComprasHist([...comprasHist, {
+                      id: tempId,
+                      supplierId: '',
+                      supplierName: '',
+                      isNewSupplier: false,
+                      date: fechaCorte,
+                      estado: 'PAGADA',
+                      paymentType: 'CUENTA',
+                      total: 0,
+                      pagado: 0,
+                      observaciones: '',
+                      items: []
+                    }]);
+                  }}
+                >
+                  <Plus size={16} /> + Agregar Compra
+                </button>
+              </div>
+
+              {comprasHist.map((comp, idx) => (
+                <div key={comp.id} className="apple-card" style={{ padding: '20px', marginBottom: '24px', backgroundColor: '#fafafa', border: '1px solid #e5e5ea' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '12px', marginBottom: '16px' }}>
+                    <div>
+                      <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)' }}>Proveedor</label>
+                      <select
+                        value={comp.supplierId}
+                        onChange={e => {
+                          const val = e.target.value;
+                          const newC = [...comprasHist];
+                          const suppObj = suppliers.find(s => s.id === val);
+                          newC[idx].supplierId = val;
+                          newC[idx].supplierName = suppObj?.nombre || '';
+                          setComprasHist(newC);
+                        }}
+                        className="table-select"
+                      >
+                        <option value="">-- Seleccionar --</option>
+                        {suppliers.map(s => <option key={s.id} value={s.id}>{s.nombre}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)' }}>Fecha</label>
+                      <input 
+                        type="date" 
+                        value={comp.date} 
+                        onChange={e => {
+                          const newC = [...comprasHist];
+                          newC[idx].date = e.target.value;
+                          setComprasHist(newC);
+                        }}
+                        className="table-input"
+                      />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)' }}>Estado Pago</label>
+                      <select
+                        value={comp.estado}
+                        onChange={e => {
+                          const newC = [...comprasHist];
+                          const est = e.target.value as any;
+                          newC[idx].estado = est;
+                          if (est === 'PAGADA') newC[idx].pagado = newC[idx].total;
+                          if (est === 'PENDIENTE') newC[idx].pagado = 0;
+                          setComprasHist(newC);
+                        }}
+                        className="table-select"
+                      >
+                        <option value="PAGADA">PAGADA</option>
+                        <option value="PENDIENTE">PENDIENTE</option>
+                        <option value="PARCIALMENTE PAGADA">PARCIALMENTE PAGADA</option>
+                      </select>
+                    </div>
+                    {comp.estado !== 'PENDIENTE' && (
+                      <div>
+                        <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)' }}>Forma de Pago</label>
+                        <select
+                          value={comp.paymentType || 'CUENTA'}
+                          onChange={e => {
+                            const newC = [...comprasHist];
+                            newC[idx].paymentType = e.target.value as any;
+                            setComprasHist(newC);
+                          }}
+                          className="table-select"
+                        >
+                          <option value="CUENTA">Cuenta Financiera</option>
+                          <option value="APORTE_SOCIO">Aporte de Socio</option>
+                        </select>
+                      </div>
+                    )}
+                    {comp.estado !== 'PENDIENTE' && comp.paymentType === 'CUENTA' && (
+                      <div>
+                        <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)' }}>Cuenta de Pago</label>
+                        <select
+                          value={comp.cuentaId || ''}
+                          onChange={e => {
+                            const newC = [...comprasHist];
+                            newC[idx].cuentaId = e.target.value;
+                            setComprasHist(newC);
+                          }}
+                          className="table-select"
+                        >
+                          <option value="">-- Seleccionar Cuenta --</option>
+                          {accounts.map(a => <option key={a.id} value={a.id}>{a.nombre}</option>)}
+                        </select>
+                      </div>
+                    )}
+                    {comp.estado !== 'PENDIENTE' && comp.paymentType === 'APORTE_SOCIO' && (
+                      <div>
+                        <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)' }}>Socio Aportante</label>
+                        <select
+                          value={comp.socioId || ''}
+                          onChange={e => {
+                            const newC = [...comprasHist];
+                            newC[idx].socioId = e.target.value;
+                            setComprasHist(newC);
+                          }}
+                          className="table-select"
+                        >
+                          <option value="">-- Seleccionar Socio --</option>
+                          {aportesSocios.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                        </select>
+                      </div>
+                    )}
+                  </div>
+
+                  <div style={{ marginBottom: '16px' }}>
+                    <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)' }}>Concepto / Observaciones de la Compra</label>
+                    <input 
+                      type="text" 
+                      value={comp.observaciones} 
+                      onChange={e => {
+                        const newC = [...comprasHist];
+                        newC[idx].observaciones = e.target.value;
+                        setComprasHist(newC);
+                      }}
+                      className="table-input"
+                      placeholder="Ej: Balanza aportada por Lucas / Insumos iniciales..."
+                    />
+                  </div>
+
+                  <h5 style={{ margin: '12px 0 6px 0', fontSize: '13px', fontWeight: 700 }}>Detalle de Productos Comprados</h5>
+                  <table className="asistente-table" style={{ fontSize: '12px' }}>
+                    <thead>
+                      <tr>
+                        <th>Producto</th>
+                        <th>Cantidad</th>
+                        <th>Unidad</th>
+                        <th>Costo Unitario Real</th>
+                        <th>Subtotal</th>
+                        <th>Acción</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {comp.items.map((it, itIdx) => (
+                        <tr key={itIdx}>
+                          <td>
+                            <select
+                              value={it.productId}
+                              onChange={e => {
+                                const newC = [...comprasHist];
+                                const p = products.find(prod => prod.id === e.target.value);
+                                newC[idx].items[itIdx].productId = e.target.value;
+                                newC[idx].items[itIdx].unidad = p?.unitType || 'KG';
+                                setComprasHist(newC);
+                              }}
+                              className="table-select"
+                            >
+                              <option value="">-- Seleccionar --</option>
+                              {products.filter(p => p.type === 'MERCADERIA' || p.type === 'INSUMO').map(p => (
+                                <option key={p.id} value={p.id}>{p.nombre}</option>
+                              ))}
+                            </select>
+                          </td>
+                          <td>
+                            <input 
+                              type="number" 
+                              value={it.cantidad || ''} 
+                              onChange={e => {
+                                const newC = [...comprasHist];
+                                const cant = Number(e.target.value);
+                                newC[idx].items[itIdx].cantidad = cant;
+                                newC[idx].items[itIdx].subtotal = cant * newC[idx].items[itIdx].costoUnitario;
+                                // Recalcular total de compra
+                                newC[idx].total = newC[idx].items.reduce((sum, item) => sum + item.subtotal, 0);
+                                if (newC[idx].estado === 'PAGADA') newC[idx].pagado = newC[idx].total;
+                                setComprasHist(newC);
+                              }}
+                              className="table-input"
+                              placeholder="0"
+                            />
+                          </td>
+                          <td>{it.unidad}</td>
+                          <td>
+                            <input 
+                              type="number" 
+                              value={it.costoUnitario || ''} 
+                              onChange={e => {
+                                const newC = [...comprasHist];
+                                const cost = Number(e.target.value);
+                                newC[idx].items[itIdx].costoUnitario = cost;
+                                newC[idx].items[itIdx].subtotal = newC[idx].items[itIdx].cantidad * cost;
+                                newC[idx].total = newC[idx].items.reduce((sum, item) => sum + item.subtotal, 0);
+                                if (newC[idx].estado === 'PAGADA') newC[idx].pagado = newC[idx].total;
+                                setComprasHist(newC);
+                              }}
+                              className="table-input"
+                              placeholder="$ 0.00"
+                            />
+                          </td>
+                          <td style={{ fontWeight: 600 }}>${it.subtotal.toFixed(2)}</td>
+                          <td>
+                            <button 
+                              className="btn-icon-danger" 
+                              onClick={() => {
+                                const newC = [...comprasHist];
+                                newC[idx].items = newC[idx].items.filter((_, i) => i !== itIdx);
+                                newC[idx].total = newC[idx].items.reduce((sum, item) => sum + item.subtotal, 0);
+                                if (newC[idx].estado === 'PAGADA') newC[idx].pagado = newC[idx].total;
+                                setComprasHist(newC);
+                              }}
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <button 
+                      className="asistente-btn-secondary add-row-btn"
+                      onClick={() => {
+                        const newC = [...comprasHist];
+                        newC[idx].items.push({
+                          productId: '',
+                          cantidad: 0,
+                          unidad: 'KG',
+                          costoUnitario: 0,
+                          subtotal: 0
+                        });
+                        setComprasHist(newC);
+                      }}
+                    >
+                      + Agregar Producto
+                    </button>
+                    <div style={{ display: 'flex', gap: '20px', fontSize: '13px' }}>
+                      {comp.estado === 'PARCIALMENTE PAGADA' && (
+                        <div>
+                          Importe Pagado: 
+                          <input 
+                            type="number"
+                            value={comp.pagado || ''}
                             onChange={e => {
                               const newC = [...comprasHist];
-                              newC[index].amount = parseFloat(e.target.value) || 0;
+                              newC[idx].pagado = Number(e.target.value);
                               setComprasHist(newC);
                             }}
                             className="table-input"
-                            disabled={isReadOnly}
+                            style={{ width: '100px', display: 'inline-block', marginLeft: '6px' }}
                           />
                         </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+                      )}
+                      <div style={{ alignSelf: 'center' }}>Saldo Pendiente: <strong>${(comp.total - comp.pagado).toFixed(2)}</strong></div>
+                      <div style={{ alignSelf: 'center', fontSize: '15px' }}>Total Compra: <strong style={{ color: 'var(--alvacio-red)' }}>${comp.total.toFixed(2)}</strong></div>
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '12px' }}>
+                    <button className="btn-icon-danger" onClick={() => setComprasHist(comprasHist.filter(c => c.id !== comp.id))}>
+                      <Trash2 size={16} /> Eliminar Compra
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
 
-              <h4 style={{ marginTop: '24px' }}>Ventas Históricas e Historial de Ganancia</h4>
-              <table className="asistente-table">
-                <thead>
-                  <tr>
-                    <th>Fecha</th>
-                    <th>Total Vendido</th>
-                    <th>Costo de Mercadería</th>
-                    <th>Ganancia Estimada</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {ventasHist.map((item, index) => (
-                    <tr key={index}>
-                      <td><strong>{item.date.split('-').reverse().join('/')}</strong></td>
-                      <td>
-                        <div className="price-input-wrapper">
-                          <DollarSign size={14} />
+          {/* PASO 9 (Modo A): Ventas Históricas Detalladas (SIN Selección de Cuenta de Cobro) */}
+          {queryMode === 'initial' && step === 9 && (
+            <div className="step-content">
+              <h3>Ventas Históricas a Migrar (Pre-Sistema)</h3>
+              <p className="step-desc">Registre ventas para análisis de rentabilidad real con precios y costos de mercadería fijos congelados.</p>
+              
+              <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '16px' }}>
+                <button 
+                  className="asistente-btn-secondary"
+                  onClick={() => {
+                    const tempId = `venta-${Date.now()}`;
+                    setVentasHist([...ventasHist, {
+                      id: tempId,
+                      customerId: '',
+                      customerName: '',
+                      isNewCustomer: false,
+                      date: fechaCorte,
+                      estado: 'COBRADA',
+                      total: 0,
+                      cobrado: 0,
+                      observaciones: '',
+                      items: []
+                    }]);
+                  }}
+                >
+                  <Plus size={16} /> + Agregar Venta
+                </button>
+              </div>
+
+              {ventasHist.map((vent, idx) => (
+                <div key={vent.id} className="apple-card" style={{ padding: '20px', marginBottom: '24px', backgroundColor: '#fafafa', border: '1px solid #e5e5ea' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px', marginBottom: '16px' }}>
+                    <div>
+                      <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)' }}>Cliente</label>
+                      <select
+                        value={vent.customerId}
+                        onChange={e => {
+                          const val = e.target.value;
+                          const newV = [...ventasHist];
+                          const custObj = customers.find(c => c.id === val);
+                          newV[idx].customerId = val;
+                          newV[idx].customerName = custObj?.nombre || '';
+                          setVentasHist(newV);
+                        }}
+                        className="table-select"
+                      >
+                        <option value="">-- Seleccionar --</option>
+                        {customers.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)' }}>Fecha</label>
+                      <input 
+                        type="date" 
+                        value={vent.date} 
+                        onChange={e => {
+                          const newV = [...ventasHist];
+                          newV[idx].date = e.target.value;
+                          setVentasHist(newV);
+                        }}
+                        className="table-input"
+                      />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)' }}>Estado Cobro</label>
+                      <select
+                        value={vent.estado}
+                        onChange={e => {
+                          const newV = [...ventasHist];
+                          const est = e.target.value as any;
+                          newV[idx].estado = est;
+                          if (est === 'COBRADA') newV[idx].cobrado = newV[idx].total;
+                          if (est === 'PENDIENTE') newV[idx].cobrado = 0;
+                          setVentasHist(newV);
+                        }}
+                        className="table-select"
+                      >
+                        <option value="COBRADA">COBRADA</option>
+                        <option value="PENDIENTE">PENDIENTE</option>
+                        <option value="PARCIALMENTE COBRADA">PARCIALMENTE COBRADA</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)' }}>Estado Entrega</label>
+                      <select
+                        value={vent.deliveryStatus || 'ENTREGADO'}
+                        onChange={e => {
+                          const newV = [...ventasHist];
+                          newV[idx].deliveryStatus = e.target.value as any;
+                          setVentasHist(newV);
+                        }}
+                        className="table-select"
+                      >
+                        <option value="ENTREGADO">ENTREGADA</option>
+                        <option value="PENDIENTE">PENDIENTE DE ENTREGA</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <h5 style={{ margin: '12px 0 6px 0', fontSize: '13px', fontWeight: 700 }}>Detalle de Productos Vendidos</h5>
+                  <table className="asistente-table" style={{ fontSize: '12px' }}>
+                    <thead>
+                      <tr>
+                        <th>Presentación</th>
+                        <th>Cantidad (u)</th>
+                        <th>Precio Venta Real</th>
+                        <th>Costo Histórico Unitario</th>
+                        <th>Subtotal</th>
+                        <th>Acción</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {vent.items.map((it, itIdx) => (
+                        <tr key={itIdx}>
+                          <td>
+                            <select
+                              value={it.productId}
+                              onChange={e => {
+                                const newV = [...ventasHist];
+                                const p = products.find(prod => prod.id === e.target.value);
+                                newV[idx].items[itIdx].productId = e.target.value;
+                                newV[idx].items[itIdx].precioUnitario = p?.precioComercial || 0;
+                                setVentasHist(newV);
+                              }}
+                              className="table-select"
+                            >
+                              <option value="">-- Seleccionar --</option>
+                              {products.filter(p => p.type === 'PRESENTACION').map(p => (
+                                <option key={p.id} value={p.id}>{p.nombre}</option>
+                              ))}
+                            </select>
+                          </td>
+                          <td>
+                            <input 
+                              type="number" 
+                              value={it.cantidad || ''} 
+                              onChange={e => {
+                                const newV = [...ventasHist];
+                                const cant = Number(e.target.value);
+                                newV[idx].items[itIdx].cantidad = cant;
+                                newV[idx].items[itIdx].subtotal = cant * newV[idx].items[itIdx].precioUnitario;
+                                newV[idx].total = newV[idx].items.reduce((sum, item) => sum + item.subtotal, 0);
+                                if (newV[idx].estado === 'COBRADA') newV[idx].cobrado = newV[idx].total;
+                                setVentasHist(newV);
+                              }}
+                              className="table-input"
+                              placeholder="0"
+                            />
+                          </td>
+                          <td>
+                            <input 
+                              type="number" 
+                              value={it.precioUnitario || ''} 
+                              onChange={e => {
+                                const newV = [...ventasHist];
+                                const pr = Number(e.target.value);
+                                newV[idx].items[itIdx].precioUnitario = pr;
+                                newV[idx].items[itIdx].subtotal = newV[idx].items[itIdx].cantidad * pr;
+                                newV[idx].total = newV[idx].items.reduce((sum, item) => sum + item.subtotal, 0);
+                                if (newV[idx].estado === 'COBRADA') newV[idx].cobrado = newV[idx].total;
+                                setVentasHist(newV);
+                              }}
+                              className="table-input"
+                              placeholder="$ 0.00"
+                            />
+                          </td>
+                          <td>
+                            <input 
+                              type="number" 
+                              value={it.costoUnitario || ''} 
+                              onChange={e => {
+                                const newV = [...ventasHist];
+                                newV[idx].items[itIdx].costoUnitario = Number(e.target.value);
+                                setVentasHist(newV);
+                              }}
+                              className="table-input"
+                              placeholder="$ 0.00"
+                            />
+                          </td>
+                          <td style={{ fontWeight: 600 }}>${it.subtotal.toFixed(2)}</td>
+                          <td>
+                            <button 
+                              className="btn-icon-danger" 
+                              onClick={() => {
+                                const newV = [...ventasHist];
+                                newV[idx].items = newV[idx].items.filter((_, i) => i !== itIdx);
+                                newV[idx].total = newV[idx].items.reduce((sum, item) => sum + item.subtotal, 0);
+                                if (newV[idx].estado === 'COBRADA') newV[idx].cobrado = newV[idx].total;
+                                setVentasHist(newV);
+                              }}
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <button 
+                      className="asistente-btn-secondary add-row-btn"
+                      onClick={() => {
+                        const newV = [...ventasHist];
+                        newV[idx].items.push({
+                          productId: '',
+                          cantidad: 0,
+                          precioUnitario: 0,
+                          costoUnitario: 0,
+                          subtotal: 0
+                        });
+                        setVentasHist(newV);
+                      }}
+                    >
+                      + Agregar Producto
+                    </button>
+                    <div style={{ display: 'flex', gap: '20px', fontSize: '13px' }}>
+                      {vent.estado === 'PARCIALMENTE COBRADA' && (
+                        <div>
+                          Importe Cobrado: 
                           <input 
-                            type="number" 
-                            value={item.amount}
+                            type="number"
+                            value={vent.cobrado || ''}
                             onChange={e => {
                               const newV = [...ventasHist];
-                              newV[index].amount = parseFloat(e.target.value) || 0;
+                              newV[idx].cobrado = Number(e.target.value);
                               setVentasHist(newV);
                             }}
                             className="table-input"
-                            disabled={isReadOnly}
+                            style={{ width: '100px', display: 'inline-block', marginLeft: '6px' }}
                           />
                         </div>
-                      </td>
-                      <td>
-                        <div className="price-input-wrapper">
-                          <DollarSign size={14} />
-                          <input 
-                            type="number" 
-                            value={item.cost}
-                            onChange={e => {
-                              const newV = [...ventasHist];
-                              newV[index].cost = parseFloat(e.target.value) || 0;
-                              setVentasHist(newV);
-                            }}
-                            className="table-input"
-                            disabled={isReadOnly}
-                          />
-                        </div>
-                      </td>
-                      <td style={{ color: 'var(--success-color, #24b47e)', fontWeight: 600 }}>
-                        ${(item.amount - item.cost).toFixed(2)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+                      )}
+                      <div style={{ alignSelf: 'center' }}>Saldo Pendiente: <strong>${(vent.total - vent.cobrado).toFixed(2)}</strong></div>
+                      <div style={{ alignSelf: 'center', fontSize: '15px' }}>Total Venta: <strong style={{ color: 'var(--alvacio-red)' }}>${vent.total.toFixed(2)}</strong></div>
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '12px' }}>
+                    <button className="btn-icon-danger" onClick={() => setVentasHist(ventasHist.filter(v => v.id !== vent.id))}>
+                      <Trash2 size={16} /> Eliminar Venta
+                    </button>
+                  </div>
+                </div>
+              ))}
             </div>
           )}
 
-          {/* Step 4: Socios */}
-          {step === 4 && (
+          {/* PASO 10 (Modo A) / PASO 7 (Modo B): Validación y Balance General */}
+          {((queryMode === 'initial' && step === 10) || (queryMode === 'adjust' && step === 7)) && (
             <div className="step-content">
-              <h3>Aportes y Préstamos de Socios</h3>
-              <p className="step-desc">
-                Registra los activos físicos y de capital aportados por los socios fundadores (Agus y Lucas) 
-                así como los préstamos (pasivos financieros) otorgados por los mismos.
-              </p>
-
-              <h4>Aportes de Socios (Patrimonio Neto)</h4>
-              <table className="asistente-table">
-                <thead>
-                  <tr>
-                    <th>Socio</th>
-                    <th>Descripción de Activo / Concepto</th>
-                    <th>Valor Monetario</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {aportesList.map((item, index) => (
-                    <tr key={index}>
-                      <td><strong>{item.shareholderName}</strong></td>
-                      <td>{item.description}</td>
-                      <td>
-                        <div className="price-input-wrapper">
-                          <DollarSign size={14} />
-                          <input 
-                            type="number" 
-                            value={item.amount}
-                            onChange={e => {
-                              const newA = [...aportesList];
-                              newA[index].amount = parseFloat(e.target.value) || 0;
-                              setAportesList(newA);
-                            }}
-                            className="table-input"
-                            disabled={isReadOnly}
-                          />
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-
-              <h4 style={{ marginTop: '24px' }}>Préstamos de Socios (Deuda Pasiva)</h4>
-              <table className="asistente-table">
-                <thead>
-                  <tr>
-                    <th>Socio Prestador</th>
-                    <th>Concepto</th>
-                    <th>Monto Préstamo</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {prestamosList.map((item, index) => (
-                    <tr key={index}>
-                      <td><strong>{item.shareholderName}</strong></td>
-                      <td>{item.description}</td>
-                      <td>
-                        <div className="price-input-wrapper">
-                          <DollarSign size={14} />
-                          <input 
-                            type="number" 
-                            value={item.amount}
-                            onChange={e => {
-                              const newP = [...prestamosList];
-                              newP[index].amount = parseFloat(e.target.value) || 0;
-                              setPrestamosList(newP);
-                            }}
-                            className="table-input"
-                            disabled={isReadOnly}
-                          />
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-
-          {/* Step 5: Caja Inicial */}
-          {step === 5 && (
-            <div className="step-content">
-              <h3>Caja y Cuentas Financieras Iniciales</h3>
-              <p className="step-desc">
-                Carga el balance disponible en cada cuenta al 17/06. La caja comenzará únicamente 
-                con estos saldos limpios cargados de manera formal.
-              </p>
-
-              <table className="asistente-table">
-                <thead>
-                  <tr>
-                    <th>Cuenta Financiera</th>
-                    <th>Saldo Inicial al 17/06</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {cajaInicialList.map((item, index) => (
-                    <tr key={index}>
-                      <td><strong>{item.accountName}</strong></td>
-                      <td>
-                        <div className="price-input-wrapper">
-                          <DollarSign size={14} />
-                          <input 
-                            type="number" 
-                            value={item.amount}
-                            onChange={e => {
-                              const newC = [...cajaInicialList];
-                              newC[index].amount = parseFloat(e.target.value) || 0;
-                              setCajaInicialList(newC);
-                            }}
-                            className="table-input"
-                            disabled={isReadOnly}
-                          />
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-
-          {/* Step 6: Confirmación */}
-          {step === 6 && (
-            <div className="step-content">
-              <h3>Resumen y Confirmación Final</h3>
-              <p className="step-desc">
-                Por favor revise cuidadosamente los saldos de la migración contable antes de confirmar. 
-                Los cambios se aplicarán y establecerán la foto operativa del negocio al {fechaCorte}.
-              </p>
-
-              {/* Auditoría Visual del Módulo de Inicio */}
-              <div className="apple-card" style={{ padding: '20px', marginBottom: '24px', backgroundColor: '#fafafa' }}>
-                <h4 style={{ margin: '0 0 16px 0', fontSize: '15px', color: 'var(--text-primary)' }}>📋 Reporte de Auditoría de Carga</h4>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', fontSize: '13px' }}>
-                  <div>Estado de Migración: <strong style={{ color: isReadOnly ? '#16a34a' : '#d97706' }}>{isReadOnly ? 'CONSOLIDADO / MIGRADO' : 'PENDIENTE DE EJECUCIÓN'}</strong></div>
-                  <div>Fecha de Ejecución: <strong>{migrationStatus?.executedAt ? new Date(migrationStatus.executedAt).toLocaleDateString() : 'N/A'}</strong></div>
-                  <div>Mercaderías inicializadas: <strong>{stocksList.length} productos</strong></div>
-                  <div>Insumos inicializados: <strong>{insumosList.length} insumos</strong></div>
-                  <div>Compras históricas registradas: <strong>{comprasHist.length} compras</strong></div>
-                  <div>Ventas históricas registradas: <strong>{ventasHist.length} ventas</strong></div>
-                  <div>Aportes declarados: <strong>{aportesList.length} conceptos</strong></div>
-                  <div>Préstamos declarados: <strong>{prestamosList.length} pasivos</strong></div>
-                </div>
-              </div>
-
-              <div className="resumen-grid">
+              <h3>Validación Contable del Balance de Apertura</h3>
+              <p className="step-desc">El balance contable muestra el total de activos, pasivos y patrimonio neto del negocio.</p>
+              
+              <div className="resumen-grid" style={{ marginBottom: '24px' }}>
                 <div className="resumen-card">
-                  <h4>Stock Inicial Mercadería</h4>
+                  <h4>Activo (Bienes y Derechos)</h4>
                   <ul>
-                    {stocksList.map((s, i) => (
-                      <li key={i}>{s.nombre}: <strong>{s.stockFisico} Kg</strong></li>
-                    ))}
+                    <li>Caja y Bancos: <strong>${totals.totalCajas.toLocaleString()}</strong></li>
+                    <li>Cuentas por Cobrar Clientes: <strong>${(totals.totalClientesCc + totals.ventasHistPendientes).toLocaleString()}</strong></li>
+                    <li>Inventario de Materias Primas: <strong>${totals.totalStockMP.toLocaleString()}</strong></li>
+                    <li>Inventario Presentaciones: <strong>${totals.totalStockPresCosto.toLocaleString()}</strong></li>
+                    <li>Bienes Aportados Socios: <strong>${totals.totalAportesBienes.toLocaleString()}</strong></li>
+                    <li style={{ borderTop: '1px solid #d2d2d7', paddingTop: '6px', fontSize: '14px' }}>Total Activos: <strong>${totals.activo.toLocaleString()}</strong></li>
                   </ul>
                 </div>
                 <div className="resumen-card">
-                  <h4>Insumos Iniciales</h4>
+                  <h4>Pasivo y Patrimonio (Obligaciones y Capital)</h4>
                   <ul>
-                    {insumosList.map((ins, i) => (
-                      <li key={i}>{ins.nombre}: <strong>{ins.cantidadActual} Unidades</strong> (costo: ${(ins.compraCosto/ins.cantidadComprada).toFixed(2)})</li>
-                    ))}
-                  </ul>
-                </div>
-                <div className="resumen-card">
-                  <h4>Caja e Inversiones</h4>
-                  <ul>
-                    {cajaInicialList.map((c, i) => (
-                      <li key={i}>{c.accountName}: <strong>${c.amount.toLocaleString()}</strong></li>
-                    ))}
-                  </ul>
-                </div>
-                <div className="resumen-card">
-                  <h4>Pasivos y Socios</h4>
-                  <ul>
-                    <li>Aportes Totales: <strong>${aportesList.reduce((acc, a) => acc + a.amount, 0).toLocaleString()}</strong></li>
-                    <li>Préstamos (Deuda): <strong>${prestamosList.reduce((acc, p) => acc + p.amount, 0).toLocaleString()}</strong></li>
+                    <li>Deudas con Proveedores: <strong>${(totals.totalProveedoresCc + totals.comprasHistDeuda).toLocaleString()}</strong></li>
+                    <li>Préstamos de Socios: <strong>${totals.totalPrestamos.toLocaleString()}</strong></li>
+                    <li>Capital Aportado Socios: <strong>${totals.totalAportes.toLocaleString()}</strong></li>
+                    <li>Resultados Históricos CMV: <strong>${totals.ventasHistGanancia.toLocaleString()}</strong></li>
+                    {totals.comprasHistAportadasSocios > 0 && (
+                      <li>Aportes por Compras: <strong>${totals.comprasHistAportadasSocios.toLocaleString()}</strong></li>
+                    )}
+                    <li style={{ borderTop: '1px solid #d2d2d7', paddingTop: '6px', fontSize: '14px' }}>Total Pasivo + PN: <strong>${(totals.pasivo + totals.patrimonio).toLocaleString()}</strong></li>
                   </ul>
                 </div>
               </div>
 
-              {!isReadOnly && (
-                <div className="corte-info-box warning-box" style={{ marginTop: '24px' }}>
-                  <Info size={20} />
+              {Math.abs(totals.diferenciaBalance) < 0.01 ? (
+                <div className="corte-info-box" style={{ background: '#d1fae5', borderColor: '#10b981', color: '#065f46' }}>
+                  <CheckCircle size={20} />
                   <div>
-                    <h4>Acción Irreversible</h4>
+                    <h4>Balance Conciliado</h4>
+                    <p>La ecuación de balance cuadra perfectamente con una diferencia de $0.00.</p>
+                  </div>
+                </div>
+              ) : (
+                <div className="corte-info-box warning-box">
+                  <AlertTriangle size={20} />
+                  <div>
+                    <h4>Diferencia Detectada: ${totals.diferenciaBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</h4>
                     <p>
-                      Al presionar confirmar se generarán los saldos iniciales del sistema. Asegúrese 
-                      de que los datos coincidan con su planilla de balances físicos y contables. Esta acción es de ejecución única.
+                      Existe un descuadre en el balance. Puede continuar; el sistema creará automáticamente la cuenta 
+                      financiera <strong>"AJUSTE DE MIGRACIÓN"</strong> para absorber y balancear esta diferencia inicial.
                     </p>
                   </div>
                 </div>
@@ -829,7 +1899,60 @@ export default function AsistenteInicio() {
             </div>
           )}
 
-          {/* Card Actions */}
+          {/* PASO 11 (Modo A): Resumen Final */}
+          {queryMode === 'initial' && step === 11 && (
+            <div className="step-content">
+              <h3>Resumen General de Migración</h3>
+              <p className="step-desc">Revise los valores finales consolidados antes de presionar Confirmar e Iniciar el ERP.</p>
+              
+              <div className="resumen-grid">
+                <div className="resumen-card">
+                  <h4>Patrimonio y Socios</h4>
+                  <ul>
+                    <li>Capital Socios (Dinero): <strong>${(totals.totalAportes - totals.totalAportesBienes).toLocaleString()}</strong></li>
+                    <li>Bienes Aportados: <strong>${totals.totalAportesBienes.toLocaleString()}</strong></li>
+                    <li>Préstamos Socios: <strong>${totals.totalPrestamos.toLocaleString()}</strong></li>
+                    {totals.comprasHistAportadasSocios > 0 && (
+                      <li>Capital por Compras: <strong>${totals.comprasHistAportadasSocios.toLocaleString()}</strong></li>
+                    )}
+                  </ul>
+                </div>
+                <div className="resumen-card">
+                  <h4>Caja y Bancos</h4>
+                  <ul>
+                    <li>Caja Consolidada: <strong>${totals.totalCajas.toLocaleString()}</strong></li>
+                  </ul>
+                </div>
+                <div className="resumen-card">
+                  <h4>Cuentas Corrientes</h4>
+                  <ul>
+                    <li>Clientes por Cobrar: <strong>${(totals.totalClientesCc + totals.ventasHistPendientes).toLocaleString()}</strong></li>
+                    <li>Proveedores por Pagar: <strong>${(totals.totalProveedoresCc + totals.comprasHistDeuda).toLocaleString()}</strong></li>
+                  </ul>
+                </div>
+                <div className="resumen-card">
+                  <h4>Inventario y Stock</h4>
+                  <ul>
+                    <li>Materias Primas: <strong>${totals.totalStockMP.toLocaleString()}</strong></li>
+                    <li>Presentaciones (Costo): <strong>${totals.totalStockPresCosto.toLocaleString()}</strong></li>
+                    <li>Presentaciones (Venta): <strong>${totals.totalStockPresVenta.toLocaleString()}</strong></li>
+                    <li>Kilos Totales: <strong>{totals.totalWeightPres.toFixed(3)} Kg</strong></li>
+                  </ul>
+                </div>
+                <div className="resumen-card" style={{ gridColumn: 'span 2' }}>
+                  <h4>Históricos y Validación</h4>
+                  <ul>
+                    <li>Ventas Migradas: <strong>${totals.ventasHistTotal.toLocaleString()}</strong></li>
+                    <li>Compras Migradas: <strong>${totals.comprasHistTotal.toLocaleString()}</strong></li>
+                    <li>Ganancia Histórica: <strong>${totals.ventasHistGanancia.toLocaleString()}</strong></li>
+                    <li>Diferencia de Balance (Ajuste): <strong>${totals.diferenciaBalance.toLocaleString()}</strong></li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Wizard Card Actions */}
           <div className="asistente-card-actions">
             {step > 1 && (
               <button 
@@ -841,7 +1964,7 @@ export default function AsistenteInicio() {
               </button>
             )}
             
-            {step < 6 ? (
+            {step < maxStep ? (
               <button 
                 className="asistente-btn-primary" 
                 onClick={() => setStep(step + 1)}
@@ -859,6 +1982,60 @@ export default function AsistenteInicio() {
                 {loading ? 'Procesando...' : isReadOnly ? 'Migración Bloqueada' : 'Confirmar e Iniciar ERP'}
               </button>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* --- INLINE CREACIÓN MODAL --- */}
+      {showInlineModal && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
+          <div className="apple-card" style={{ background: '#fff', padding: '32px', maxWidth: '450px', width: '100%', borderRadius: '16px' }}>
+            <h4 style={{ margin: '0 0 16px 0', fontSize: '18px', fontWeight: 700 }}>
+              + Registrar Nuevo {showInlineModal.toUpperCase()}
+            </h4>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <div className="form-group">
+                <label>Nombre / Razón Social</label>
+                <input 
+                  type="text" 
+                  value={inlineData.nombre || ''}
+                  onChange={e => handleNameChange(e.target.value, showInlineModal as any)}
+                  className="table-input"
+                  placeholder="Ej: Distribuidora Córdoba"
+                />
+              </div>
+
+              {showInlineModal === 'cuenta' && (
+                <div className="form-group">
+                  <label>Tipo de Cuenta</label>
+                  <select 
+                    value={inlineData.tipo || 'EFECTIVO'}
+                    onChange={e => setInlineData({ ...inlineData, tipo: e.target.value })}
+                    className="table-select"
+                  >
+                    <option value="EFECTIVO">Efectivo</option>
+                    <option value="BANCO">Banco</option>
+                    <option value="BILLETERA_VIRTUAL">Billetera Virtual</option>
+                  </select>
+                </div>
+              )}
+
+              {similarityWarning && (
+                <div style={{ display: 'flex', gap: '8px', background: '#fffbeb', border: '1px solid #fef3c7', padding: '12px', borderRadius: '8px', color: '#b45309', fontSize: '12px' }}>
+                  <AlertTriangle size={16} style={{ flexShrink: 0 }} />
+                  <span>{similarityWarning}</span>
+                </div>
+              )}
+
+              <div style={{ display: 'flex', gap: '12px', marginTop: '16px' }}>
+                <button className="asistente-btn-secondary" style={{ flex: 1 }} onClick={() => { setShowInlineModal(null); setInlineData({}); setSimilarityWarning(null); }}>
+                  Cancelar
+                </button>
+                <button className="asistente-btn-primary" style={{ flex: 1 }} onClick={submitInlineCreation}>
+                  Agregar
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

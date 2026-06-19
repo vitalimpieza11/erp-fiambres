@@ -381,6 +381,62 @@ export const salesRepository = {
     });
   },
 
+  async deliverHistoricalSale(saleId: string, itemsWithWeights?: { productId: string; pesoReal: number }[]): Promise<void> {
+    await runTransaction(db, async (transaction) => {
+      const saleRef = doc(db, 'sales', saleId);
+      const saleSnap = await transaction.get(saleRef);
+      if (!saleSnap.exists()) {
+        throw new Error("Venta no encontrada.");
+      }
+      const sale = { id: saleSnap.id, ...saleSnap.data() } as Sale;
+      if (!sale.isHistorical) {
+        throw new Error("Solo se puede registrar entrega física diferida para ventas históricas.");
+      }
+      if (sale.deliveryStatus === 'ENTREGADO') {
+        throw new Error("Esta venta ya fue entregada.");
+      }
+
+      // Update product stocks & generate stock movements
+      for (const item of sale.items || []) {
+        const prodRef = doc(db, 'products', item.productId);
+        const prodSnap = await transaction.get(prodRef);
+        if (!prodSnap.exists()) {
+          throw new Error(`Producto ${item.productId} no encontrado.`);
+        }
+        const prod = prodSnap.data() as Product;
+        const currentStock = prod.stockActual || 0;
+        
+        let weightToDeduct = item.pesoReal || item.cantidad;
+        if (itemsWithWeights) {
+          const provided = itemsWithWeights.find(w => w.productId === item.productId);
+          if (provided) {
+            weightToDeduct = provided.pesoReal;
+          }
+        }
+
+        const newStock = truncateDecimals(currentStock - weightToDeduct, 3);
+        transaction.update(prodRef, { stockActual: newStock });
+
+        const movRef = doc(collection(db, 'stock_movements'));
+        transaction.set(movRef, {
+          id: movRef.id,
+          productId: item.productId,
+          qty: -weightToDeduct,
+          type: 'VENTA',
+          date: new Date().toISOString(),
+          referenceId: saleId,
+          observaciones: `Entrega de venta histórica pendiente. Ref: Remito ${saleId.slice(-8).toUpperCase()}`,
+          isDeleted: false
+        });
+      }
+
+      // Mark as delivered
+      transaction.update(saleRef, {
+        deliveryStatus: 'ENTREGADO'
+      });
+    });
+  },
+
   async updateSale(saleId: string, updatedData: Partial<Sale>): Promise<void> {
     const saleRef = doc(db, 'sales', saleId);
     await updateDoc(saleRef, updatedData);

@@ -238,6 +238,7 @@ export type Sale = {
   deletedAt?: number;
   tipoComprobante?: 'FACTURA_A' | 'FACTURA_B' | 'FACTURA_C' | 'PRESUPUESTO' | 'REMITO';
   isHistorical?: boolean;
+  deliveryStatus?: 'ENTREGADO' | 'PENDIENTE';
 }
 
 export type PurchaseItem = {
@@ -341,6 +342,8 @@ export type ShareholderMovement = {
   linkedCajaMovementId?: string;
   isDeleted: boolean;
   deletedAt?: number;
+  tipoAporte?: 'DINERO' | 'BIEN';
+  descripcionBien?: string;
 }
 
 export type FinancialAccount = {

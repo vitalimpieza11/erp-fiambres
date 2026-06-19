@@ -33,7 +33,8 @@ export default function Facturacion() {
     cobrarSale,
     anularSale,
     deleteSale,
-    markOrderAsDelivered
+    markOrderAsDelivered,
+    deliverHistoricalSale
   } = useFacturacion();
 
   const settings = useSettingsStore(state => state.settings);
@@ -455,16 +456,30 @@ export default function Facturacion() {
                     title={customer?.nombre || 'Cliente Desconocido'}
                     subtitle={`Remito Comercial N° ${sale.id.slice(-8).toUpperCase()} • ${new Date(sale.date).toLocaleDateString()}`}
                     statusBadge={
-                      <span style={{ 
-                        backgroundColor: STATUS_COLORS[sale.status] + '20',
-                        color: STATUS_COLORS[sale.status],
-                        fontSize: '11px',
-                        fontWeight: 600,
-                        padding: '2px 8px',
-                        borderRadius: '12px'
-                      }}>
-                        {sale.status} {sale.status === 'COBRADO' && `(${sale.paymentMethod})`}
-                      </span>
+                      <div style={{ display: 'flex', gap: '8px' }}>
+                        <span style={{ 
+                          backgroundColor: STATUS_COLORS[sale.status] + '20',
+                          color: STATUS_COLORS[sale.status],
+                          fontSize: '11px',
+                          fontWeight: 600,
+                          padding: '2px 8px',
+                          borderRadius: '12px'
+                        }}>
+                          {sale.status} {sale.status === 'COBRADO' && `(${sale.paymentMethod})`}
+                        </span>
+                        {sale.isHistorical && (
+                          <span style={{
+                            backgroundColor: sale.deliveryStatus === 'PENDIENTE' ? '#feebc8' : '#c6f6d5',
+                            color: sale.deliveryStatus === 'PENDIENTE' ? '#c05621' : '#22543d',
+                            fontSize: '11px',
+                            fontWeight: 600,
+                            padding: '2px 8px',
+                            borderRadius: '12px'
+                          }}>
+                            {sale.deliveryStatus === 'PENDIENTE' ? '🚚 Pendiente Entrega' : '✅ Entregado'}
+                          </span>
+                        )}
+                      </div>
                     }
                     collapsedContent={
                       <div>
@@ -513,6 +528,25 @@ export default function Facturacion() {
                             onClick={(e) => { e.stopPropagation(); handleCobrar(sale); }}
                           >
                             <DollarSign size={16} /> Registrar Cobro
+                          </button>
+                        )}
+                        {sale.isHistorical && sale.deliveryStatus === 'PENDIENTE' && sale.status !== 'ANULADO' && (
+                          <button 
+                            className="btn-primary" 
+                            style={{ flex: 1, padding: '8px 12px', backgroundColor: '#e28743', color: '#fff', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '6px' }} 
+                            onClick={async (e) => { 
+                              e.stopPropagation();
+                              if (window.confirm(`¿Confirmar entrega física de mercaderías para la venta histórica ${sale.id.slice(-8).toUpperCase()}? Se descontará el stock físico.`)) {
+                                try {
+                                  await deliverHistoricalSale(sale.id);
+                                  alert("Entrega física registrada con éxito. Se actualizó el inventario.");
+                                } catch (err: any) {
+                                  alert(`Error al registrar entrega: ${err.message || err}`);
+                                }
+                              }
+                            }}
+                          >
+                            🚚 Registrar Entrega
                           </button>
                         )}
                         {sale.status !== 'ANULADO' && (

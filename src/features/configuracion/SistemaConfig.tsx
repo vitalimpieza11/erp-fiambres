@@ -108,6 +108,36 @@ export default function SistemaConfig() {
           </div>
         </div>
 
+        {/* Migración de Saldos Iniciales */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '24px', backgroundColor: 'var(--bg-color)', padding: '20px', borderRadius: '16px', border: '1px dashed var(--border-color)', marginTop: '12px' }}>
+          <div style={{ flex: 1 }}>
+            <h4 style={{ fontSize: '16px', fontWeight: 600, margin: '0 0 6px 0', color: 'var(--text-primary)' }}>
+              Migración de Saldos Iniciales y Ajustes
+            </h4>
+            <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: 0, lineHeight: 1.5 }}>
+              Administre la fecha de corte y la importación de datos. El Modo A (Migración Inicial) configura el sistema por única vez. El Modo B (Ajuste de Saldos) le permite corregir diferencias físicas sin alterar el historial.
+            </p>
+            <div style={{ display: 'flex', gap: '12px', marginTop: '16px' }}>
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => window.location.href = '/asistente-inicio?mode=initial'}
+                style={{ fontSize: '13px', padding: '8px 16px' }}
+              >
+                Modo A: Inicializar Migración
+              </button>
+              <button
+                type="button"
+                className="btn-primary"
+                onClick={() => window.location.href = '/asistente-inicio?mode=adjust'}
+                style={{ fontSize: '13px', padding: '8px 16px', backgroundColor: '#3b5bdb', borderColor: '#3b5bdb' }}
+              >
+                Modo B: Ajustar Saldos Compensatorios
+              </button>
+            </div>
+          </div>
+        </div>
+
         {/* Submit */}
         <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '16px' }}>
           <button 

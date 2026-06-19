@@ -25,6 +25,7 @@ interface SalesState {
   anularSale: (sale: Sale) => Promise<void>;
   updateSale: (saleId: string, updatedData: Partial<Sale>) => Promise<void>;
   deleteSale: (sale: Sale) => Promise<void>;
+  deliverHistoricalSale: (saleId: string, itemsWithWeights?: { productId: string; pesoReal: number }[]) => Promise<void>;
 }
 
 export const useSalesStore = create<SalesState>((set, get) => ({
@@ -216,6 +217,27 @@ export const useSalesStore = create<SalesState>((set, get) => ({
       });
     } catch (error) {
       console.error("Error deleting sale in store:", error);
+      throw error;
+    } finally {
+      set({ loading: false });
+    }
+  },
+  deliverHistoricalSale: async (saleId, itemsWithWeights) => {
+    set({ loading: true });
+    try {
+      await salesRepository.deliverHistoricalSale(saleId, itemsWithWeights);
+      const data = await salesRepository.fetchSalesData();
+      set({
+        sales: data.sales,
+        orders: data.orders,
+        customers: data.customers,
+        products: data.products,
+        recipes: data.recipes,
+        equivalences: data.equivalences,
+        packages: data.packages
+      });
+    } catch (error) {
+      console.error("Error delivering historical sale in store:", error);
       throw error;
     } finally {
       set({ loading: false });
