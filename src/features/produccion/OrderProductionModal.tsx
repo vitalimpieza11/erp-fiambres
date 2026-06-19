@@ -69,7 +69,10 @@ export default function OrderProductionModal({
 
   const costDetails = useMemo(() => {
     if (!currentItem) return null;
-    console.log("Calculando Costos en UI. currentItem.pesoReal recibido:", currentItem.pesoReal);
+    console.log('RECALCULANDO_COSTOS', {
+      pesoReal: currentItem?.pesoReal,
+      pesosReales: currentItem?.pesosReales
+    });
     return calculateProductionCostDetails(
       currentItem.recipeItems || [],
       currentItem.cantidad,
@@ -297,7 +300,10 @@ export default function OrderProductionModal({
                       value={currentItem.observaciones} 
                       onChange={e => {
                         const newItems = [...orderProdItems];
-                        newItems[activeStep].observaciones = e.target.value;
+                        newItems[activeStep] = {
+                          ...newItems[activeStep],
+                          observaciones: e.target.value
+                        };
                         setOrderProdItems(newItems);
                       }} 
                     />
@@ -318,14 +324,22 @@ export default function OrderProductionModal({
                               value={w !== undefined ? w : ''}
                               style={{ padding: '6px', fontSize: '13px', border: '1px solid var(--border-color)', borderRadius: '6px' }}
                               onChange={e => {
-                                const newItems = [...orderProdItems];
-                                const updatedPesos = [...(newItems[activeStep].pesosReales || [])];
-                                updatedPesos[pkgIdx] = e.target.value ? Number(e.target.value) : 0;
-                                newItems[activeStep].pesosReales = updatedPesos;
-                                // Recalcular pesoReal total
-                                newItems[activeStep].pesoReal = Number(updatedPesos.reduce((a, b) => a + b, 0).toFixed(3));
-                                setOrderProdItems(newItems);
-                              }}
+                                  const newItems = [...orderProdItems];
+                                  const updatedPesos = [...(newItems[activeStep].pesosReales || [])];
+                                  updatedPesos[pkgIdx] = e.target.value ? Number(e.target.value) : 0;
+                                  
+                                  const pesoRealTotal = Number(updatedPesos.reduce((a, b) => a + b, 0).toFixed(3));
+                                  
+                                  console.log('RECALCULANDO_COSTOS', { pesoRealTotal, updatedPesos });
+
+                                  newItems[activeStep] = {
+                                    ...newItems[activeStep],
+                                    pesosReales: updatedPesos,
+                                    pesoReal: pesoRealTotal
+                                  };
+                                  
+                                  setOrderProdItems(newItems);
+                                }}
                             />
                           </div>
                         ))}
@@ -347,7 +361,10 @@ export default function OrderProductionModal({
                         value={currentItem.pesoReal !== undefined ? currentItem.pesoReal : ''} 
                         onChange={e => {
                           const newItems = [...orderProdItems];
-                          newItems[activeStep].pesoReal = e.target.value ? Number(e.target.value) : undefined;
+                          newItems[activeStep] = {
+                            ...newItems[activeStep],
+                            pesoReal: e.target.value ? Number(e.target.value) : undefined
+                          };
                           setOrderProdItems(newItems);
                         }} 
                       />
@@ -367,7 +384,10 @@ export default function OrderProductionModal({
                     ingredients={currentItem.recipeItems || []}
                     onChange={(newRecipe) => {
                       const newItems = [...orderProdItems];
-                      newItems[activeStep].recipeItems = newRecipe;
+                      newItems[activeStep] = {
+                        ...newItems[activeStep],
+                        recipeItems: newRecipe
+                      };
                       setOrderProdItems(newItems);
                     }}
                     products={products}
@@ -380,7 +400,7 @@ export default function OrderProductionModal({
                   {/* Panel de Costos de Producción por Pedido */}
                   {costDetails && currentItem.cantidad > 0 && (
                     <div style={{ 
-                      background: '#f8fafc', 
+                      backgroundColor: '#f8fafc', 
                       border: '1px solid #e2e8f0', 
                       borderRadius: '12px', 
                       padding: '16px',
@@ -389,6 +409,14 @@ export default function OrderProductionModal({
                       flexDirection: 'column',
                       gap: '12px'
                     }}>
+                      {(() => {
+                        console.log('DEBUG_PRODUCCION', {
+                          pesoReal: currentItem?.pesoReal,
+                          pesosReales: currentItem?.pesosReales,
+                          costDetails
+                        });
+                        return null;
+                      })()}
                       <h4 style={{ margin: 0, fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)', borderBottom: '1px solid #e2e8f0', paddingBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
                         <span>📊</span> Análisis de Costos (Paso Actual)
                       </h4>
