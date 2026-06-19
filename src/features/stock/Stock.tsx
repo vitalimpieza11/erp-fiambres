@@ -44,6 +44,42 @@ export default function Stock() {
     });
   }, [products, searchStock, filterType]);
 
+  const [collapsedSections, setCollapsedSections] = useState<{ [key: string]: boolean }>(() => {
+    try {
+      const stored = localStorage.getItem('stock_collapsed_sections');
+      return stored ? JSON.parse(stored) : { MERCADERIA: false, INSUMO: false, PRESENTACION: false };
+    } catch {
+      return { MERCADERIA: false, INSUMO: false, PRESENTACION: false };
+    }
+  });
+
+  const toggleSection = (section: string) => {
+    setCollapsedSections(prev => {
+      const next = { ...prev, [section]: !prev[section] };
+      localStorage.setItem('stock_collapsed_sections', JSON.stringify(next));
+      return next;
+    });
+  };
+
+  const sectionStats = useMemo(() => {
+    const stats = {
+      MERCADERIA: { count: 0, value: 0, items: [] as typeof products },
+      INSUMO: { count: 0, value: 0, items: [] as typeof products },
+      PRESENTACION: { count: 0, value: 0, items: [] as typeof products }
+    };
+    filteredProducts.forEach(p => {
+      if (stats[p.type]) {
+        stats[p.type].count += 1;
+        const cost = p.costoActual || 0;
+        const stock = p.stockActual || 0;
+        stats[p.type].value += (stock * cost);
+        stats[p.type].items.push(p);
+      }
+    });
+    const totalValue = stats.MERCADERIA.value + stats.INSUMO.value + stats.PRESENTACION.value;
+    return { ...stats, totalValue };
+  }, [filteredProducts]);
+
   // Filtered Moves
   const filteredMoves = useMemo(() => {
     return movements
@@ -187,44 +223,116 @@ export default function Stock() {
               <option value="PRESENTACION">Terminado / Presentación</option>
             </select>
           </div>
-          
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '20px' }}>
-            {filteredProducts.map(p => (
-              <ExpandableCard
-                key={p.id}
-                title={p.nombre}
-                subtitle={p.type}
-                collapsedContent={
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '12px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                      <Package size={20} color={(p.stockActual || 0) < 0 ? '#b91c1c' : (p.stockActual || 0) === 0 ? '#ef4444' : (p.stockActual || 0) <= 10 ? '#f59e0b' : '#16a34a'} />
-                      <span style={{ 
-                        fontSize: '24px', 
-                        fontWeight: 'bold',
-                        color: (p.stockActual || 0) < 0 ? '#b91c1c' : (p.stockActual || 0) === 0 ? '#ef4444' : (p.stockActual || 0) <= 10 ? '#f59e0b' : '#16a34a'
-                      }}>
-                        {truncateDecimals(p.stockActual || 0, 3)}
+
+          {/* Inventario Valorizado Total */}
+          <div className="apple-card" style={{ padding: '24px', background: 'linear-gradient(135deg, #1e293b 0%, #0f172a 100%)', color: '#fff', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderRadius: '16px' }}>
+            <div>
+              <span style={{ fontSize: '13px', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Inventario Valorizado Total</span>
+              <div style={{ fontSize: '32px', fontWeight: 'bold', marginTop: '6px', color: '#38bdf8' }}>
+                ${sectionStats.totalValue.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: '24px' }}>
+              <div style={{ textAlign: 'right' }}>
+                <span style={{ fontSize: '12px', color: '#94a3b8' }}>Filtro de Ítems</span>
+                <div style={{ fontSize: '18px', fontWeight: 600, marginTop: '2px' }}>{filteredProducts.length}</div>
+              </div>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+            {['MERCADERIA', 'INSUMO', 'PRESENTACION'].map(type => {
+              const sec = sectionStats[type as keyof typeof sectionStats] as { count: number; value: number; items: typeof products };
+              if (filterType && filterType !== type) return null;
+              const isCollapsed = collapsedSections[type];
+              const title = type === 'MERCADERIA' ? 'Mercaderías' : type === 'INSUMO' ? 'Insumos' : 'Presentaciones';
+
+              return (
+                <div key={type} className="apple-card" style={{ padding: '0px', overflow: 'hidden', border: '1px solid var(--border-color)' }}>
+                  <div 
+                    onClick={() => toggleSection(type)}
+                    style={{ 
+                      padding: '20px', 
+                      display: 'flex', 
+                      justifyContent: 'space-between', 
+                      alignItems: 'center', 
+                      cursor: 'pointer',
+                      background: '#f8fafc',
+                      borderBottom: isCollapsed ? 'none' : '1px solid var(--border-color)',
+                      userSelect: 'none'
+                    }}
+                  >
+                    <div>
+                      <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-primary)' }}>
+                        <span>{type === 'MERCADERIA' ? '📦' : type === 'INSUMO' ? '🧪' : '✨'}</span>
+                        {title}
+                      </h3>
+                      <span style={{ fontSize: '12.5px', color: 'var(--text-secondary)' }}>
+                        Cantidad de ítems: <strong>{sec.count}</strong>
                       </span>
-                      <span style={{ color: 'var(--text-secondary)' }}>{p.unitType}</span>
                     </div>
-                    {(p.stockActual || 0) < 0 && (
-                      <div style={{ alignSelf: 'flex-start', background: '#fee2e2', color: '#b91c1c', fontSize: '11px', fontWeight: 'bold', padding: '2px 8px', borderRadius: '12px', border: '1px solid #fca5a5' }}>
-                        STOCK NEGATIVO
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                      <div style={{ textAlign: 'right' }}>
+                        <span style={{ fontSize: '11px', color: 'var(--text-secondary)', textTransform: 'uppercase', display: 'block' }}>Valor Sección</span>
+                        <div style={{ fontSize: '16px', fontWeight: 700, color: 'var(--text-primary)' }}>
+                          ${sec.value.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </div>
                       </div>
-                    )}
+                      <span style={{ fontSize: '14px', color: 'var(--text-secondary)', fontWeight: 'bold' }}>
+                        {isCollapsed ? 'Mostrar ⬇️' : 'Ocultar ⬆️'}
+                      </span>
+                    </div>
                   </div>
-                }
-                expandedContent={
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span style={{ color: 'var(--text-secondary)' }}>Costo Actual</span>
-                    <strong>${p.costoActual?.toFixed(2) || '0.00'}</strong>
-                  </div>
-                }
-              />
-            ))}
-            {filteredProducts.length === 0 && (
-              <p style={{ color: 'var(--text-secondary)' }}>No hay productos en stock con esos filtros.</p>
-            )}
+
+                  {!isCollapsed && (
+                    <div style={{ padding: '20px', display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '20px' }}>
+                      {sec.items.map(p => (
+                        <ExpandableCard
+                          key={p.id}
+                          title={p.nombre}
+                          subtitle={p.type}
+                          collapsedContent={
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '12px' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                                <Package size={20} color={(p.stockActual || 0) < 0 ? '#b91c1c' : (p.stockActual || 0) === 0 ? '#ef4444' : (p.stockActual || 0) <= 10 ? '#f59e0b' : '#16a34a'} />
+                                <span style={{ 
+                                  fontSize: '24px', 
+                                  fontWeight: 'bold',
+                                  color: (p.stockActual || 0) < 0 ? '#b91c1c' : (p.stockActual || 0) === 0 ? '#ef4444' : (p.stockActual || 0) <= 10 ? '#f59e0b' : '#16a34a'
+                                }}>
+                                  {truncateDecimals(p.stockActual || 0, 3)}
+                                </span>
+                                <span style={{ color: 'var(--text-secondary)' }}>{p.unitType}</span>
+                              </div>
+                              {(p.stockActual || 0) < 0 && (
+                                <div style={{ alignSelf: 'flex-start', background: '#fee2e2', color: '#b91c1c', fontSize: '11px', fontWeight: 'bold', padding: '2px 8px', borderRadius: '12px', border: '1px solid #fca5a5' }}>
+                                  STOCK NEGATIVO
+                                </div>
+                              )}
+                            </div>
+                          }
+                          expandedContent={
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <span style={{ color: 'var(--text-secondary)' }}>Costo Actual</span>
+                                <strong>${p.costoActual?.toFixed(2) || '0.00'}</strong>
+                              </div>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px dashed var(--border-color)', paddingTop: '8px' }}>
+                                <span style={{ color: 'var(--text-secondary)' }}>Valorización Stock</span>
+                                <strong>${((p.stockActual || 0) * (p.costoActual || 0)).toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
+                              </div>
+                            </div>
+                          }
+                        />
+                      ))}
+                      {sec.items.length === 0 && (
+                        <p style={{ color: 'var(--text-secondary)', gridColumn: '1 / -1', margin: 0, textAlign: 'center', padding: '10px' }}>No hay productos en esta sección.</p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
       )}

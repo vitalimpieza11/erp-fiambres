@@ -22,6 +22,7 @@ interface OrderProductionModalProps {
     cantidad: number;
     unidad: string;
     pesoReal?: number;
+    pesosReales?: number[];
     merma?: number;
     observaciones: string;
     recipeItemsOverride?: RecipeItem[];
@@ -53,6 +54,7 @@ export default function OrderProductionModal({
     cantidad: number;
     unidad: string;
     pesoReal?: number;
+    pesosReales?: number[];
     merma?: number;
     observaciones: string;
     elaborado: boolean;
@@ -112,27 +114,28 @@ export default function OrderProductionModal({
         if (isUnitBased) {
           const qtyTotal = Math.max(1, Math.round(Number(item.cantidad || 0)));
           
-          let unitsElaboradas = 0;
-          if (order.status === 'EN_PRODUCCION' && item.pesoReal && p?.pesoObjetivoGramos) {
+          let unitsElaboradas = item.pesosReales ? item.pesosReales.length : 0;
+          if (unitsElaboradas === 0 && item.pesoReal && p?.pesoObjetivoGramos) {
             const targetWeightKg = p.pesoObjetivoGramos / 1000;
             unitsElaboradas = Math.min(qtyTotal - 1, Math.round(item.pesoReal / targetWeightKg));
           }
 
           const qtyRemaining = qtyTotal - unitsElaboradas;
 
-          for (let i = 0; i < qtyRemaining; i++) {
-            const realIndex = unitsElaboradas + i;
-            let initialPesoReal = p?.pesoObjetivoGramos ? Number((p.pesoObjetivoGramos / 1000).toFixed(3)) : undefined;
+          if (qtyRemaining > 0) {
+            const defaultWeight = p?.pesoObjetivoGramos ? Number((p.pesoObjetivoGramos / 1000).toFixed(3)) : 0.150;
+            const initialPesos = Array(qtyRemaining).fill(defaultWeight);
             steps.push({
               productId: item.productId,
               productName: p?.nombre || 'Producto Desconocido',
-              unitIndex: realIndex,
+              unitIndex: 0,
               totalUnits: qtyTotal,
-              cantidad: 1,
+              cantidad: qtyRemaining,
               unidad: 'UNIDADES',
-              pesoReal: initialPesoReal,
+              pesoReal: Number((qtyRemaining * defaultWeight).toFixed(3)),
+              pesosReales: initialPesos,
               merma: undefined,
-              observaciones: `Preparación de Pedido ${(orderId || '').slice(0, 6)}${clientSuffix} - ${p?.nombre || ''} (Pza ${realIndex + 1}/${qtyTotal})`,
+              observaciones: `Preparación de Pedido ${(orderId || '').slice(0, 6)}${clientSuffix} - ${p?.nombre || ''}`,
               elaborado: true,
               recipeItems: JSON.parse(JSON.stringify(defaultRecipeItems))
             });
@@ -140,7 +143,7 @@ export default function OrderProductionModal({
         } else {
           let initialPesoReal = item.pesoReal !== undefined ? Number(item.pesoReal) : undefined;
           if (initialPesoReal === undefined && p) {
-            const baseQtyInKg = convertQuantityToBaseUnit(Number(item.cantidad || 0), item.unidad || p.unitType || 'KG', { ...p, unitType: 'KG' });
+            const baseQtyInKg = convertQuantityToBaseUnit(Number(item.cantidad || 0), item.unidad || p?.unitType || 'KG', { ...p, unitType: 'KG' });
             initialPesoReal = Number(baseQtyInKg.toFixed(3));
           }
           
@@ -237,6 +240,7 @@ export default function OrderProductionModal({
         cantidad: currentItem.cantidad,
         unidad: currentItem.unidad,
         pesoReal: finalWeight > 0 ? finalWeight : undefined,
+        pesosReales: currentItem.pesosReales,
         merma: currentItem.merma,
         observaciones: currentItem.observaciones,
         recipeItemsOverride: currentItem.recipeItems,
@@ -313,9 +317,41 @@ export default function OrderProductionModal({
                     />
                   </div>
 
-                  {!currentItem.recipeItems || currentItem.recipeItems.length === 0 ? (
+                  {currentItem.pesosReales && currentItem.pesosReales.length > 0 ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                      <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)' }}>Pesos Reales por Paquete (KG)</label>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))', gap: '10px' }}>
+                        {currentItem.pesosReales.map((w, pkgIdx) => (
+                          <div key={pkgIdx} style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                            <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Paquete {pkgIdx + 1}</span>
+                            <input
+                              type="number"
+                              step="0.001"
+                              min="0.001"
+                              required
+                              value={w !== undefined ? w : ''}
+                              style={{ padding: '6px', fontSize: '13px', border: '1px solid var(--border-color)', borderRadius: '6px' }}
+                              onChange={e => {
+                                const newItems = [...orderProdItems];
+                                const updatedPesos = [...(newItems[activeStep].pesosReales || [])];
+                                updatedPesos[pkgIdx] = e.target.value ? Number(e.target.value) : 0;
+                                newItems[activeStep].pesosReales = updatedPesos;
+                                // Recalcular pesoReal total
+                                newItems[activeStep].pesoReal = Number(updatedPesos.reduce((a, b) => a + b, 0).toFixed(3));
+                                setOrderProdItems(newItems);
+                              }}
+                            />
+                          </div>
+                        ))}
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginTop: '10px', padding: '10px', backgroundColor: '#f1f5f9', borderRadius: '8px' }}>
+                        <span>Peso Total: <strong>{(currentItem.pesoReal || 0).toFixed(3)} kg</strong></span>
+                        <span>Promedio: <strong>{(currentItem.pesosReales.reduce((a, b) => a + b, 0) / currentItem.pesosReales.length || 0).toFixed(3)} kg</strong></span>
+                      </div>
+                    </div>
+                  ) : !currentItem.recipeItems || currentItem.recipeItems.length === 0 ? (
                     <div className="form-group" style={{ margin: 0 }}>
-                      <label style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Peso Real de esta Unidad (KG)</label>
+                      <label style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Peso Real Total (KG)</label>
                       <input 
                         type="number" 
                         step="0.001"
@@ -333,7 +369,7 @@ export default function OrderProductionModal({
                   ) : (
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#fff', padding: '10px 14px', borderRadius: '8px', border: '1px dashed var(--border-color)', margin: '4px 0' }}>
                       <span style={{ fontSize: '13px', fontWeight: 500, color: 'var(--text-secondary)' }}>
-                        Peso Real Total de esta Unidad (Calculado):
+                        Peso Real Total (Calculado):
                       </span>
                       <strong style={{ fontSize: '15px', color: 'var(--text-primary)' }}>
                         {currentItem.pesoReal !== undefined ? `${currentItem.pesoReal} KG` : 'Calculando...'}

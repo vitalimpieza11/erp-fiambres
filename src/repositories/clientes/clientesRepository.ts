@@ -1,6 +1,7 @@
 import { getDocs, addDoc, updateDoc, doc, query, where, collection, runTransaction } from 'firebase/firestore';
 import { db, COLLECTIONS } from '../../lib/firebase';
 import type { Customer, CustomerMovement, PriceList, Order, Sale } from '../../types/domain';
+import { normalizeOrder } from '../pedidos/ordersRepository';
 
 export const clientesRepository = {
   async fetchClientesData(): Promise<{
@@ -22,7 +23,7 @@ export const clientesRepository = {
       customers: custSnap.docs.map(d => ({ id: d.id, ...d.data() } as Customer)),
       movements: moveSnap.docs.map(d => ({ id: d.id, ...d.data() } as CustomerMovement)),
       priceLists: priceSnap.docs.map(d => ({ id: d.id, ...d.data() } as PriceList)),
-      orders: ordersSnap.docs.map(d => ({ id: d.id, ...d.data() } as Order)),
+      orders: ordersSnap.docs.map(d => normalizeOrder({ id: d.id, ...d.data() })),
       sales: salesSnap.docs.map(d => ({ id: d.id, ...d.data() } as Sale))
     };
   },

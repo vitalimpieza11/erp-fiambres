@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect } from 'react';
 import { useFacturacion } from './useFacturacion';
+import { usePeriodFilterStore } from '../../store/periodFilterStore';
 import type { Sale, Order, SaleItem } from '../../types/domain';
 import { useFinancialAccountsStore } from '../../store/financialAccountsStore';
 import ExpandableCard from '../../components/ExpandableCard';
@@ -8,7 +9,7 @@ import Modal from '../../components/Modal';
 import LoadingSpinner from '../../components/LoadingSpinner';
 import { generateInvoicePDF } from './invoicePdfHelper';
 import { calculateWeightInKg } from '../../lib/unitConverter';
-import { truncateDecimals } from '../../lib/formatters';
+import { truncateDecimals, formatCurrency } from '../../lib/formatters';
 import { useSettingsStore } from '../../store/settingsStore';
 import { calculateProductionCostDetails } from '../../utils/costHelpers';
 import { FileText, DollarSign, XCircle, Search, Printer, Check } from 'lucide-react';
@@ -39,6 +40,8 @@ export default function Facturacion() {
 
   const settings = useSettingsStore(state => state.settings);
   const { accounts, fetchAccounts } = useFinancialAccountsStore();
+  const { getRanges } = usePeriodFilterStore();
+  const { current: currentRange } = getRanges();
 
   // Navigation tabs: 'pending' or 'issued'
   const [activeTab, setActiveTab] = useState<'pending' | 'issued'>('pending');
@@ -49,6 +52,39 @@ export default function Facturacion() {
   const [saleItems, setSaleItems] = useState<SaleItem[]>([]);
   const [saleToCobrar, setSaleToCobrar] = useState<Sale | null>(null);
   const [selectedAccountId, setSelectedAccountId] = useState('');
+
+  // Period-filtered Sales and Pending Orders
+  const periodSales = useMemo(() => {
+    return sales.filter(s => {
+      const d = new Date(s.date);
+      return d >= currentRange.startDate && d <= currentRange.endDate;
+    });
+  }, [sales, currentRange]);
+
+  const periodPendingOrders = useMemo(() => {
+    return pendingOrders.filter(o => {
+      const d = new Date(o.fecha);
+      return d >= currentRange.startDate && d <= currentRange.endDate;
+    });
+  }, [pendingOrders, currentRange]);
+
+  // Period Summary Metrics
+  const summaryMetrics = useMemo(() => {
+    const activeSales = periodSales.filter(s => s.status !== 'ANULADO');
+    const facturacionEmitida = activeSales.reduce((acc, s) => acc + s.totalAmount, 0);
+    const remitosEmitidos = activeSales.length;
+    const remitosPendientes = periodPendingOrders.filter(o => o.status === 'ENTREGADO').length;
+    const facturasPendientes = periodSales.filter(s => s.status === 'FACTURADO').length;
+    const ticketPromedio = remitosEmitidos > 0 ? facturacionEmitida / remitosEmitidos : 0;
+
+    return {
+      facturacionEmitida,
+      remitosEmitidos,
+      remitosPendientes,
+      facturasPendientes,
+      ticketPromedio
+    };
+  }, [periodSales, periodPendingOrders]);
 
   useEffect(() => {
     fetchAccounts();
@@ -67,7 +103,7 @@ export default function Facturacion() {
 
   // Filter & Search Sales (Remitos)
   const filteredSales = useMemo(() => {
-    return sales.filter(s => {
+    return periodSales.filter(s => {
       const customer = customers.find(c => c.id === s.customerId);
       const customerName = customer?.nombre?.toLowerCase() || '';
       const customerRazon = customer?.razonSocial?.toLowerCase() || '';
@@ -77,7 +113,7 @@ export default function Facturacion() {
              customerRazon.includes(searchTerm.toLowerCase()) ||
              saleId.includes(searchTerm.toLowerCase());
     });
-  }, [sales, customers, searchTerm]);
+  }, [periodSales, customers, searchTerm]);
 
   // Open billing panel for a specific order
   const handleOpenFacturar = (order: Order) => {
@@ -154,7 +190,10 @@ export default function Facturacion() {
           costoUnitarioHistorico: finalCostPerKg,
           costoTotalHistorico: finalTotalCost,
           rentabilidadBruta: Number((importeReal - finalTotalCost).toFixed(2)),
-          pesosReales: it.pesosReales || (it.pesoReal ? [it.pesoReal] : [])
+          pesosReales: it.pesosReales || (it.pesoReal ? [it.pesoReal] : []),
+          cantidadPaquetes: it.cantidadPaquetes || (it.pesosReales ? it.pesosReales.length : (it.pesoReal ? 1 : 0)),
+          pesoTotal: it.pesoTotal || finalPesoReal,
+          pesoPromedio: it.pesoPromedio || (it.pesosReales && it.pesosReales.length > 0 ? finalPesoReal / it.pesosReales.length : finalPesoReal)
         };
       })
     );
@@ -286,7 +325,7 @@ export default function Facturacion() {
               transition: 'all 0.2s ease'
             }}
           >
-            Pendientes de Remitir ({pendingOrders.length})
+            Pendientes de Remitir ({periodPendingOrders.length})
           </button>
           <button 
             onClick={() => setActiveTab('issued')}
@@ -308,6 +347,30 @@ export default function Facturacion() {
         </div>
       </div>
 
+      {/* Resumen del Período */}
+      <div className="dashboard-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '20px', marginBottom: '28px' }}>
+        <div className="apple-card" style={{ padding: '16px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', minHeight: '100px' }}>
+          <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)' }}>Facturación Emitida</span>
+          <strong style={{ fontSize: '20px', color: 'var(--text-primary)', marginTop: '8px' }}>{formatCurrency(summaryMetrics.facturacionEmitida)}</strong>
+        </div>
+        <div className="apple-card" style={{ padding: '16px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', minHeight: '100px' }}>
+          <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)' }}>Remitos Emitidos</span>
+          <strong style={{ fontSize: '20px', color: 'var(--text-primary)', marginTop: '8px' }}>{summaryMetrics.remitosEmitidos}</strong>
+        </div>
+        <div className="apple-card" style={{ padding: '16px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', minHeight: '100px' }}>
+          <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)' }}>Remitos Pendientes</span>
+          <strong style={{ fontSize: '20px', color: 'var(--text-primary)', marginTop: '8px' }}>{summaryMetrics.remitosPendientes}</strong>
+        </div>
+        <div className="apple-card" style={{ padding: '16px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', minHeight: '100px' }}>
+          <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)' }}>Facturas Pendientes</span>
+          <strong style={{ fontSize: '20px', color: 'var(--text-primary)', marginTop: '8px' }}>{summaryMetrics.facturasPendientes}</strong>
+        </div>
+        <div className="apple-card" style={{ padding: '16px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', minHeight: '100px' }}>
+          <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)' }}>Ticket Promedio</span>
+          <strong style={{ fontSize: '20px', color: 'var(--text-primary)', marginTop: '8px' }}>{formatCurrency(summaryMetrics.ticketPromedio)}</strong>
+        </div>
+      </div>
+
       {/* Tabs Content */}
       {activeTab === 'pending' ? (
         <div>
@@ -315,7 +378,7 @@ export default function Facturacion() {
             Listado de pedidos terminados. Los pedidos deben ser marcados como <strong>Entregados</strong> para poder confeccionar y emitir su Remito Comercial.
           </p>
 
-          {pendingOrders.length === 0 ? (
+          {periodPendingOrders.length === 0 ? (
             <div style={{
               textAlign: 'center',
               padding: '48px',
@@ -328,7 +391,7 @@ export default function Facturacion() {
             </div>
           ) : (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '20px' }}>
-              {pendingOrders.map(order => {
+              {periodPendingOrders.map(order => {
                 const customer = customers.find(c => c.id === order.customerId);
                 return (
                   <ExpandableCard
@@ -469,14 +532,14 @@ export default function Facturacion() {
                         </span>
                         {sale.isHistorical && (
                           <span style={{
-                            backgroundColor: sale.deliveryStatus === 'PENDIENTE' ? '#feebc8' : '#c6f6d5',
-                            color: sale.deliveryStatus === 'PENDIENTE' ? '#c05621' : '#22543d',
+                            backgroundColor: sale.deliveryStatus === 'PENDIENTE' ? '#feebc8' : sale.deliveryStatus === 'REGISTRADA' ? '#edf2f7' : '#c6f6d5',
+                            color: sale.deliveryStatus === 'PENDIENTE' ? '#c05621' : sale.deliveryStatus === 'REGISTRADA' ? '#4a5568' : '#22543d',
                             fontSize: '11px',
                             fontWeight: 600,
                             padding: '2px 8px',
                             borderRadius: '12px'
                           }}>
-                            {sale.deliveryStatus === 'PENDIENTE' ? '🚚 Pendiente Entrega' : '✅ Entregado'}
+                            {sale.deliveryStatus === 'PENDIENTE' ? '🚚 Lista para preparar' : sale.deliveryStatus === 'REGISTRADA' ? '📁 Registrada' : '✅ Entregada'}
                           </span>
                         )}
                       </div>

@@ -145,6 +145,9 @@ export type OrderItem = {
   pesoReal?: number;
   pesosReales?: number[];
   observaciones?: string;
+  cantidadPaquetes?: number;
+  pesoTotal?: number;
+  pesoPromedio?: number;
 };
 
 
@@ -180,6 +183,9 @@ export type SaleItem = {
   costoUnitarioHistorico?: number;
   costoTotalHistorico?: number;
   pesosReales?: number[];
+  cantidadPaquetes?: number;
+  pesoTotal?: number;
+  pesoPromedio?: number;
 };
 
 export type RecipeSnapshotItem = {
@@ -232,13 +238,14 @@ export type Sale = {
   date: string; 
   items: SaleItem[];
   totalAmount: number; 
+  costoTotal?: number;
   status: SaleStatus;
   paymentMethod: PaymentMethod;
   isDeleted: boolean;
   deletedAt?: number;
   tipoComprobante?: 'FACTURA_A' | 'FACTURA_B' | 'FACTURA_C' | 'PRESUPUESTO' | 'REMITO';
   isHistorical?: boolean;
-  deliveryStatus?: 'ENTREGADO' | 'PENDIENTE';
+  deliveryStatus?: 'REGISTRADA' | 'PENDIENTE' | 'ENTREGADO';
 }
 
 export type PurchaseItem = {
@@ -344,6 +351,10 @@ export type ShareholderMovement = {
   deletedAt?: number;
   tipoAporte?: 'DINERO' | 'BIEN';
   descripcionBien?: string;
+  estado?: 'ACTIVO' | 'ANULADO';
+  fechaAnulacion?: string;
+  usuarioAnulacion?: string;
+  motivoAnulacion?: string;
 }
 
 export type FinancialAccount = {

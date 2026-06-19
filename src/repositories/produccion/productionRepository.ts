@@ -4,6 +4,7 @@ import type { Order, Product, Equivalencia, StockMovement, RecipeItem, Customer 
 import { mapRecipeUnitToUnitType } from '../../types/domain';
 import { convertUnit, convertQuantityToBaseUnit, calculateWeightInKg } from '../../lib/unitConverter';
 import { truncateDecimals } from '../../lib/formatters';
+import { normalizeOrder } from '../pedidos/ordersRepository';
 
 
 export const productionRepository = {
@@ -25,7 +26,7 @@ export const productionRepository = {
     ]);
 
     return {
-      orders: ordersSnap.docs.map(d => ({ id: d.id, ...d.data() } as any as Order)),
+      orders: ordersSnap.docs.map(d => normalizeOrder({ id: d.id, ...d.data() })),
       products: productsSnap.docs.map(d => ({ id: d.id, ...d.data() } as any as Product)),
       recipes: recipesSnap.docs.map(d => ({ id: d.id, ...d.data() })),
       equivalences: equivSnap.docs.map(d => ({ id: d.id, ...d.data() } as any as Equivalencia)),
@@ -536,12 +537,19 @@ export const productionRepository = {
               });
             }
 
+            const cantidadPaquetes = Number(newPesosReales.length || 0);
+            const pesoTotal = Number(newPesoReal || 0);
+            const pesoPromedio = cantidadPaquetes > 0 ? Number(truncateDecimals(pesoTotal / cantidadPaquetes, 3) || 0) : 0;
+
             updatedItems.push({
               ...item,
-              cantidad: newQty,
+              cantidad: Number(newQty || 0),
               unidad: prodItem.unidad as any,
-              pesoReal: newPesoReal,
-              pesosReales: newPesosReales,
+              pesoReal: Number(newPesoReal || 0),
+              pesosReales: newPesosReales.map(w => Number(w) || 0),
+              cantidadPaquetes,
+              pesoTotal,
+              pesoPromedio,
               subtotal: Number(newSubtotal.toFixed(2)),
               observaciones: prodItem.observaciones || item.observaciones || ''
             });
@@ -567,6 +575,7 @@ export const productionRepository = {
       cantidad: number;
       unidad: string;
       pesoReal?: number;
+      pesosReales?: number[];
       merma?: number;
       observaciones: string;
       recipeItemsOverride?: RecipeItem[];
@@ -719,44 +728,79 @@ export const productionRepository = {
         }
       }
 
+      const addedPesosReales = data.pesosReales || (data.pesoReal ? [data.pesoReal] : []);
+
       // Create Package document if usePackages = true
       if (usePackages) {
-        const pkgWeight = data.pesoReal || (productData.unitType === 'KG' ? data.cantidad : (data.cantidad * (productData.pesoObjetivoGramos || 0) / 1000));
-        const costPerKg = pkgWeight > 0 ? stepCost / pkgWeight : 0;
-        const pkgRef = doc(collection(db, 'packages'));
-        transaction.set(pkgRef, {
-          productId: data.productId,
-          productName: productData.nombre || 'Producto',
-          weight: truncateDecimals(pkgWeight, 3),
-          costPerKg: truncateDecimals(costPerKg, 2),
-          totalCost: truncateDecimals(stepCost, 2),
-          status: 'STOCK',
-          orderId: data.orderId || '',
-          producedAt: new Date().toISOString(),
-          recipeSnapshot
-        });
+        if (addedPesosReales.length > 0) {
+          const totalWeight = addedPesosReales.reduce((a, b) => a + b, 0);
+          addedPesosReales.forEach(pkgWeight => {
+            const propCost = totalWeight > 0 ? (pkgWeight / totalWeight) * stepCost : (stepCost / addedPesosReales.length);
+            const costPerKg = pkgWeight > 0 ? propCost / pkgWeight : 0;
+            const pkgRef = doc(collection(db, 'packages'));
+            transaction.set(pkgRef, {
+              productId: data.productId,
+              productName: productData.nombre || 'Producto',
+              weight: truncateDecimals(pkgWeight, 3),
+              costPerKg: truncateDecimals(costPerKg, 2),
+              totalCost: truncateDecimals(propCost, 2),
+              status: 'STOCK',
+              orderId: data.orderId || '',
+              producedAt: new Date().toISOString(),
+              recipeSnapshot
+            });
+          });
+        } else {
+          const pkgWeight = data.pesoReal || (productData.unitType === 'KG' ? data.cantidad : (data.cantidad * (productData.pesoObjetivoGramos || 0) / 1000));
+          const costPerKg = pkgWeight > 0 ? stepCost / pkgWeight : 0;
+          const pkgRef = doc(collection(db, 'packages'));
+          transaction.set(pkgRef, {
+            productId: data.productId,
+            productName: productData.nombre || 'Producto',
+            weight: truncateDecimals(pkgWeight, 3),
+            costPerKg: truncateDecimals(costPerKg, 2),
+            totalCost: truncateDecimals(stepCost, 2),
+            status: 'STOCK',
+            orderId: data.orderId || '',
+            producedAt: new Date().toISOString(),
+            recipeSnapshot
+          });
+        }
       }
 
-      // Register individual ProductionItem record for each package produced
-      const prodItemRef = doc(collection(db, 'production_items'));
-      transaction.set(prodItemRef, {
-        id: prodItemRef.id,
-        orderId: data.orderId,
-        productId: data.productId,
-        pesoReal: data.pesoReal || 0,
-        fecha: new Date().toISOString(),
-        operario: 'Sistema'
-      });
+      // Register individual ProductionItem records for each package produced
+      if (addedPesosReales.length > 0) {
+        addedPesosReales.forEach(w => {
+          const prodItemRef = doc(collection(db, 'production_items'));
+          transaction.set(prodItemRef, {
+            id: prodItemRef.id,
+            orderId: data.orderId,
+            productId: data.productId,
+            pesoReal: w,
+            fecha: new Date().toISOString(),
+            operario: 'Sistema'
+          });
+        });
+      } else {
+        const prodItemRef = doc(collection(db, 'production_items'));
+        transaction.set(prodItemRef, {
+          id: prodItemRef.id,
+          orderId: data.orderId,
+          productId: data.productId,
+          pesoReal: data.pesoReal || 0,
+          fecha: new Date().toISOString(),
+          operario: 'Sistema'
+        });
+      }
 
       const updatedItems = [];
       for (const item of orderData.items || []) {
         if (item.productId === data.productId) {
-          const addedPesoReal = data.pesoReal || 0;
           let currentPesosReales = item.pesosReales || [];
           if (currentPesosReales.length === 0 && item.pesoReal !== undefined && item.pesoReal > 0) {
             currentPesosReales = [item.pesoReal];
           }
-          const newPesosReales = [...currentPesosReales, addedPesoReal];
+          const newPesosReales = [...currentPesosReales, ...addedPesosReales];
           const newPesoReal = truncateDecimals(newPesosReales.reduce((acc, w) => acc + w, 0), 3);
 
           let newObs = item.observaciones || '';
@@ -774,10 +818,17 @@ export const productionRepository = {
             newSubtotal = weightInKg * price;
           }
 
+          const cantidadPaquetes = Number(newPesosReales.length || 0);
+          const pesoTotal = Number(newPesoReal || 0);
+          const pesoPromedio = cantidadPaquetes > 0 ? Number(truncateDecimals(pesoTotal / cantidadPaquetes, 3) || 0) : 0;
+
           updatedItems.push({
             ...item,
-            pesoReal: newPesoReal,
-            pesosReales: newPesosReales,
+            pesoReal: Number(newPesoReal || 0),
+            pesosReales: newPesosReales.map(w => Number(w) || 0),
+            cantidadPaquetes,
+            pesoTotal,
+            pesoPromedio,
             subtotal: Number(newSubtotal.toFixed(2)),
             observaciones: newObs
           });

@@ -3,10 +3,12 @@ import { usePurchases } from './usePurchases';
 import { useProveedores } from '../proveedores/useProveedores';
 import { useStock } from '../stock/useStock';
 import { useFinancialAccountsStore } from '../../store/financialAccountsStore';
+import { usePeriodFilterStore } from '../../store/periodFilterStore';
 import type { Purchase, PurchaseItem } from '../../types/domain';
 import ExpandableCard from '../../components/ExpandableCard';
 import RightPanel from '../../components/RightPanel';
 import { ShoppingCart, RotateCcw } from 'lucide-react';
+import { formatCurrency } from '../../lib/formatters';
 
 import LoadingSpinner from '../../components/LoadingSpinner';
 
@@ -15,6 +17,8 @@ export default function Compras() {
   const { suppliers, loading: suppliersLoading } = useProveedores();
   const { products, loading: stockLoading } = useStock();
   const { accounts, fetchAccounts } = useFinancialAccountsStore();
+  const { getRanges } = usePeriodFilterStore();
+  const { current: currentRange } = getRanges();
   
   const loading = purchasesLoading || suppliersLoading || stockLoading;
 
@@ -29,6 +33,29 @@ export default function Compras() {
   const [montoPagado, setMontoPagado] = useState(0);
   const [impuestos, setImpuestos] = useState(0);
   const [selectedAccountId, setSelectedAccountId] = useState('');
+
+  // Filtered Purchases by Period
+  const periodPurchases = useMemo(() => {
+    return purchases.filter(p => {
+      const d = new Date(p.date);
+      return d >= currentRange.startDate && d <= currentRange.endDate;
+    });
+  }, [purchases, currentRange]);
+
+  // Period Summary Metrics
+  const summaryMetrics = useMemo(() => {
+    const activePurchases = periodPurchases.filter(p => p.status === 'ACTIVE' && p.type === 'PURCHASE');
+    const totalComprado = activePurchases.reduce((acc, p) => acc + p.total, 0);
+    const cantidadCompras = activePurchases.length;
+    const proveedoresUtilizados = new Set(activePurchases.map(p => p.supplierId)).size;
+    const compraPromedio = cantidadCompras > 0 ? totalComprado / cantidadCompras : 0;
+    return {
+      totalComprado,
+      cantidadCompras,
+      proveedoresUtilizados,
+      compraPromedio
+    };
+  }, [periodPurchases]);
 
   useEffect(() => {
     fetchAccounts();
@@ -156,13 +183,13 @@ export default function Compras() {
 
   const groupedPurchases = useMemo(() => {
     const groups: Record<string, Purchase[]> = {};
-    purchases.forEach(p => {
+    periodPurchases.forEach(p => {
       if (!showHistorical && p.isHistorical) return;
       if (!groups[p.supplierId]) groups[p.supplierId] = [];
       groups[p.supplierId].push(p);
     });
     return groups;
-  }, [purchases, showHistorical]);
+  }, [periodPurchases, showHistorical]);
 
   if (loading) return <LoadingSpinner message="Cargando módulo de compras..." />;
 
@@ -185,6 +212,26 @@ export default function Compras() {
           </div>
         </div>
         <button className="btn-primary" onClick={handleNewPurchase}>+ Registrar Compra</button>
+      </div>
+
+      {/* Resumen del Período */}
+      <div className="dashboard-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '20px', marginBottom: '28px' }}>
+        <div className="apple-card" style={{ padding: '16px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', minHeight: '100px' }}>
+          <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)' }}>Total Comprado</span>
+          <strong style={{ fontSize: '20px', color: 'var(--text-primary)', marginTop: '8px' }}>{formatCurrency(summaryMetrics.totalComprado)}</strong>
+        </div>
+        <div className="apple-card" style={{ padding: '16px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', minHeight: '100px' }}>
+          <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)' }}>Cantidad de Compras</span>
+          <strong style={{ fontSize: '20px', color: 'var(--text-primary)', marginTop: '8px' }}>{summaryMetrics.cantidadCompras}</strong>
+        </div>
+        <div className="apple-card" style={{ padding: '16px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', minHeight: '100px' }}>
+          <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)' }}>Proveedores Utilizados</span>
+          <strong style={{ fontSize: '20px', color: 'var(--text-primary)', marginTop: '8px' }}>{summaryMetrics.proveedoresUtilizados}</strong>
+        </div>
+        <div className="apple-card" style={{ padding: '16px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', minHeight: '100px' }}>
+          <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)' }}>Compra Promedio</span>
+          <strong style={{ fontSize: '20px', color: 'var(--text-primary)', marginTop: '8px' }}>{formatCurrency(summaryMetrics.compraPromedio)}</strong>
+        </div>
       </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: '32px' }}>

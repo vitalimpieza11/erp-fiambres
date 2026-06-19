@@ -2,6 +2,25 @@ import { getDocs, getDoc, addDoc, updateDoc, doc, query, where } from 'firebase/
 import { db, COLLECTIONS } from '../../lib/firebase';
 import type { Order, Customer, Product, PriceList } from '../../types/domain';
 
+export function normalizeOrder(order: any): Order {
+  if (!order) return order;
+  return {
+    ...order,
+    totalEstimado: Number(order.totalEstimado || 0),
+    items: (order.items || []).map((item: any) => ({
+      ...item,
+      cantidad: Number(item.cantidad || 0),
+      precioEstimado: Number(item.precioEstimado || 0),
+      subtotal: Number(item.subtotal || 0),
+      pesoReal: item.pesoReal !== undefined ? (Number(item.pesoReal) || 0) : undefined,
+      pesosReales: item.pesosReales ? item.pesosReales.map((w: any) => Number(w) || 0) : undefined,
+      cantidadPaquetes: item.cantidadPaquetes !== undefined ? (Number(item.cantidadPaquetes) || 0) : undefined,
+      pesoTotal: item.pesoTotal !== undefined ? (Number(item.pesoTotal) || 0) : undefined,
+      pesoPromedio: item.pesoPromedio !== undefined ? (Number(item.pesoPromedio) || 0) : undefined
+    }))
+  };
+}
+
 export const ordersRepository = {
   async fetchOrdersData(): Promise<{
     orders: Order[];
@@ -17,7 +36,7 @@ export const ordersRepository = {
     ]);
 
     return {
-      orders: pedidosSnap.docs.map(d => ({ id: d.id, ...d.data() } as Order)),
+      orders: pedidosSnap.docs.map(d => normalizeOrder({ id: d.id, ...d.data() })),
       customers: clientesSnap.docs.map(d => ({ id: d.id, ...d.data() } as Customer)),
       products: productosSnap.docs.map(d => ({ id: d.id, ...d.data() } as Product)),
       priceLists: listasSnap.docs.map(d => ({ id: d.id, ...d.data() } as PriceList))
@@ -38,10 +57,26 @@ export const ordersRepository = {
       }
     }
 
+    const sanitizedPedido = {
+      ...pedido,
+      totalEstimado: Number(pedido.totalEstimado || 0),
+      items: (pedido.items || []).map(item => ({
+        ...item,
+        cantidad: Number(item.cantidad) || 0,
+        precioEstimado: Number(item.precioEstimado) || 0,
+        subtotal: Number(item.subtotal) || 0,
+        pesoReal: item.pesoReal !== undefined ? Number(item.pesoReal) || 0 : undefined,
+        pesosReales: item.pesosReales ? item.pesosReales.map(w => Number(w) || 0) : undefined,
+        cantidadPaquetes: item.cantidadPaquetes !== undefined ? Number(item.cantidadPaquetes) || 0 : undefined,
+        pesoTotal: item.pesoTotal !== undefined ? Number(item.pesoTotal) || 0 : undefined,
+        pesoPromedio: item.pesoPromedio !== undefined ? Number(item.pesoPromedio) || 0 : undefined
+      }))
+    };
+
     if (pedido.id) {
-      await updateDoc(doc(db, 'orders', pedido.id), pedido);
+      await updateDoc(doc(db, 'orders', pedido.id), sanitizedPedido);
     } else {
-      await addDoc(COLLECTIONS.ORDERS, { ...pedido, isDeleted: false });
+      await addDoc(COLLECTIONS.ORDERS, { ...sanitizedPedido, isDeleted: false });
     }
   },
 

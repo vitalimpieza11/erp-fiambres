@@ -58,7 +58,7 @@ export type InitialLoadData = {
     customerName?: string;
     isNewCustomer?: boolean;
     estado: 'COBRADA' | 'PENDIENTE' | 'PARCIALMENTE COBRADA';
-    deliveryStatus?: 'ENTREGADO' | 'PENDIENTE';
+    deliveryStatus?: 'ENTREGADO' | 'PENDIENTE' | 'REGISTRADA';
     total: number;
     cobrado: number;
     observaciones: string;

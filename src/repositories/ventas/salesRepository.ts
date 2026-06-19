@@ -3,6 +3,7 @@ import { db, COLLECTIONS, removeUndefinedFields } from '../../lib/firebase';
 import type { Sale, Order, Customer, Product, SaleItem } from '../../types/domain';
 import { convertQuantityToBaseUnit } from '../../lib/unitConverter';
 import { truncateDecimals } from '../../lib/formatters';
+import { normalizeOrder } from '../pedidos/ordersRepository';
 
 export const salesRepository = {
   async fetchSalesData(): Promise<{
@@ -26,7 +27,7 @@ export const salesRepository = {
 
     return {
       sales: salesSnap.docs.map(d => ({ id: d.id, ...d.data() } as Sale)),
-      orders: ordersSnap.docs.map(d => ({ id: d.id, ...d.data() } as Order)),
+      orders: ordersSnap.docs.map(d => normalizeOrder({ id: d.id, ...d.data() })),
       customers: customersSnap.docs.map(d => ({ id: d.id, ...d.data() } as Customer)),
       products: productsSnap.docs.map(d => ({ id: d.id, ...d.data() } as Product)),
       recipes: recipesSnap.docs.map(d => ({ id: d.id, ...d.data() })),
@@ -406,7 +407,7 @@ export const salesRepository = {
         const prod = prodSnap.data() as Product;
         const currentStock = prod.stockActual || 0;
         
-        let weightToDeduct = item.pesoReal || item.cantidad;
+        let weightToDeduct = item.pesoReal || convertQuantityToBaseUnit(item.cantidad, item.unidad, prod);
         if (itemsWithWeights) {
           const provided = itemsWithWeights.find(w => w.productId === item.productId);
           if (provided) {
@@ -435,6 +436,39 @@ export const salesRepository = {
         deliveryStatus: 'ENTREGADO'
       });
     });
+  },
+
+  async createHistoricalSale(data: {
+    customerId: string;
+    date: string;
+    observaciones: string;
+    totalAmount: number;
+    costoTotal: number;
+    deliveryStatus: 'PENDIENTE' | 'ENTREGADO';
+    items: { productId: string; cantidad: number }[];
+  }): Promise<void> {
+    const saleData = {
+      customerId: data.customerId,
+      date: new Date(data.date).toISOString(),
+      observaciones: data.observaciones,
+      totalAmount: Number(data.totalAmount),
+      costoTotal: Number(data.costoTotal),
+      status: 'FACTURADO' as const,
+      paymentMethod: 'PENDIENTE' as const,
+      isDeleted: false,
+      isHistorical: true,
+      deliveryStatus: data.deliveryStatus,
+      tipoComprobante: 'REMITO' as const,
+      items: data.items.map(it => ({
+        productId: it.productId,
+        cantidad: truncateDecimals(Number(it.cantidad), 3),
+        unidad: 'UNIDADES' as const,
+        precioUnitario: 0,
+        subtotal: 0
+      }))
+    };
+
+    await addDoc(COLLECTIONS.SALES, saleData);
   },
 
   async updateSale(saleId: string, updatedData: Partial<Sale>): Promise<void> {

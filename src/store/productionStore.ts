@@ -16,6 +16,7 @@ interface ProductionState {
     productId: string;
     cantidad: number;
     pesoReal?: number;
+    pesosReales?: number[];
     merma?: number;
     observaciones: string;
     orderId?: string;
@@ -29,6 +30,7 @@ interface ProductionState {
       cantidad: number;
       unidad: string;
       pesoReal?: number;
+      pesosReales?: number[];
       merma?: number;
       observaciones: string;
     }[];
@@ -41,6 +43,7 @@ interface ProductionState {
     cantidad: number;
     unidad: string;
     pesoReal?: number;
+    pesosReales?: number[];
     merma?: number;
     observaciones: string;
     recipeItemsOverride?: RecipeItem[];

@@ -1,6 +1,7 @@
 import React, { useEffect, useCallback, useState } from 'react';
 import { useSociosStore } from '../../store/sociosStore';
 import { useFinancialAccountsStore } from '../../store/financialAccountsStore';
+import { useAuthStore } from '../../store/authStore';
 import type { Shareholder } from '../../types/domain';
 
 export type MovFormType = 'APORTE_INICIAL' | 'APORTE_OPERATIVO' | 'RETIRO' | 'AJUSTE';
@@ -21,7 +22,7 @@ export function useSocios() {
   }, [subscribeAll]);
 
   const getBalance = useCallback((shareholderId: string) => {
-    const movs = movements.filter(m => m.shareholderId === shareholderId);
+    const movs = movements.filter(m => m.shareholderId === shareholderId && m.estado !== 'ANULADO');
     return movs.reduce((acc, mov) => {
       if (mov.sourceType === 'APORTE') return acc + mov.amount;
       if (mov.sourceType === 'RETIRO') return acc - mov.amount;
@@ -199,7 +200,8 @@ export function useSocios() {
     const reason = window.prompt("Motivo de anulación:");
     if (!reason || !reason.trim()) return;
     try {
-      await annulMovement(id, reason);
+      const userEmail = useAuthStore.getState().user?.email || 'Sistema';
+      await annulMovement(id, reason, userEmail);
     } catch (error) {
       console.error("Error al anular movimiento:", error);
       alert("No se pudo anular el movimiento.");

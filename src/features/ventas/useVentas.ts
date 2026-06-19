@@ -18,6 +18,8 @@ export function useVentas() {
   const anularSale = useSalesStore((state) => state.anularSale);
   const deleteSale = useSalesStore((state) => state.deleteSale);
   const markOrderAsDelivered = useSalesStore((state) => state.markOrderAsDelivered);
+  const deliverHistoricalSale = useSalesStore((state) => state.deliverHistoricalSale);
+  const createHistoricalSale = useSalesStore((state) => state.createHistoricalSale);
 
   useEffect(() => {
     fetchData();
@@ -34,10 +36,12 @@ export function useVentas() {
     loading,
     createSaleFromOrder,
     createQuickSale,
+    createHistoricalSale,
     updateSale,
     cobrarSale,
     anularSale,
     deleteSale,
-    markOrderAsDelivered
+    markOrderAsDelivered,
+    deliverHistoricalSale
   };
 }

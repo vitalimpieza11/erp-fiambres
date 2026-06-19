@@ -21,6 +21,15 @@ interface SalesState {
     tipoComprobante?: 'FACTURA_A' | 'FACTURA_B' | 'FACTURA_C' | 'PRESUPUESTO' | 'REMITO'
   ) => Promise<void>;
   createQuickSale: (data: { customerId: string; date: string; items: SaleItem[]; totalAmount: number; observaciones?: string }) => Promise<void>;
+  createHistoricalSale: (data: {
+    customerId: string;
+    date: string;
+    observaciones: string;
+    totalAmount: number;
+    costoTotal: number;
+    deliveryStatus: 'PENDIENTE' | 'ENTREGADO';
+    items: { productId: string; cantidad: number }[];
+  }) => Promise<void>;
   cobrarSale: (sale: Sale, method: 'EFECTIVO_TRANSFERENCIA' | 'CUENTA_CORRIENTE', accountId?: string) => Promise<void>;
   anularSale: (sale: Sale) => Promise<void>;
   updateSale: (saleId: string, updatedData: Partial<Sale>) => Promise<void>;
@@ -133,6 +142,27 @@ export const useSalesStore = create<SalesState>((set, get) => ({
       });
     } catch (error) {
       console.error("Error creating quick sale in store:", error);
+      throw error;
+    } finally {
+      set({ loading: false });
+    }
+  },
+  createHistoricalSale: async (data) => {
+    set({ loading: true });
+    try {
+      await salesRepository.createHistoricalSale(data);
+      const freshData = await salesRepository.fetchSalesData();
+      set({
+        sales: freshData.sales,
+        orders: freshData.orders,
+        customers: freshData.customers,
+        products: freshData.products,
+        recipes: freshData.recipes,
+        equivalences: freshData.equivalences,
+        packages: freshData.packages
+      });
+    } catch (error) {
+      console.error("Error creating historical sale in store:", error);
       throw error;
     } finally {
       set({ loading: false });

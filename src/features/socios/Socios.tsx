@@ -119,6 +119,7 @@ export default function Socios() {
         accounts={accounts}
         onBack={() => setSelectedSocioForDetail(null)}
         getBalance={getBalance}
+        onAnnulMovement={handleAnnul}
       />
     );
   }

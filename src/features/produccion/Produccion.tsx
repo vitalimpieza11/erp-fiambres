@@ -1,11 +1,23 @@
 import { useState, useMemo } from 'react';
 import { useProduccion } from './useProduccion';
+import { usePeriodFilterStore } from '../../store/periodFilterStore';
+import { useSalesStore } from '../../store/salesStore';
+import { convertUnit } from '../../lib/unitConverter';
+import { mapRecipeUnitToUnitType } from '../../types/domain';
 import ExpandableCard from '../../components/ExpandableCard';
 import FreeProductionPanel from './FreeProductionPanel';
 import OrderProductionModal from './OrderProductionModal';
-import { Package, Clock, Activity, CheckCircle, RotateCcw } from 'lucide-react';
+import { Package, Clock, Activity, CheckCircle, RotateCcw, Scale, Layers, DollarSign, Percent, TrendingUp } from 'lucide-react';
 import LoadingSpinner from '../../components/LoadingSpinner';
 import { formatCurrency, truncateDecimals } from '../../lib/formatters';
+
+const formatQty = (val: number, unitType: string) => {
+  const num = Number(val || 0);
+  if (unitType === 'UNIDADES' || unitType === 'PRESENTACION') {
+    return num.toFixed(0);
+  }
+  return num.toFixed(3);
+};
 
 export default function Produccion() {
   const { 
@@ -23,6 +35,10 @@ export default function Produccion() {
     revertMovement 
   } = useProduccion();
 
+  const { getRanges } = usePeriodFilterStore();
+  const { current: currentRange } = getRanges();
+  const packages = useSalesStore((state) => state.packages);
+
   const [activeTab, setActiveTab] = useState<'PENDING' | 'STOCK' | 'CAPACITY'>('PENDING');
   
   // Production UI States
@@ -31,13 +47,106 @@ export default function Produccion() {
   const [selectedOrderId, setSelectedOrderId] = useState<string>('');
   const [targetProductId, setTargetProductId] = useState<string>('');
 
+  // Period-filtered Orders and Movements
+  const periodOrders = useMemo(() => {
+    return (orders || []).filter(o => {
+      if (!o) return false;
+      const d = new Date(o.fecha);
+      return d >= currentRange.startDate && d <= currentRange.endDate;
+    });
+  }, [orders, currentRange]);
+
+  const periodMovements = useMemo(() => {
+    return (movements || []).filter(m => {
+      if (!m) return false;
+      const d = new Date(m.date);
+      return d >= currentRange.startDate && d <= currentRange.endDate;
+    });
+  }, [movements, currentRange]);
+
+  const getProductRecipeCost = (productId: string) => {
+    const recipe = recipes.find(r => r.productId === productId);
+    if (!recipe || !recipe.items) return 0;
+    return recipe.items.reduce((acc: number, ing: any) => {
+      const ingProd = products.find(p => p.id === ing.ingredientProductId);
+      if (!ingProd) return acc;
+      const convertedQty = convertUnit(
+        ing.quantity,
+        mapRecipeUnitToUnitType(ing.unit),
+        ingProd.unitType,
+        ingProd.nombre || '',
+        '',
+        equivalences
+      );
+      return acc + (convertedQty * (ingProd.costoActual || 0));
+    }, 0);
+  };
+
+  // Summary Metrics
+  const summaryMetrics = useMemo(() => {
+    const prodMovementsFiltered = periodMovements.filter(m => m.type === 'PRODUCCION_STOCK' || m.type === 'PRODUCCION_PEDIDO');
+    const count = prodMovementsFiltered.length;
+
+    const periodPackages = (packages || []).filter(p => {
+      const d = new Date(p.producedAt);
+      return d >= currentRange.startDate && d <= currentRange.endDate;
+    });
+
+    let kg = 0;
+    let pkgsCount = 0;
+    let totalCost = 0;
+
+    if (periodPackages.length > 0) {
+      kg = periodPackages.reduce((acc, p) => acc + (p.weight || 0), 0);
+      pkgsCount = periodPackages.length;
+      totalCost = periodPackages.reduce((acc, p) => acc + (p.totalCost || 0), 0);
+    } else {
+      kg = prodMovementsFiltered.reduce((acc, m) => {
+        const prod = products.find(p => p.id === m.productId);
+        if (prod && prod.type === 'PRESENTACION') {
+          if (prod.unitType === 'KG') return acc + m.qty;
+          return acc + (m.qty * (prod.pesoObjetivoKg || (prod.pesoObjetivoGramos || 0) / 1000 || 0));
+        }
+        return acc;
+      }, 0);
+
+      pkgsCount = prodMovementsFiltered.reduce((acc, m) => {
+        const prod = products.find(p => p.id === m.productId);
+        if (prod && prod.type === 'PRESENTACION' && prod.unitType === 'UNIDADES') {
+          return acc + m.qty;
+        }
+        return acc;
+      }, 0);
+
+      totalCost = prodMovementsFiltered.reduce((acc, m) => {
+        const recipeCost = getProductRecipeCost(m.productId);
+        return acc + (m.qty * recipeCost);
+      }, 0);
+    }
+
+    const costoPorKg = kg > 0 ? totalCost / kg : 0;
+
+    const periodMermas = periodMovements.filter(m => m.type === 'MERMA_PRODUCCION');
+    const totalMermaKg = periodMermas.reduce((acc, m) => acc + Math.abs(m.qty), 0);
+    const rendimientoPromedio = (kg + totalMermaKg) > 0 ? (kg / (kg + totalMermaKg)) * 100 : 100;
+
+    return {
+      count,
+      kg,
+      pkgsCount,
+      totalCost,
+      costoPorKg,
+      rendimientoPromedio
+    };
+  }, [periodMovements, packages, products, recipes, equivalences]);
+
   const pendingOrders = useMemo(() => {
-    return (orders || []).filter(o => o && (o.status === 'PENDIENTE' || o.status === 'EN_PRODUCCION'));
-  }, [orders]);
+    return (periodOrders || []).filter(o => o && (o.status === 'PENDIENTE' || o.status === 'EN_PRODUCCION'));
+  }, [periodOrders]);
 
   const producedOrders = useMemo(() => {
-    return (orders || []).filter(o => o && o.status === 'PRODUCIDO');
-  }, [orders]);
+    return (periodOrders || []).filter(o => o && o.status === 'PRODUCIDO');
+  }, [periodOrders]);
 
   const presentationSummary = useMemo(() => {
     const summary: Record<string, {
@@ -67,24 +176,24 @@ export default function Produccion() {
             };
           }
           const s = summary[p.id];
-          s.cantidadSolicitada += item.cantidad;
+          s.cantidadSolicitada += Number(item.cantidad || 0);
           
           const pesosReales = item.pesosReales || [];
           if (s.unitType === 'UNIDADES') {
             s.cantidadProducida += pesosReales.length;
           } else {
-            const sumWeights = pesosReales.reduce((sum, w) => sum + w, 0) || item.pesoReal || 0;
+            const sumWeights = pesosReales.reduce((sum, w) => sum + Number(w || 0), 0) || Number(item.pesoReal || 0);
             s.cantidadProducida += sumWeights;
           }
           
-          const totalWeightReal = pesosReales.reduce((sum, w) => sum + w, 0) || item.pesoReal || 0;
+          const totalWeightReal = pesosReales.reduce((sum, w) => sum + Number(w || 0), 0) || Number(item.pesoReal || 0);
           s.pesoProducidoAcumulado += totalWeightReal;
         }
       });
     });
 
     Object.values(summary).forEach(s => {
-      s.cantidadPendiente = Math.max(0, s.cantidadSolicitada - s.cantidadProducida);
+      s.cantidadPendiente = Math.max(0, Number(s.cantidadSolicitada || 0) - Number(s.cantidadProducida || 0));
     });
 
     return Object.values(summary);
@@ -141,6 +250,34 @@ export default function Produccion() {
         </div>
       </div>
 
+      {/* Resumen del Período */}
+      <div className="dashboard-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '20px', marginBottom: '28px' }}>
+        <div className="apple-card" style={{ padding: '16px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', minHeight: '100px' }}>
+          <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)' }}>Prod. Realizadas</span>
+          <strong style={{ fontSize: '20px', color: 'var(--text-primary)', marginTop: '8px' }}>{summaryMetrics.count}</strong>
+        </div>
+        <div className="apple-card" style={{ padding: '16px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', minHeight: '100px' }}>
+          <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)' }}>Kg Producidos</span>
+          <strong style={{ fontSize: '18px', color: 'var(--text-primary)', marginTop: '8px' }}>{summaryMetrics.kg.toLocaleString('es-AR', { minimumFractionDigits: 1, maximumFractionDigits: 3 })} kg</strong>
+        </div>
+        <div className="apple-card" style={{ padding: '16px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', minHeight: '100px' }}>
+          <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)' }}>Paquetes Producidos</span>
+          <strong style={{ fontSize: '20px', color: 'var(--text-primary)', marginTop: '8px' }}>{summaryMetrics.pkgsCount}</strong>
+        </div>
+        <div className="apple-card" style={{ padding: '16px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', minHeight: '100px' }}>
+          <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)' }}>Costo Prod. Estimado</span>
+          <strong style={{ fontSize: '20px', color: 'var(--text-primary)', marginTop: '8px' }}>{formatCurrency(summaryMetrics.totalCost)}</strong>
+        </div>
+        <div className="apple-card" style={{ padding: '16px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', minHeight: '100px' }}>
+          <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)' }}>Rendimiento Promedio</span>
+          <strong style={{ fontSize: '20px', color: '#16a34a', marginTop: '8px' }}>{summaryMetrics.rendimientoPromedio.toFixed(1)}%</strong>
+        </div>
+        <div className="apple-card" style={{ padding: '16px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', minHeight: '100px' }}>
+          <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)' }}>Costo por Kg producido</span>
+          <strong style={{ fontSize: '18px', color: 'var(--text-primary)', marginTop: '8px' }}>{formatCurrency(summaryMetrics.costoPorKg)} / kg</strong>
+        </div>
+      </div>
+
       <div style={{ display: 'flex', gap: '16px', marginBottom: '32px', borderBottom: '1px solid var(--border-color)', paddingBottom: '16px' }}>
         <button 
           onClick={() => setActiveTab('PENDING')}
@@ -193,19 +330,19 @@ export default function Produccion() {
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '12px', fontSize: '14px' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                         <span style={{ color: 'var(--text-secondary)' }}>Solicitado:</span>
-                        <strong style={{ color: 'var(--text-primary)' }}>{s.cantidadSolicitada.toFixed(3)} {s.unitType}</strong>
+                        <strong style={{ color: 'var(--text-primary)' }}>{formatQty(s.cantidadSolicitada, s.unitType)} {s.unitType}</strong>
                       </div>
                       <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                         <span style={{ color: 'var(--text-secondary)' }}>Producido:</span>
-                        <strong style={{ color: '#10b981' }}>{s.cantidadProducida.toFixed(3)} {s.unitType}</strong>
+                        <strong style={{ color: '#10b981' }}>{formatQty(s.cantidadProducida, s.unitType)} {s.unitType}</strong>
                       </div>
                       <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                         <span style={{ color: 'var(--text-secondary)' }}>Pendiente:</span>
-                        <strong style={{ color: 'var(--alvacio-red-dark)' }}>{s.cantidadPendiente.toFixed(3)} {s.unitType}</strong>
+                        <strong style={{ color: 'var(--alvacio-red-dark)' }}>{formatQty(s.cantidadPendiente, s.unitType)} {s.unitType}</strong>
                       </div>
                       <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px dashed var(--border-color)', paddingTop: '6px', marginTop: '4px' }}>
                         <span style={{ color: 'var(--text-secondary)' }}>Peso Acumulado:</span>
-                        <strong style={{ color: 'var(--text-primary)' }}>{s.pesoProducidoAcumulado.toFixed(3)} kg</strong>
+                        <strong style={{ color: 'var(--text-primary)' }}>{Number(s.pesoProducidoAcumulado || 0).toFixed(3)} kg</strong>
                       </div>
                     </div>
                   }
@@ -364,7 +501,7 @@ export default function Produccion() {
           <div>
             <h3 style={{ fontSize: '20px', marginBottom: '20px', color: 'var(--text-primary)' }}>Últimos Movimientos</h3>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-              {(movements || []).filter(m => {
+              {(periodMovements || []).filter(m => {
                 if (!m) return false;
                 return m.type === 'PRODUCCION_STOCK' || m.type === 'PRODUCCION_PEDIDO';
               }).sort((a,b) => {
@@ -446,11 +583,11 @@ export default function Produccion() {
                         </div>
                         <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                           <span style={{ color: 'var(--text-secondary)' }}>Costo por Lote/Unidad:</span>
-                          <strong style={{ color: 'var(--text-primary)' }}>${details.costPerUnit.toFixed(2)}</strong>
+                          <strong style={{ color: 'var(--text-primary)' }}>${Number(details.costPerUnit || 0).toFixed(2)}</strong>
                         </div>
                         <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                           <span style={{ color: 'var(--text-secondary)' }}>Costo Prod. Máxima:</span>
-                          <strong style={{ color: 'var(--text-primary)' }}>${details.totalMaxCapacityCost.toFixed(2)}</strong>
+                          <strong style={{ color: 'var(--text-primary)' }}>${Number(details.totalMaxCapacityCost || 0).toFixed(2)}</strong>
                         </div>
                       </div>
                     </div>

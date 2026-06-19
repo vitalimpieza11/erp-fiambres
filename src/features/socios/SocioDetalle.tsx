@@ -10,6 +10,7 @@ interface SocioDetalleProps {
   accounts: FinancialAccount[];
   onBack: () => void;
   getBalance: (id: string) => number;
+  onAnnulMovement: (id: string) => Promise<void>;
 }
 
 export default function SocioDetalle({
@@ -19,6 +20,7 @@ export default function SocioDetalle({
   accounts,
   onBack,
   getBalance,
+  onAnnulMovement,
 }: SocioDetalleProps) {
   const [activeTab, setActiveTab] = useState<'aportes' | 'prestamos' | 'devoluciones' | 'resumen'>('resumen');
 
@@ -239,7 +241,7 @@ export default function SocioDetalle({
                 <strong style={{ color: '#16a34a' }}>
                   {formatCurrency(
                     socioMovs
-                      .filter((m) => m.sourceType === 'APORTE' || (m.sourceType === 'AJUSTE' && m.amount > 0))
+                      .filter((m) => m.estado !== 'ANULADO' && (m.sourceType === 'APORTE' || (m.sourceType === 'AJUSTE' && m.amount > 0)))
                       .reduce((sum, m) => sum + m.amount, 0)
                   )}
                 </strong>
@@ -249,7 +251,7 @@ export default function SocioDetalle({
                 <strong style={{ color: '#ef4444' }}>
                   {formatCurrency(
                     socioMovs
-                      .filter((m) => m.sourceType === 'RETIRO')
+                      .filter((m) => m.estado !== 'ANULADO' && m.sourceType === 'RETIRO')
                       .reduce((sum, m) => sum + m.amount, 0)
                   )}
                 </strong>
@@ -259,7 +261,7 @@ export default function SocioDetalle({
                 <strong style={{ color: 'var(--text-primary)' }}>
                   {formatCurrency(
                     socioMovs
-                      .filter((m) => m.sourceType === 'AJUSTE')
+                      .filter((m) => m.estado !== 'ANULADO' && m.sourceType === 'AJUSTE')
                       .reduce((sum, m) => sum + m.amount, 0)
                   )}
                 </strong>
@@ -296,21 +298,43 @@ export default function SocioDetalle({
                       <th style={{ padding: '12px 8px' }}>Tipo</th>
                       <th style={{ padding: '12px 8px' }}>Concepto / Descripción</th>
                       <th style={{ padding: '12px 8px', textAlign: 'right' }}>Importe</th>
+                      <th style={{ padding: '12px 8px', textAlign: 'center' }}>Acciones</th>
                     </tr>
                   </thead>
                   <tbody>
                     {socioMovs.map((mov) => {
+                      const isAnulado = mov.estado === 'ANULADO';
                       const isPositive =
                         mov.sourceType === 'APORTE' ||
                         (mov.sourceType === 'AJUSTE' && mov.amount > 0) ||
                         (mov.sourceType === 'ANULACION' && mov.amount > 0);
                       return (
-                        <tr key={mov.id} style={{ borderBottom: '1px solid var(--border-color)', fontSize: '14px' }}>
+                        <tr key={mov.id} style={{ borderBottom: '1px solid var(--border-color)', fontSize: '14px', textDecoration: isAnulado ? 'line-through' : 'none', opacity: isAnulado ? 0.55 : 1 }}>
                           <td style={{ padding: '12px 8px' }}>{formatDate(mov.date)} {formatTime(mov.date)}</td>
-                          <td style={{ padding: '12px 8px', fontWeight: 600 }}>{mov.sourceType}</td>
-                          <td style={{ padding: '12px 8px', color: 'var(--text-secondary)' }}>{mov.description || '-'}</td>
-                          <td style={{ padding: '12px 8px', textAlign: 'right', fontWeight: 700, color: isPositive ? '#16a34a' : '#ef4444' }}>
+                          <td style={{ padding: '12px 8px', fontWeight: 600 }}>
+                            {mov.sourceType}
+                            {isAnulado && <span style={{ marginLeft: '6px', fontSize: '10px', background: '#fee2e2', color: '#ef4444', padding: '2px 6px', borderRadius: '4px' }}>ANULADO</span>}
+                          </td>
+                          <td style={{ padding: '12px 8px', color: 'var(--text-secondary)' }}>
+                            {mov.description || '-'}
+                            {isAnulado && mov.motivoAnulacion && (
+                              <div style={{ fontSize: '11px', color: '#dc2626', marginTop: '3px', textDecoration: 'none' }}>
+                                Motivo: {mov.motivoAnulacion} • {mov.fechaAnulacion ? formatDate(mov.fechaAnulacion) : ''} ({mov.usuarioAnulacion || 'Sistema'})
+                              </div>
+                            )}
+                          </td>
+                          <td style={{ padding: '12px 8px', textAlign: 'right', fontWeight: 700, color: isAnulado ? 'var(--text-secondary)' : isPositive ? '#16a34a' : '#ef4444' }}>
                             {isPositive ? '+' : ''}{formatCurrency(mov.amount)}
+                          </td>
+                          <td style={{ padding: '12px 8px', textAlign: 'center' }}>
+                            {!isAnulado && (
+                              <button
+                                onClick={() => onAnnulMovement(mov.id)}
+                                style={{ background: 'none', border: 'none', color: '#ef4444', textDecoration: 'underline', cursor: 'pointer', fontSize: '12px' }}
+                              >
+                                Anular
+                              </button>
+                            )}
                           </td>
                         </tr>
                       );

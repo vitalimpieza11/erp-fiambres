@@ -75,17 +75,25 @@ export default function Pedidos() {
 
   const updateItem = (index: number, field: keyof OrderItem, value: any) => {
     const items = [...(currentPedido.items || [])];
-    items[index] = { ...items[index], [field]: value };
+    let val = value;
+    const pIdForChecks = field === 'productId' ? value : items[index].productId;
+    const prodForChecks = productos.find(p => p.id === pIdForChecks);
+
+    if (field === 'cantidad' && prodForChecks && prodForChecks.type === 'PRESENTACION') {
+      val = Math.round(Number(value));
+      if (isNaN(val) || val < 1) val = 1;
+    }
+    items[index] = { ...items[index], [field]: val };
     
     // Si cambia el producto o cantidad, recalcular precio
     if (field === 'productId' || field === 'cantidad' || field === 'unidad') {
       const pId = field === 'productId' ? value : items[index].productId;
-      const cant = field === 'cantidad' ? Number(value) : items[index].cantidad;
+      const cant = field === 'cantidad' ? Number(val) : items[index].cantidad;
       
       const prod = productos.find(p => p.id === pId);
       if (prod) {
         if (field === 'productId') {
-          items[index].unidad = prod.unitType;
+          items[index].unidad = prod.type === 'PRESENTACION' ? 'UNIDADES' : prod.unitType;
         }
         
         const price = getProductPrice(pId, currentPedido.customerId || '');
@@ -451,14 +459,19 @@ export default function Pedidos() {
                       <input 
                         type="number" 
                         required 
-                        min="0.1" 
-                        step="0.1"
+                        min={prod?.type === 'PRESENTACION' ? "1" : "0.1"} 
+                        step={prod?.type === 'PRESENTACION' ? "1" : "0.1"}
                         value={item.cantidad || ''} 
-                        onChange={e => updateItem(idx, 'cantidad', e.target.value)} 
+                        onChange={e => {
+                          const val = e.target.value;
+                          const parsedVal = prod?.type === 'PRESENTACION' ? Math.round(Number(val)) : Number(val);
+                          updateItem(idx, 'cantidad', isNaN(parsedVal) ? '' : parsedVal);
+                        }} 
                         placeholder="Cant."
                       />
                       <select 
                         value={item.unidad} 
+                        disabled={prod?.type === 'PRESENTACION'}
                         onChange={e => updateItem(idx, 'unidad', e.target.value)}
                       >
                         <option value="KG">KG</option>

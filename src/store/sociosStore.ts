@@ -18,7 +18,7 @@ interface SociosState {
     cajaCategory?: string;
     accountId?: string;
   }) => Promise<void>;
-  annulMovement: (originalId: string, reason: string) => Promise<void>;
+  annulMovement: (originalId: string, reason: string, userEmail: string) => Promise<void>;
   saveShareholder: (shareholder: Partial<Shareholder>) => Promise<void>;
   toggleShareholderStatus: (id: string, currentStatus: boolean) => Promise<void>;
 }
@@ -55,10 +55,10 @@ export const useSociosStore = create<SociosState>((set, get) => ({
   addMovement: async (data) => {
     await sociosRepository.addMovement(data);
   },
-  annulMovement: async (originalId, reason) => {
+  annulMovement: async (originalId, reason, userEmail) => {
     const original = get().movements.find(m => m.id === originalId);
     if (!original) throw new Error("Movimiento no encontrado");
-    await sociosRepository.annulMovement(originalId, reason, original);
+    await sociosRepository.annulMovement(originalId, reason, original, userEmail);
   },
   saveShareholder: async (shareholder) => {
     await sociosRepository.saveShareholder(shareholder);

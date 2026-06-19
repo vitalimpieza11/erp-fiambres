@@ -154,7 +154,7 @@ export default function AsistenteInicio() {
     items: CompraHistItem[];
   }[]>([]);
 
-  // Passo 9 (Modo A): Ventas Históricas Detalladas
+  // Passo 9 (Modo A): Ventas Históricas Detalladas o Resumidas
   interface VentaHistItem {
     productId: string;
     cantidad: number;
@@ -170,11 +170,16 @@ export default function AsistenteInicio() {
     isNewCustomer: boolean;
     date: string;
     estado: 'COBRADA' | 'PENDIENTE' | 'PARCIALMENTE COBRADA';
-    deliveryStatus?: 'ENTREGADO' | 'PENDIENTE';
+    deliveryStatus?: 'REGISTRADA' | 'PENDIENTE' | 'ENTREGADO';
     total: number;
     cobrado: number;
     observaciones: string;
     items: VentaHistItem[];
+    // Modalidad Resumida
+    tipoMode?: 'DETALLADA' | 'RESUMIDA';
+    productId?: string;
+    cantidad?: number;
+    costoTotal?: number;
   }[]>([]);
 
   // Inline Creación Modal State
@@ -339,6 +344,9 @@ export default function AsistenteInicio() {
     const ventasHistPendientes = ventasHistTotal - ventasHistCobradas;
 
     const ventasHistCMV = ventasHist.reduce((acc, v) => {
+      if (v.tipoMode === 'RESUMIDA') {
+        return acc + Number(v.costoTotal || 0);
+      }
       return acc + v.items.reduce((sum, it) => sum + (it.cantidad * it.costoUnitario), 0);
     }, 0);
     const ventasHistGanancia = ventasHistTotal - ventasHistCMV;
@@ -428,10 +436,19 @@ export default function AsistenteInicio() {
             customerName: v.customerName,
             isNewCustomer: v.isNewCustomer,
             estado: v.estado,
+            deliveryStatus: v.deliveryStatus || 'REGISTRADA',
             total: Number(v.total),
             cobrado: Number(v.cobrado),
             observaciones: v.observaciones,
-            items: v.items.map(it => ({
+            items: v.tipoMode === 'RESUMIDA' && v.productId && v.cantidad ? [
+              {
+                productId: v.productId,
+                cantidad: Number(v.cantidad),
+                precioUnitario: Number(v.total) / Number(v.cantidad),
+                costoUnitario: Number(v.costoTotal || 0) / Number(v.cantidad),
+                subtotal: Number(v.total)
+              }
+            ] : v.items.map(it => ({
               productId: it.productId,
               cantidad: Number(it.cantidad),
               precioUnitario: Number(it.precioUnitario),
@@ -1681,7 +1698,7 @@ export default function AsistenteInicio() {
                     <div>
                       <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)' }}>Estado Entrega</label>
                       <select
-                        value={vent.deliveryStatus || 'ENTREGADO'}
+                        value={vent.deliveryStatus || 'REGISTRADA'}
                         onChange={e => {
                           const newV = [...ventasHist];
                           newV[idx].deliveryStatus = e.target.value as any;
@@ -1689,130 +1706,261 @@ export default function AsistenteInicio() {
                         }}
                         className="table-select"
                       >
-                        <option value="ENTREGADO">ENTREGADA</option>
-                        <option value="PENDIENTE">PENDIENTE DE ENTREGA</option>
+                        <option value="REGISTRADA">Registrada</option>
+                        <option value="PENDIENTE">Lista para preparar</option>
+                        <option value="ENTREGADO">Entregada</option>
                       </select>
                     </div>
                   </div>
 
-                  <h5 style={{ margin: '12px 0 6px 0', fontSize: '13px', fontWeight: 700 }}>Detalle de Productos Vendidos</h5>
-                  <table className="asistente-table" style={{ fontSize: '12px' }}>
-                    <thead>
-                      <tr>
-                        <th>Presentación</th>
-                        <th>Cantidad (u)</th>
-                        <th>Precio Venta Real</th>
-                        <th>Costo Histórico Unitario</th>
-                        <th>Subtotal</th>
-                        <th>Acción</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {vent.items.map((it, itIdx) => (
-                        <tr key={itIdx}>
-                          <td>
-                            <select
-                              value={it.productId}
-                              onChange={e => {
-                                const newV = [...ventasHist];
-                                const p = products.find(prod => prod.id === e.target.value);
-                                newV[idx].items[itIdx].productId = e.target.value;
-                                newV[idx].items[itIdx].precioUnitario = p?.precioComercial || 0;
-                                setVentasHist(newV);
-                              }}
-                              className="table-select"
-                            >
-                              <option value="">-- Seleccionar --</option>
-                              {products.filter(p => p.type === 'PRESENTACION').map(p => (
-                                <option key={p.id} value={p.id}>{p.nombre}</option>
-                              ))}
-                            </select>
-                          </td>
-                          <td>
-                            <input 
-                              type="number" 
-                              value={it.cantidad || ''} 
-                              onChange={e => {
-                                const newV = [...ventasHist];
-                                const cant = Number(e.target.value);
-                                newV[idx].items[itIdx].cantidad = cant;
-                                newV[idx].items[itIdx].subtotal = cant * newV[idx].items[itIdx].precioUnitario;
-                                newV[idx].total = newV[idx].items.reduce((sum, item) => sum + item.subtotal, 0);
-                                if (newV[idx].estado === 'COBRADA') newV[idx].cobrado = newV[idx].total;
-                                setVentasHist(newV);
-                              }}
-                              className="table-input"
-                              placeholder="0"
-                            />
-                          </td>
-                          <td>
-                            <input 
-                              type="number" 
-                              value={it.precioUnitario || ''} 
-                              onChange={e => {
-                                const newV = [...ventasHist];
-                                const pr = Number(e.target.value);
-                                newV[idx].items[itIdx].precioUnitario = pr;
-                                newV[idx].items[itIdx].subtotal = newV[idx].items[itIdx].cantidad * pr;
-                                newV[idx].total = newV[idx].items.reduce((sum, item) => sum + item.subtotal, 0);
-                                if (newV[idx].estado === 'COBRADA') newV[idx].cobrado = newV[idx].total;
-                                setVentasHist(newV);
-                              }}
-                              className="table-input"
-                              placeholder="$ 0.00"
-                            />
-                          </td>
-                          <td>
-                            <input 
-                              type="number" 
-                              value={it.costoUnitario || ''} 
-                              onChange={e => {
-                                const newV = [...ventasHist];
-                                newV[idx].items[itIdx].costoUnitario = Number(e.target.value);
-                                setVentasHist(newV);
-                              }}
-                              className="table-input"
-                              placeholder="$ 0.00"
-                            />
-                          </td>
-                          <td style={{ fontWeight: 600 }}>${it.subtotal.toFixed(2)}</td>
-                          <td>
-                            <button 
-                              className="btn-icon-danger" 
-                              onClick={() => {
-                                const newV = [...ventasHist];
-                                newV[idx].items = newV[idx].items.filter((_, i) => i !== itIdx);
-                                newV[idx].total = newV[idx].items.reduce((sum, item) => sum + item.subtotal, 0);
-                                if (newV[idx].estado === 'COBRADA') newV[idx].cobrado = newV[idx].total;
-                                setVentasHist(newV);
-                              }}
-                            >
-                              <Trash2 size={14} />
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                  <div style={{ display: 'flex', gap: '20px', marginBottom: '16px', borderTop: '1px solid var(--border-color)', paddingTop: '12px' }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '13px' }}>
+                      <input 
+                        type="radio" 
+                        name={`tipoMode-${vent.id}`} 
+                        checked={vent.tipoMode !== 'RESUMIDA'} 
+                        onChange={() => {
+                          const newV = [...ventasHist];
+                          newV[idx].tipoMode = 'DETALLADA';
+                          setVentasHist(newV);
+                        }} 
+                      />
+                      Modalidad Detallada (Producto por Producto)
+                    </label>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '13px' }}>
+                      <input 
+                        type="radio" 
+                        name={`tipoMode-${vent.id}`} 
+                        checked={vent.tipoMode === 'RESUMIDA'} 
+                        onChange={() => {
+                          const newV = [...ventasHist];
+                          newV[idx].tipoMode = 'RESUMIDA';
+                          setVentasHist(newV);
+                        }} 
+                      />
+                      Modalidad Resumida (Carga Rápida)
+                    </label>
+                  </div>
 
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <button 
-                      className="asistente-btn-secondary add-row-btn"
-                      onClick={() => {
-                        const newV = [...ventasHist];
-                        newV[idx].items.push({
-                          productId: '',
-                          cantidad: 0,
-                          precioUnitario: 0,
-                          costoUnitario: 0,
-                          subtotal: 0
-                        });
-                        setVentasHist(newV);
-                      }}
-                    >
-                      + Agregar Producto
-                    </button>
-                    <div style={{ display: 'flex', gap: '20px', fontSize: '13px' }}>
+                  {vent.tipoMode === 'RESUMIDA' ? (
+                    <div style={{ background: '#fff', padding: '16px', borderRadius: '12px', border: '1px dashed var(--border-color)', display: 'flex', flexDirection: 'column', gap: '16px', marginBottom: '16px' }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px' }}>
+                        <div>
+                          <label style={{ fontSize: '12px', fontWeight: 600 }}>Presentación</label>
+                          <select
+                            value={vent.productId || ''}
+                            onChange={e => {
+                              const newV = [...ventasHist];
+                              newV[idx].productId = e.target.value;
+                              setVentasHist(newV);
+                            }}
+                            className="table-select"
+                            required
+                          >
+                            <option value="">-- Seleccionar --</option>
+                            {products.filter(p => p.type === 'PRESENTACION').map(p => (
+                              <option key={p.id} value={p.id}>{p.nombre}</option>
+                            ))}
+                          </select>
+                        </div>
+                        <div>
+                          <label style={{ fontSize: '12px', fontWeight: 600 }}>Cantidad vendida (u)</label>
+                          <input 
+                            type="number" 
+                            value={vent.cantidad || ''} 
+                            onChange={e => {
+                              const newV = [...ventasHist];
+                              newV[idx].cantidad = Number(e.target.value);
+                              if (newV[idx].estado === 'COBRADA') newV[idx].cobrado = newV[idx].total;
+                              setVentasHist(newV);
+                            }}
+                            className="table-input"
+                            placeholder="0"
+                            min="1"
+                            required
+                          />
+                        </div>
+                        <div>
+                          <label style={{ fontSize: '12px', fontWeight: 600 }}>Facturación total ($)</label>
+                          <input 
+                            type="number" 
+                            value={vent.total || ''} 
+                            onChange={e => {
+                              const newV = [...ventasHist];
+                              const tot = Number(e.target.value);
+                              newV[idx].total = tot;
+                              if (newV[idx].estado === 'COBRADA') newV[idx].cobrado = tot;
+                              setVentasHist(newV);
+                            }}
+                            className="table-input"
+                            placeholder="$ 0.00"
+                            required
+                          />
+                        </div>
+                        <div>
+                          <label style={{ fontSize: '12px', fontWeight: 600 }}>Costo total ($)</label>
+                          <input 
+                            type="number" 
+                            value={vent.costoTotal || ''} 
+                            onChange={e => {
+                              const newV = [...ventasHist];
+                              newV[idx].costoTotal = Number(e.target.value);
+                              setVentasHist(newV);
+                            }}
+                            className="table-input"
+                            placeholder="$ 0.00"
+                            required
+                          />
+                        </div>
+                      </div>
+
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px', backgroundColor: '#f8fafc', padding: '12px', borderRadius: '8px', border: '1px solid #e2e8f0', fontSize: '12.5px' }}>
+                        <div>Ganancia: <strong style={{ color: (vent.total - (vent.costoTotal || 0)) >= 0 ? '#16a34a' : '#ef4444' }}>${(vent.total - (vent.costoTotal || 0)).toFixed(2)}</strong></div>
+                        <div>Margen Bruto: <strong>{vent.total > 0 ? (((vent.total - (vent.costoTotal || 0)) / vent.total) * 100).toFixed(1) : 0}%</strong></div>
+                        <div>P. Unit. Promedio: <strong>{vent.cantidad && vent.cantidad > 0 ? `$${(vent.total / vent.cantidad).toFixed(2)}` : '$0.00'}</strong></div>
+                        <div>C. Unit. Promedio: <strong>{vent.cantidad && vent.cantidad > 0 ? `$${((vent.costoTotal || 0) / vent.cantidad).toFixed(2)}` : '$0.00'}</strong></div>
+                      </div>
+
+                      <div>
+                        <label style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)' }}>Observaciones</label>
+                        <input 
+                          type="text" 
+                          value={vent.observaciones} 
+                          onChange={e => {
+                            const newV = [...ventasHist];
+                            newV[idx].observaciones = e.target.value;
+                            setVentasHist(newV);
+                          }}
+                          className="table-input"
+                          placeholder="Obs..."
+                        />
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <h5 style={{ margin: '12px 0 6px 0', fontSize: '13px', fontWeight: 700 }}>Detalle de Productos Vendidos</h5>
+                      <table className="asistente-table" style={{ fontSize: '12px' }}>
+                        <thead>
+                          <tr>
+                            <th>Presentación</th>
+                            <th>Cantidad (u)</th>
+                            <th>Precio Venta Real</th>
+                            <th>Costo Histórico Unitario</th>
+                            <th>Subtotal</th>
+                            <th>Acción</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {vent.items.map((it, itIdx) => (
+                            <tr key={itIdx}>
+                              <td>
+                                <select
+                                  value={it.productId}
+                                  onChange={e => {
+                                    const newV = [...ventasHist];
+                                    const p = products.find(prod => prod.id === e.target.value);
+                                    newV[idx].items[itIdx].productId = e.target.value;
+                                    newV[idx].items[itIdx].precioUnitario = p?.precioComercial || 0;
+                                    setVentasHist(newV);
+                                  }}
+                                  className="table-select"
+                                >
+                                  <option value="">-- Seleccionar --</option>
+                                  {products.filter(p => p.type === 'PRESENTACION').map(p => (
+                                    <option key={p.id} value={p.id}>{p.nombre}</option>
+                                  ))}
+                                </select>
+                              </td>
+                              <td>
+                                <input 
+                                  type="number" 
+                                  value={it.cantidad || ''} 
+                                  onChange={e => {
+                                    const newV = [...ventasHist];
+                                    const cant = Number(e.target.value);
+                                    newV[idx].items[itIdx].cantidad = cant;
+                                    newV[idx].items[itIdx].subtotal = cant * newV[idx].items[itIdx].precioUnitario;
+                                    newV[idx].total = newV[idx].items.reduce((sum, item) => sum + item.subtotal, 0);
+                                    if (newV[idx].estado === 'COBRADA') newV[idx].cobrado = newV[idx].total;
+                                    setVentasHist(newV);
+                                  }}
+                                  className="table-input"
+                                  placeholder="0"
+                                />
+                              </td>
+                              <td>
+                                <input 
+                                  type="number" 
+                                  value={it.precioUnitario || ''} 
+                                  onChange={e => {
+                                    const newV = [...ventasHist];
+                                    const pr = Number(e.target.value);
+                                    newV[idx].items[itIdx].precioUnitario = pr;
+                                    newV[idx].items[itIdx].subtotal = newV[idx].items[itIdx].cantidad * pr;
+                                    newV[idx].total = newV[idx].items.reduce((sum, item) => sum + item.subtotal, 0);
+                                    if (newV[idx].estado === 'COBRADA') newV[idx].cobrado = newV[idx].total;
+                                    setVentasHist(newV);
+                                  }}
+                                  className="table-input"
+                                  placeholder="$ 0.00"
+                                />
+                              </td>
+                              <td>
+                                <input 
+                                  type="number" 
+                                  value={it.costoUnitario || ''} 
+                                  onChange={e => {
+                                    const newV = [...ventasHist];
+                                    newV[idx].items[itIdx].costoUnitario = Number(e.target.value);
+                                    setVentasHist(newV);
+                                  }}
+                                  className="table-input"
+                                  placeholder="$ 0.00"
+                                />
+                              </td>
+                              <td style={{ fontWeight: 600 }}>${it.subtotal.toFixed(2)}</td>
+                              <td>
+                                <button 
+                                  className="btn-icon-danger" 
+                                  onClick={() => {
+                                    const newV = [...ventasHist];
+                                    newV[idx].items = newV[idx].items.filter((_, i) => i !== itIdx);
+                                    newV[idx].total = newV[idx].items.reduce((sum, item) => sum + item.subtotal, 0);
+                                    if (newV[idx].estado === 'COBRADA') newV[idx].cobrado = newV[idx].total;
+                                    setVentasHist(newV);
+                                  }}
+                                >
+                                  <Trash2 size={14} />
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                        <button 
+                          className="asistente-btn-secondary add-row-btn"
+                          onClick={() => {
+                            const newV = [...ventasHist];
+                            newV[idx].items.push({
+                              productId: '',
+                              cantidad: 0,
+                              precioUnitario: 0,
+                              costoUnitario: 0,
+                              subtotal: 0
+                            });
+                            setVentasHist(newV);
+                          }}
+                        >
+                          + Agregar Producto
+                        </button>
+                      </div>
+                    </>
+                  )}
+
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px dashed var(--border-color)', paddingTop: '12px' }}>
+                    <div style={{ display: 'flex', gap: '20px', fontSize: '13px', width: '100%', justifyContent: 'flex-end' }}>
                       {vent.estado === 'PARCIALMENTE COBRADA' && (
                         <div>
                           Importe Cobrado: 

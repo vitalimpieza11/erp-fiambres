@@ -13,14 +13,19 @@ import {
   Settings,
   LogOut,
   Receipt,
-  Sparkles
+  Sparkles,
+  Calendar
 } from 'lucide-react';
 import TopLogo from './TopLogo';
 import { useAuthStore } from '../store/authStore';
+import { usePeriodFilterStore } from '../store/periodFilterStore';
+import type { PeriodType } from '../utils/dateRangeUtils';
 import './Layout.css';
 
 export default function Layout() {
   const { user, logout } = useAuthStore();
+  const { selectedPeriod, customRange, setPeriod, setCustomRange } = usePeriodFilterStore();
+
   const navItems = [
     { path: '/dashboard', label: 'Dashboard', icon: <LayoutDashboard size={22} /> },
     { path: '/pedidos', label: 'Pedidos', icon: <ShoppingCart size={22} /> },
@@ -60,7 +65,73 @@ export default function Layout() {
       </aside>
 
       <main className="main-content">
-        <header className="topbar">
+        <header className="topbar" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0 40px' }}>
+          {/* Selector de Período Global */}
+          <div className="period-selector-container" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', backgroundColor: '#ffffff', border: '1px solid var(--border-color)', borderRadius: '12px', padding: '6px 12px', boxShadow: 'var(--shadow-sm)' }}>
+              <Calendar size={16} style={{ color: 'var(--alvacio-red)' }} />
+              <select
+                value={selectedPeriod}
+                onChange={(e) => setPeriod(e.target.value as PeriodType)}
+                style={{
+                  border: 'none',
+                  backgroundColor: 'transparent',
+                  padding: '4px 8px',
+                  fontSize: '14px',
+                  fontWeight: 600,
+                  width: 'auto',
+                  color: 'var(--text-primary)',
+                  outline: 'none',
+                  cursor: 'pointer',
+                  boxShadow: 'none'
+                }}
+              >
+                <option value="HOY">Hoy</option>
+                <option value="ESTA_SEMANA">Esta Semana</option>
+                <option value="ESTE_MES">Este Mes</option>
+                <option value="MES_ANTERIOR">Mes Anterior</option>
+                <option value="ULTIMOS_3_MESES">Últimos 3 Meses</option>
+                <option value="ULTIMOS_6_MESES">Últimos 6 Meses</option>
+                <option value="ESTE_ANO">Este Año</option>
+                <option value="PERSONALIZADO">Personalizado</option>
+              </select>
+            </div>
+
+            {selectedPeriod === 'PERSONALIZADO' && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', backgroundColor: '#ffffff', border: '1px solid var(--border-color)', borderRadius: '12px', padding: '6px 12px', boxShadow: 'var(--shadow-sm)' }}>
+                <input
+                  type="date"
+                  value={customRange.startDate}
+                  onChange={(e) => setCustomRange({ ...customRange, startDate: e.target.value })}
+                  style={{
+                    border: 'none',
+                    padding: '2px 4px',
+                    fontSize: '13px',
+                    width: '120px',
+                    backgroundColor: 'transparent',
+                    outline: 'none',
+                    boxShadow: 'none'
+                  }}
+                />
+                <span style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>al</span>
+                <input
+                  type="date"
+                  value={customRange.endDate}
+                  onChange={(e) => setCustomRange({ ...customRange, endDate: e.target.value })}
+                  style={{
+                    border: 'none',
+                    padding: '2px 4px',
+                    fontSize: '13px',
+                    width: '120px',
+                    backgroundColor: 'transparent',
+                    outline: 'none',
+                    boxShadow: 'none'
+                  }}
+                />
+              </div>
+            )}
+          </div>
+
           <div className="user-profile" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
             <span style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>{user?.email || 'Administrador'}</span>
             <div className="user-avatar" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: 'var(--alvacio-red)', color: '#ffffff', fontWeight: 'bold', fontSize: '14px' }}>

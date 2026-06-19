@@ -70,55 +70,22 @@ export const sociosRepository = {
     await setDoc(doc(db, 'shareholder_movements', movId), newMov);
   },
 
-  async annulMovement(originalId: string, reason: string, original: ShareholderMovement): Promise<void> {
-    const movId = doc(collection(db, 'shareholder_movements')).id;
-    const date = new Date().toISOString();
+  async annulMovement(originalId: string, reason: string, original: ShareholderMovement, userEmail: string): Promise<void> {
+    const originalRef = doc(db, 'shareholder_movements', originalId);
+    await setDoc(originalRef, {
+      estado: 'ANULADO',
+      fechaAnulacion: new Date().toISOString(),
+      usuarioAnulacion: userEmail,
+      motivoAnulacion: reason
+    }, { merge: true });
 
-    // Query original caja movement to find its accountId
-    let originalAccountId: string | undefined = undefined;
+    // Si hubo impacto original en caja, marcamos ese movimiento como isDeleted: true para excluirlo de cálculos financieros
     if (original.linkedCajaMovementId) {
-      const cajaDoc = await getDoc(doc(db, 'caja_movements', original.linkedCajaMovementId));
-      if (cajaDoc.exists()) {
-        originalAccountId = (cajaDoc.data() as any).accountId;
-      }
+      const cajaRef = doc(db, 'caja_movements', original.linkedCajaMovementId);
+      await setDoc(cajaRef, {
+        isDeleted: true
+      }, { merge: true });
     }
-
-    const compensatory: ShareholderMovement = {
-      id: movId,
-      shareholderId: original.shareholderId,
-      date,
-      sourceType: 'ANULACION',
-      sourceId: original.id,
-      reversalOf: original.id,
-      amount: original.sourceType === 'RETIRO' ? original.amount : -original.amount, // Invierte el efecto
-      description: `Anulación: ${reason}`,
-      isDeleted: false
-    };
-
-    // Si hubo impacto original en caja, emitimos el evento inverso sin consultar a la caja
-    if (original.linkedCajaMovementId) {
-      const cajaMovId = doc(collection(db, 'caja_movements')).id;
-      const originalCajaType = original.sourceType === 'RETIRO' ? 'EXPENSE' : 'INCOME';
-      
-      const cajaCompensatory: CajaMovement = {
-        id: cajaMovId,
-        type: originalCajaType === 'INCOME' ? 'EXPENSE' : 'INCOME',
-        amount: original.amount,
-        date,
-        category: 'ANULACION',
-        description: `Anulación de SOCIOS (Ref: ${original.id}). Motivo: ${reason}`,
-        operation: 'REVERSAL',
-        reasonType: `SOCIOS_ANULACION_${original.sourceType}`,
-        sourceId: movId,
-        reversalOf: original.linkedCajaMovementId,
-        accountId: originalAccountId,
-        isDeleted: false
-      };
-      await setDoc(doc(db, 'caja_movements', cajaMovId), cajaCompensatory);
-      compensatory.linkedCajaMovementId = cajaMovId;
-    }
-    
-    await setDoc(doc(db, 'shareholder_movements', movId), compensatory);
   },
 
   async saveShareholder(shareholder: Partial<Shareholder>): Promise<void> {
