@@ -1,6 +1,7 @@
 import { useMemo, useEffect } from 'react';
 import { useDashboardCache } from './useDashboardCache';
 import { useFinancialAccountsStore } from '../../store/financialAccountsStore';
+import { useLoansStore } from '../../store/loansStore';
 import { usePeriodFilterStore } from '../../store/periodFilterStore';
 import { useProductionStore } from '../../store/productionStore';
 import { 
@@ -38,11 +39,14 @@ export default function Dashboard() {
   const { accounts, fetchAccounts } = useFinancialAccountsStore();
   const { movements: prodMovements, fetchData: fetchProduction, loading: prodLoading } = useProductionStore();
   const { getRanges, selectedPeriod } = usePeriodFilterStore();
+  const { loans, subscribeLoans } = useLoansStore();
 
   useEffect(() => {
     fetchAccounts();
     fetchProduction();
-  }, [fetchAccounts, fetchProduction]);
+    const unsubLoans = subscribeLoans();
+    return () => unsubLoans();
+  }, [fetchAccounts, fetchProduction, subscribeLoans]);
 
   const { current: currentRange, comparison: comparisonRange } = getRanges();
 
@@ -107,7 +111,11 @@ export default function Dashboard() {
       .reduce((acc, p) => acc + (Math.max(0, p.stockActual || 0) * (p.costoActual || p.costoUltimaCompra || 0)), 0);
   }, [cacheStock.products]);
 
-  const patrimonioEstimado = totalDisponible + porCobrar + stockValorizado - porPagar;
+  const prestamosPendientes = useMemo(() => {
+    return loans.reduce((acc, l) => acc + l.remainingAmount, 0);
+  }, [loans]);
+
+  const patrimonioEstimado = totalDisponible + porCobrar + stockValorizado - porPagar - prestamosPendientes;
 
   // Resultado Operativo Acumulado = Ventas Históricas - Compras Históricas - Gastos Históricos
   const resultadoOperativoAcumulado = useMemo(() => {

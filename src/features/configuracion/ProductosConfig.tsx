@@ -949,8 +949,8 @@ export default function ProductosConfig() {
                   type="number" 
                   step="0.01" 
                   disabled={currentProduct.type === 'PRESENTACION'}
-                  value={currentProduct.type === 'PRESENTACION' ? computedRecipeCost : (currentProduct.costoActual || '')} 
-                  onChange={e => setCurrentProduct({...currentProduct, costoActual: Number(e.target.value)})} 
+                  value={currentProduct.type === 'PRESENTACION' ? computedRecipeCost : (currentProduct.costoActual !== undefined ? currentProduct.costoActual : '')} 
+                  onChange={e => setCurrentProduct({...currentProduct, costoActual: e.target.value as any})} 
                   placeholder={currentProduct.type === 'PRESENTACION' ? 'Calculado al vuelo' : '0.00'}
                   style={{ width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid var(--border-color)', backgroundColor: currentProduct.type === 'PRESENTACION' ? '#f8fafc' : '#fff', fontWeight: currentProduct.type === 'PRESENTACION' ? 600 : 'normal' }}
                 />
@@ -961,8 +961,8 @@ export default function ProductosConfig() {
                   <input 
                     type="number" 
                     step="0.001" 
-                    value={currentProduct.pesoObjetivoKg || ''} 
-                    onChange={e => setCurrentProduct({...currentProduct, pesoObjetivoKg: Number(e.target.value)})} 
+                    value={currentProduct.pesoObjetivoKg !== undefined ? currentProduct.pesoObjetivoKg : ''} 
+                    onChange={e => setCurrentProduct({...currentProduct, pesoObjetivoKg: e.target.value as any})} 
                     placeholder="Ej: 1.200"
                     style={{ width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid var(--border-color)' }}
                   />
@@ -979,8 +979,8 @@ export default function ProductosConfig() {
                 <input 
                   type="number" 
                   step="0.01" 
-                  value={currentProduct.precioComercial || ''} 
-                  onChange={e => setCurrentProduct({...currentProduct, precioComercial: Number(e.target.value)})} 
+                  value={currentProduct.precioComercial !== undefined ? currentProduct.precioComercial : ''} 
+                  onChange={e => setCurrentProduct({...currentProduct, precioComercial: e.target.value as any})} 
                   placeholder="0.00"
                   style={{ width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid var(--border-color)' }}
                 />
@@ -996,8 +996,8 @@ export default function ProductosConfig() {
                   <input 
                     type="number" 
                     step="0.001" 
-                    value={currentProduct.mermaPorDefecto === undefined ? '' : currentProduct.mermaPorDefecto} 
-                    onChange={e => setCurrentProduct({...currentProduct, mermaPorDefecto: e.target.value === '' ? undefined : Number(e.target.value)})} 
+                    value={currentProduct.mermaPorDefecto !== undefined ? currentProduct.mermaPorDefecto : ''} 
+                    onChange={e => setCurrentProduct({...currentProduct, mermaPorDefecto: e.target.value as any})} 
                     placeholder="0.000"
                     style={{ width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid var(--border-color)' }}
                   />
@@ -1034,7 +1034,7 @@ export default function ProductosConfig() {
                     step="0.1"
                     placeholder="30"
                     value={currentProduct.utilidadObjetivo !== undefined ? currentProduct.utilidadObjetivo : ''}
-                    onChange={e => setCurrentProduct({ ...currentProduct, utilidadObjetivo: e.target.value === '' ? undefined : Number(e.target.value) })}
+                    onChange={e => setCurrentProduct({ ...currentProduct, utilidadObjetivo: e.target.value as any })}
                     style={{ width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid var(--border-color)' }}
                   />
                 </div>
@@ -1047,7 +1047,7 @@ export default function ProductosConfig() {
                     step="0.1"
                     placeholder="5"
                     value={currentProduct.mermaObjetivo !== undefined ? currentProduct.mermaObjetivo : ''}
-                    onChange={e => setCurrentProduct({ ...currentProduct, mermaObjetivo: e.target.value === '' ? undefined : Number(e.target.value) })}
+                    onChange={e => setCurrentProduct({ ...currentProduct, mermaObjetivo: e.target.value as any })}
                     style={{ width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid var(--border-color)' }}
                   />
                 </div>

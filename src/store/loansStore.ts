@@ -9,6 +9,7 @@ interface LoansState {
   unsubscribeRef: (() => void) | null;
   subscribeLoans: () => () => void;
   registerPayment: (loanId: string, amount: number, description: string, accountId: string) => Promise<void>;
+  registerCapitalization: (loanId: string, amount: number, description: string) => Promise<void>;
   annulPayment: (loanId: string, paymentId: string, reason: string) => Promise<void>;
 }
 
@@ -33,6 +34,9 @@ export const useLoansStore = create<LoansState>((set, get) => ({
   },
   registerPayment: async (loanId, amount, description, accountId) => {
     await loansRepository.registerPayment(loanId, amount, description, accountId);
+  },
+  registerCapitalization: async (loanId, amount, description) => {
+    await loansRepository.registerCapitalization(loanId, amount, description);
   },
   annulPayment: async (loanId, paymentId, reason) => {
     await loansRepository.annulPayment(loanId, paymentId, reason);

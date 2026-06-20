@@ -358,8 +358,8 @@ export default function Compras() {
                           min="0.001"
                           step="0.001"
                           placeholder="0.000"
-                          value={item.quantity || ''}
-                          onChange={e => updateItem(idx, 'quantity', parseFloat(e.target.value) || 0)}
+                          value={item.quantity !== undefined ? item.quantity : ''}
+                          onChange={e => updateItem(idx, 'quantity', e.target.value as any)}
                         />
                       </div>
                       <div style={{ flex: 1 }}>
@@ -372,8 +372,8 @@ export default function Compras() {
                           min="0"
                           step="0.01"
                           placeholder="0.00"
-                          value={item.unitCost || ''}
-                          onChange={e => updateItem(idx, 'unitCost', parseFloat(e.target.value) || 0)}
+                          value={item.unitCost !== undefined ? item.unitCost : ''}
+                          onChange={e => updateItem(idx, 'unitCost', e.target.value as any)}
                         />
                       </div>
                     </div>
@@ -402,7 +402,7 @@ export default function Compras() {
           <div style={{ background: 'var(--bg-color)', padding: '16px', borderRadius: '12px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
             <div className="form-group">
               <label>Impuestos Extra ($)</label>
-              <input type="number" min="0" step="0.01" value={impuestos || ''} onChange={e => setImpuestos(Number(e.target.value))} />
+              <input type="number" min="0" step="0.01" value={impuestos !== undefined ? impuestos : ''} onChange={e => setImpuestos(e.target.value as any)} />
             </div>
             <div className="form-group">
               <label>Forma de Pago</label>
@@ -433,7 +433,7 @@ export default function Compras() {
             {paymentMethod === 'MIXTA' && (
               <div className="form-group">
                 <label>Monto Pagado en Caja ($)</label>
-                <input type="number" min="0" max={total} step="0.01" value={montoPagado || ''} onChange={e => setMontoPagado(Number(e.target.value))} />
+                <input type="number" min="0" max={total} step="0.01" value={montoPagado !== undefined ? montoPagado : ''} onChange={e => setMontoPagado(e.target.value as any)} />
               </div>
             )}
             {paymentMethod === 'MULTIPLES' && (
@@ -449,8 +449,8 @@ export default function Compras() {
                       step="0.01"
                       placeholder="0.00"
                       style={{ width: '120px', textAlign: 'right' }}
-                      value={distribuidores[a.id] || ''}
-                      onChange={e => setDistribuidores({ ...distribuidores, [a.id]: parseFloat(e.target.value) || 0 })}
+                      value={distribuidores[a.id] !== undefined ? distribuidores[a.id] : ''}
+                      onChange={e => setDistribuidores({ ...distribuidores, [a.id]: e.target.value as any })}
                     />
                   </div>
                 ))}
@@ -463,8 +463,8 @@ export default function Compras() {
                     step="0.01"
                     placeholder="0.00"
                     style={{ width: '120px', textAlign: 'right' }}
-                    value={distribuidores['CUENTA_CORRIENTE'] || ''}
-                    onChange={e => setDistribuidores({ ...distribuidores, 'CUENTA_CORRIENTE': parseFloat(e.target.value) || 0 })}
+                    value={distribuidores['CUENTA_CORRIENTE'] !== undefined ? distribuidores['CUENTA_CORRIENTE'] : ''}
+                    onChange={e => setDistribuidores({ ...distribuidores, 'CUENTA_CORRIENTE': e.target.value as any })}
                   />
                 </div>
 

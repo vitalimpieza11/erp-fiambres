@@ -348,26 +348,31 @@ export default function Facturacion() {
       </div>
 
       {/* Resumen del Período */}
-      <div className="dashboard-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '20px', marginBottom: '28px' }}>
-        <div className="apple-card" style={{ padding: '16px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', minHeight: '100px' }}>
-          <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)' }}>Facturación Emitida</span>
-          <strong style={{ fontSize: '20px', color: 'var(--text-primary)', marginTop: '8px' }}>{formatCurrency(summaryMetrics.facturacionEmitida)}</strong>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px', marginBottom: '24px' }}>
+        {/* Fila 1 */}
+        <div className="apple-card" style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', justifyContent: 'center', minHeight: '80px' }}>
+          <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)' }}>Facturación Emitida</span>
+          <strong style={{ fontSize: '18px', color: 'var(--text-primary)', marginTop: '4px' }}>{formatCurrency(summaryMetrics.facturacionEmitida)}</strong>
         </div>
-        <div className="apple-card" style={{ padding: '16px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', minHeight: '100px' }}>
-          <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)' }}>Remitos Emitidos</span>
-          <strong style={{ fontSize: '20px', color: 'var(--text-primary)', marginTop: '8px' }}>{summaryMetrics.remitosEmitidos}</strong>
+        <div className="apple-card" style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', justifyContent: 'center', minHeight: '80px' }}>
+          <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)' }}>Remitos Emitidos</span>
+          <strong style={{ fontSize: '18px', color: 'var(--text-primary)', marginTop: '4px' }}>{summaryMetrics.remitosEmitidos}</strong>
         </div>
-        <div className="apple-card" style={{ padding: '16px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', minHeight: '100px' }}>
-          <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)' }}>Remitos Pendientes</span>
-          <strong style={{ fontSize: '20px', color: 'var(--text-primary)', marginTop: '8px' }}>{summaryMetrics.remitosPendientes}</strong>
+        <div className="apple-card" style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', justifyContent: 'center', minHeight: '80px' }}>
+          <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)' }}>Remitos Pendientes</span>
+          <strong style={{ fontSize: '18px', color: 'var(--text-primary)', marginTop: '4px' }}>{summaryMetrics.remitosPendientes}</strong>
         </div>
-        <div className="apple-card" style={{ padding: '16px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', minHeight: '100px' }}>
-          <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)' }}>Facturas Pendientes</span>
-          <strong style={{ fontSize: '20px', color: 'var(--text-primary)', marginTop: '8px' }}>{summaryMetrics.facturasPendientes}</strong>
+        <div className="apple-card" style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', justifyContent: 'center', minHeight: '80px' }}>
+          <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)' }}>Facturas Pendientes</span>
+          <strong style={{ fontSize: '18px', color: 'var(--text-primary)', marginTop: '4px' }}>{summaryMetrics.facturasPendientes}</strong>
         </div>
-        <div className="apple-card" style={{ padding: '16px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', minHeight: '100px' }}>
-          <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)' }}>Ticket Promedio</span>
-          <strong style={{ fontSize: '20px', color: 'var(--text-primary)', marginTop: '8px' }}>{formatCurrency(summaryMetrics.ticketPromedio)}</strong>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px', marginBottom: '28px' }}>
+        {/* Fila 2 */}
+        <div className="apple-card" style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', justifyContent: 'center', minHeight: '80px', maxWidth: '25%' }}>
+          <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)' }}>Ticket Promedio</span>
+          <strong style={{ fontSize: '18px', color: 'var(--text-primary)', marginTop: '4px' }}>{formatCurrency(summaryMetrics.ticketPromedio)}</strong>
         </div>
       </div>
 

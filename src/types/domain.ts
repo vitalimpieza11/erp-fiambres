@@ -341,7 +341,7 @@ export type ShareholderMovement = {
   id: string;
   shareholderId: string;
   date: string;
-  sourceType: 'APORTE' | 'RETIRO' | 'AJUSTE' | 'ANULACION';
+  sourceType: 'APORTE' | 'RETIRO' | 'AJUSTE' | 'ANULACION' | 'APORTE_CAPITALIZACION';
   sourceId: string;
   reversalOf: string | null;
   amount: number;
@@ -371,6 +371,7 @@ export type ShareholderLoanPayment = {
   date: string;
   description: string;
   linkedCajaMovementId?: string;
+  type?: 'PAYMENT' | 'CAPITALIZATION';
 };
 
 export type ShareholderLoan = {

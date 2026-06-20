@@ -88,7 +88,7 @@ export default function EquivalenciasConfig() {
           </div>
           <div className="form-group">
             <label>Factor (Multiplicador)</label>
-            <input type="number" step="0.001" required placeholder="Ej: 25" value={currentEquiv.factor || ''} onChange={e => setCurrentEquiv({...currentEquiv, factor: Number(e.target.value)})} />
+            <input type="number" step="0.001" required placeholder="Ej: 25" value={currentEquiv.factor !== undefined ? currentEquiv.factor : ''} onChange={e => setCurrentEquiv({...currentEquiv, factor: e.target.value as any})} />
             <small style={{ color: '#86868b' }}>Ej: 1 origen = [factor] destino</small>
           </div>
           

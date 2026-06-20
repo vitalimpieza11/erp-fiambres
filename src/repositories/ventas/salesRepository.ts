@@ -174,7 +174,11 @@ export const salesRepository = {
           precioRealKg: isPres && i.precioRealKg !== undefined ? Number(i.precioRealKg.toFixed(2)) : undefined,
           importeReal: isPres && i.importeReal !== undefined ? Number(i.importeReal.toFixed(2)) : undefined,
           costoUnitarioHistorico: isPres && i.costoUnitarioHistorico !== undefined ? Number(i.costoUnitarioHistorico.toFixed(2)) : undefined,
-          costoTotalHistorico: isPres && i.costoTotalHistorico !== undefined ? Number(i.costoTotalHistorico.toFixed(2)) : undefined
+          costoTotalHistorico: isPres && i.costoTotalHistorico !== undefined ? Number(i.costoTotalHistorico.toFixed(2)) : undefined,
+          pesosReales: i.pesosReales,
+          cantidadPaquetes: i.cantidadPaquetes,
+          pesoPromedio: i.pesoPromedio,
+          pesoTotal: i.pesoTotal
         };
       });
 
@@ -189,6 +193,8 @@ export const salesRepository = {
         isDeleted: false,
         tipoComprobante: tipoComprobante || 'PRESUPUESTO'
       };
+
+      console.log('SALE_GUARDADA', JSON.stringify(mappedItems, null, 2));
 
       // Sanitise saleData to remove undefined fields that crash Firestore using recursive helper
       const sanitizedSaleData = removeUndefinedFields(saleData);

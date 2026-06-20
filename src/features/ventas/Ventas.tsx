@@ -225,12 +225,12 @@ export default function Ventas() {
       item.cantidad = parsedVal;
     }
     
-    let weightInKg = calculateWeightInKg(item.cantidad, item.unidad, prod);
+    let weightInKg = calculateWeightInKg(Number(item.cantidad), item.unidad, prod);
     weightInKg = truncateDecimals(weightInKg, 3);
 
-    item.cantidad = truncateDecimals(Number(item.cantidad), 3);
-    item.precioUnitario = Number(Number(item.precioUnitario).toFixed(2));
-    item.subtotal = Number((weightInKg * item.precioUnitario).toFixed(2));
+    item.cantidad = parsedVal as any;
+    item.precioUnitario = field === 'precioUnitario' ? parsedVal as any : Number(Number(item.precioUnitario).toFixed(2));
+    item.subtotal = Number((weightInKg * Number(item.precioUnitario)).toFixed(2));
     newItems[idx] = item as SaleItem;
     
     setQuickSale(prev => ({
@@ -357,42 +357,51 @@ export default function Ventas() {
       </div>
 
       {/* Resumen del Período */}
-      <div className="dashboard-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '20px', marginBottom: '28px' }}>
-        <div className="apple-card" style={{ padding: '16px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', minHeight: '100px' }}>
-          <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)' }}>Facturación Total</span>
-          <strong style={{ fontSize: '20px', color: 'var(--text-primary)', marginTop: '8px' }}>{formatCurrency(summaryMetrics.facturacionTotal)}</strong>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px', marginBottom: '24px' }}>
+        {/* Fila 1: Financiero */}
+        <div className="apple-card" style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', justifyContent: 'center', minHeight: '80px' }}>
+          <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)' }}>Facturación Total</span>
+          <strong style={{ fontSize: '18px', color: 'var(--text-primary)', marginTop: '4px' }}>{formatCurrency(summaryMetrics.facturacionTotal)}</strong>
         </div>
-        <div className="apple-card" style={{ padding: '16px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', minHeight: '100px' }}>
-          <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)' }}>Costo Total (CMV)</span>
-          <strong style={{ fontSize: '20px', color: 'var(--text-primary)', marginTop: '8px' }}>{formatCurrency(summaryMetrics.costoTotal)}</strong>
+        <div className="apple-card" style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', justifyContent: 'center', minHeight: '80px' }}>
+          <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)' }}>Ganancia Bruta</span>
+          <strong style={{ fontSize: '18px', color: summaryMetrics.gananciaBruta >= 0 ? '#16a34a' : '#dc2626', marginTop: '4px' }}>{formatCurrency(summaryMetrics.gananciaBruta)}</strong>
         </div>
-        <div className="apple-card" style={{ padding: '16px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', minHeight: '100px' }}>
-          <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)' }}>Ganancia Bruta</span>
-          <strong style={{ fontSize: '20px', color: summaryMetrics.gananciaBruta >= 0 ? '#16a34a' : '#dc2626', marginTop: '8px' }}>{formatCurrency(summaryMetrics.gananciaBruta)}</strong>
+        <div className="apple-card" style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', justifyContent: 'center', minHeight: '80px' }}>
+          <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)' }}>Costo Total (CMV)</span>
+          <strong style={{ fontSize: '18px', color: 'var(--text-primary)', marginTop: '4px' }}>{formatCurrency(summaryMetrics.costoTotal)}</strong>
         </div>
-        <div className="apple-card" style={{ padding: '16px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', minHeight: '100px' }}>
-          <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)' }}>Margen</span>
-          <strong style={{ fontSize: '20px', color: 'var(--text-primary)', marginTop: '8px' }}>{summaryMetrics.margen.toFixed(1)}%</strong>
+        <div className="apple-card" style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', justifyContent: 'center', minHeight: '80px' }}>
+          <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)' }}>Margen</span>
+          <strong style={{ fontSize: '18px', color: 'var(--text-primary)', marginTop: '4px' }}>{summaryMetrics.margen.toFixed(1)}%</strong>
         </div>
-        <div className="apple-card" style={{ padding: '16px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', minHeight: '100px' }}>
-          <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)' }}>Cantidad Ventas</span>
-          <strong style={{ fontSize: '20px', color: 'var(--text-primary)', marginTop: '8px' }}>{summaryMetrics.cantidadVentas}</strong>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px', marginBottom: '24px' }}>
+        {/* Fila 2: Operativa */}
+        <div className="apple-card" style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', justifyContent: 'center', minHeight: '80px' }}>
+          <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)' }}>Ticket Promedio</span>
+          <strong style={{ fontSize: '18px', color: 'var(--text-primary)', marginTop: '4px' }}>{formatCurrency(summaryMetrics.ticketPromedio)}</strong>
         </div>
-        <div className="apple-card" style={{ padding: '16px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', minHeight: '100px' }}>
-          <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)' }}>Ticket Promedio</span>
-          <strong style={{ fontSize: '20px', color: 'var(--text-primary)', marginTop: '8px' }}>{formatCurrency(summaryMetrics.ticketPromedio)}</strong>
+        <div className="apple-card" style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', justifyContent: 'center', minHeight: '80px' }}>
+          <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)' }}>Ventas Totales</span>
+          <strong style={{ fontSize: '18px', color: 'var(--text-primary)', marginTop: '4px' }}>{summaryMetrics.cantidadVentas}</strong>
         </div>
-        <div className="apple-card" style={{ padding: '16px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', minHeight: '100px' }}>
-          <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)' }}>Clientes Únicos</span>
-          <strong style={{ fontSize: '20px', color: 'var(--text-primary)', marginTop: '8px' }}>{summaryMetrics.clientesUnicos}</strong>
+        <div className="apple-card" style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', justifyContent: 'center', minHeight: '80px' }}>
+          <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)' }}>Clientes Únicos</span>
+          <strong style={{ fontSize: '18px', color: 'var(--text-primary)', marginTop: '4px' }}>{summaryMetrics.clientesUnicos}</strong>
         </div>
-        <div className="apple-card" style={{ padding: '16px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', minHeight: '100px' }}>
-          <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)' }}>Kg Vendidos</span>
-          <strong style={{ fontSize: '18px', color: 'var(--text-primary)', marginTop: '8px' }}>{summaryMetrics.kgVendidos.toLocaleString('es-AR', { minimumFractionDigits: 1, maximumFractionDigits: 3 })} kg</strong>
+        <div className="apple-card" style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', justifyContent: 'center', minHeight: '80px' }}>
+          <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)' }}>Kg Vendidos</span>
+          <strong style={{ fontSize: '16px', color: 'var(--text-primary)', marginTop: '4px' }}>{summaryMetrics.kgVendidos.toLocaleString('es-AR', { minimumFractionDigits: 1, maximumFractionDigits: 3 })} kg</strong>
         </div>
-        <div className="apple-card" style={{ padding: '16px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', minHeight: '100px' }}>
-          <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)' }}>Paquetes Vendidos</span>
-          <strong style={{ fontSize: '20px', color: 'var(--text-primary)', marginTop: '8px' }}>{summaryMetrics.paquetesVendidos}</strong>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px', marginBottom: '28px' }}>
+        {/* Fila 3: Restante */}
+        <div className="apple-card" style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', justifyContent: 'center', minHeight: '80px', maxWidth: '25%' }}>
+          <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)' }}>Paquetes Vendidos</span>
+          <strong style={{ fontSize: '18px', color: 'var(--text-primary)', marginTop: '4px' }}>{summaryMetrics.paquetesVendidos}</strong>
         </div>
       </div>
 
@@ -485,10 +494,15 @@ export default function Ventas() {
                           <button className="btn-secondary" style={{ flex: 1, padding: '8px', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '4px' }} onClick={(e) => { e.stopPropagation(); generateRemitoPDF(sale); }}>
                             <FileText size={16} /> Remito
                           </button>
-                          {sale.status === 'FACTURADO' && (
+                          {sale.status === 'FACTURADO' && !sale.isHistorical && (
                             <button className="btn-primary" style={{ flex: 1, padding: '8px', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '4px' }} onClick={(e) => { e.stopPropagation(); handleCobrar(sale); }}>
                               <DollarSign size={16} /> Cobrar
                             </button>
+                          )}
+                          {sale.status === 'COBRADO' && !sale.isHistorical && (
+                            <div style={{ flex: 1, padding: '8px', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '4px', backgroundColor: '#10b981', color: 'white', borderRadius: '6px', fontWeight: 'bold', fontSize: '13px' }}>
+                              ✅ COBRADA
+                            </div>
                           )}
                           {sale.isHistorical && sale.deliveryStatus === 'PENDIENTE' && sale.status !== 'ANULADO' && (
                             <button 
@@ -610,14 +624,14 @@ export default function Ventas() {
                         value={item.cantidad || ''} 
                         onChange={e => {
                           const val = e.target.value;
-                          const parsedVal = products.find(p => p.id === item.productId)?.type === 'PRESENTACION' ? Math.round(Number(val)) : Number(val);
-                          updateQuickSaleItem(idx, 'cantidad', isNaN(parsedVal) ? '' : parsedVal);
+                          const parsedVal = products.find(p => p.id === item.productId)?.type === 'PRESENTACION' ? Math.round(Number(val)) : val;
+                          updateQuickSaleItem(idx, 'cantidad', parsedVal as any);
                         }} 
                       />
                     </div>
                     <div style={{ flex: 1 }}>
                       <label style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Precio U.</label>
-                      <input type="number" required step="0.01" value={item.precioUnitario || ''} onChange={e => updateQuickSaleItem(idx, 'precioUnitario', parseFloat(e.target.value))} />
+                      <input type="number" required step="0.01" value={item.precioUnitario || ''} onChange={e => updateQuickSaleItem(idx, 'precioUnitario', e.target.value as any)} />
                     </div>
                   </div>
                   

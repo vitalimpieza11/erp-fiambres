@@ -38,7 +38,20 @@ export function drawCorporateHeader(
   let logoDrawn = false;
   if (settings.companyLogo) {
     try {
-      doc.addImage(settings.companyLogo, 'PNG', 15, 12, 45, 18, undefined, 'FAST');
+      const props = doc.getImageProperties(settings.companyLogo);
+      const targetWidth = 65; 
+      const targetHeight = 22;
+      const imgRatio = props.width / props.height;
+      const targetRatio = targetWidth / targetHeight;
+      let finalWidth, finalHeight;
+      if (imgRatio > targetRatio) {
+          finalWidth = targetWidth;
+          finalHeight = targetWidth / imgRatio;
+      } else {
+          finalHeight = targetHeight;
+          finalWidth = targetHeight * imgRatio;
+      }
+      doc.addImage(settings.companyLogo, 'PNG', 15, 10, finalWidth, finalHeight, undefined, 'FAST');
       logoDrawn = true;
     } catch (e) {
       console.warn("Failed to draw companyLogo image on PDF. Falling back to text.", e);
@@ -58,13 +71,13 @@ export function drawCorporateHeader(
   if (options?.docCode) {
     doc.setDrawColor(BRAND_COLORS.gray[0], BRAND_COLORS.gray[1], BRAND_COLORS.gray[2]);
     doc.setFillColor(BRAND_COLORS.background[0], BRAND_COLORS.background[1], BRAND_COLORS.background[2]);
-    doc.rect(98, 12, 14, 16, 'FD');
+    doc.rect(95, 10, 20, 20, 'FD'); // Professional size box
     doc.setFont("helvetica", "bold");
-    doc.setFontSize(18);
+    doc.setFontSize(24);
     doc.setTextColor(BRAND_COLORS.secondary[0], BRAND_COLORS.secondary[1], BRAND_COLORS.secondary[2]);
-    doc.text(options.docCode.toUpperCase(), 105, 22, { align: 'center' });
-    doc.setFontSize(5.5);
-    doc.text('NO VÁLIDO FAC.', 105, 26, { align: 'center' });
+    doc.text(options.docCode.toUpperCase(), 105, 23, { align: 'center' });
+    doc.setFontSize(6);
+    doc.text('NO VÁLIDO FAC.', 105, 28, { align: 'center' });
   }
 
   // 4. Document Info (Right side)

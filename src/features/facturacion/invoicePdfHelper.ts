@@ -77,31 +77,56 @@ export function generateInvoicePDF(
     ? ['Cant.', 'Producto / Detalle', 'Peso Real (KG)', 'Precio Kg ($)', 'Subtotal ($)']
     : ['Cant.', 'Producto / Detalle', 'Peso Real (KG)'];
   
-  const tableData = sale.items.map(item => {
+  const tableData: any[][] = [];
+
+  sale.items.forEach(item => {
+    console.log('PDF_ITEM', item.productId, item.pesosReales);
     const prod = products.find(p => p.id === item.productId);
     const prodName = prod?.nombre || 'Producto Desconocido';
     const pesosReales = item.pesosReales || (item.pesoReal ? [item.pesoReal] : []);
 
-    let pesoRealCell = `${(item.pesoReal || 0).toFixed(3)} Kg`;
-    if (pesosReales.length > 1) {
-      const breakdown = pesosReales.map((w, idx) => `Paq ${idx + 1}: ${w.toFixed(3)} kg`).join(' | ');
-      pesoRealCell = `${(item.pesoReal || 0).toFixed(3)} Kg (${breakdown})`;
-    }
+    let pesoRealCell = `${(item.pesoReal || 0).toFixed(3).replace('.', ',')} Kg`;
     
+    // Fila principal
     if (showPrices) {
-      return [
+      tableData.push([
         `${item.cantidad} ${item.unidad}`,
         prodName,
         pesoRealCell,
         `$ ${item.precioUnitario.toLocaleString('es-AR', { minimumFractionDigits: 2 })}`,
         `$ ${item.subtotal.toLocaleString('es-AR', { minimumFractionDigits: 2 })}`
-      ];
+      ]);
     } else {
-      return [
+      tableData.push([
         `${item.cantidad} ${item.unidad}`,
         prodName,
         pesoRealCell
-      ];
+      ]);
+    }
+
+    // Subfilas por paquete
+    if (pesosReales && pesosReales.length > 0) {
+      pesosReales.forEach((w, idx) => {
+        const pkgWeight = Number(w);
+        const pkgPrice = pkgWeight * item.precioUnitario;
+        const subRowStyle = { textColor: [120, 120, 120], fontSize: 7, cellPadding: { top: 1, bottom: 1, left: 3, right: 3 } };
+        
+        if (showPrices) {
+          tableData.push([
+            { content: '', styles: subRowStyle },
+            { content: `  Paquete ${idx + 1}`, styles: subRowStyle },
+            { content: `${pkgWeight.toFixed(3).replace('.', ',')} KG`, styles: subRowStyle },
+            { content: '', styles: subRowStyle },
+            { content: `$ ${pkgPrice.toLocaleString('es-AR', { minimumFractionDigits: 2 })}`, styles: subRowStyle }
+          ]);
+        } else {
+          tableData.push([
+            { content: '', styles: subRowStyle },
+            { content: `  Paquete ${idx + 1}`, styles: subRowStyle },
+            { content: `${pkgWeight.toFixed(3).replace('.', ',')} KG`, styles: subRowStyle }
+          ]);
+        }
+      });
     }
   });
 

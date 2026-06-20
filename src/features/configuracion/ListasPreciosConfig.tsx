@@ -289,9 +289,9 @@ export default function ListasPreciosConfig() {
                           type="number"
                           step="0.01"
                           required
-                          value={priceValue || ''}
+                          value={priceValue !== undefined ? priceValue : ''}
                           style={{ width: '120px', textAlign: 'right', margin: 0, padding: '4px 8px' }}
-                          onChange={e => setSelectedItems({ ...selectedItems, [p.id]: { selected: true, price: parseFloat(e.target.value) || 0 } })}
+                          onChange={e => setSelectedItems({ ...selectedItems, [p.id]: { selected: true, price: e.target.value as any } })}
                         />
                       </div>
                     )}

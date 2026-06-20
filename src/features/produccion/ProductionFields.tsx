@@ -66,7 +66,7 @@ export default function ProductionFields({
                 onChange={e => {
                   onChange({
                     cantidad,
-                    pesoReal: e.target.value ? Number(e.target.value) : undefined,
+                    pesoReal: e.target.value as any,
                     merma,
                     observaciones
                   });
@@ -84,10 +84,11 @@ export default function ProductionFields({
               step={unidad === 'GRAMOS' || unidad === 'FETAS' ? '1' : '0.001'}
               min={unidad === 'GRAMOS' || unidad === 'FETAS' ? '1' : '0.001'}
               required 
-              value={cantidad || ''} 
+              value={cantidad !== undefined ? cantidad : ''} 
               onChange={e => {
-                const val = Number(e.target.value);
-                const baseQtyInKg = convertQuantityToBaseUnit(val, unidad, { unitType: 'KG' } as any);
+                const val = e.target.value as any;
+                const numVal = Number(val);
+                const baseQtyInKg = convertQuantityToBaseUnit(numVal, unidad, { unitType: 'KG' } as any);
                 onChange({
                   cantidad: val,
                   pesoReal: Number(baseQtyInKg.toFixed(3)),
@@ -108,12 +109,12 @@ export default function ProductionFields({
           <input 
             type="number" 
             step="0.01" 
-            value={merma || ''} 
+            value={merma !== undefined ? merma : ''} 
             onChange={e => {
               onChange({
                 cantidad,
                 pesoReal,
-                merma: e.target.value ? Number(e.target.value) : undefined,
+                merma: e.target.value as any,
                 observaciones
               });
             }} 

@@ -58,8 +58,11 @@ export default function Socios() {
   const [selectedSocioForDetail, setSelectedSocioForDetail] = useState<Shareholder | null>(null);
 
   // Loans State - Always subscribe on mount so capital cards can use loan stats
-  const { loans, loading: loansLoading, subscribeLoans, registerPayment, annulPayment } = useLoansStore();
+  const { loans, loading: loansLoading, subscribeLoans, registerPayment, annulPayment, registerCapitalization } = useLoansStore();
   const [paymentPanelLoanId, setPaymentPanelLoanId] = useState<string | null>(null);
+  const [capitalizationPanelLoanId, setCapitalizationPanelLoanId] = useState<string | null>(null);
+  const [capitalizationAmount, setCapitalizationAmount] = useState<number | ''>('');
+  const [capitalizationDesc, setCapitalizationDesc] = useState<string>('');
   const [paymentAmount, setPaymentAmount] = useState<number | ''>('');
   const [paymentDesc, setPaymentDesc] = useState<string>('');
   const [paymentAccountId, setPaymentAccountId] = useState<string>('');
@@ -80,6 +83,16 @@ export default function Socios() {
     setPaymentPanelLoanId(null);
   };
 
+  const handleOpenCapitalizationPanel = (loanId: string) => {
+    setCapitalizationPanelLoanId(loanId);
+    setCapitalizationAmount('');
+    setCapitalizationDesc('Capitalización de Préstamo');
+  };
+
+  const handleCloseCapitalizationPanel = () => {
+    setCapitalizationPanelLoanId(null);
+  };
+
   const handlePaymentSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!paymentPanelLoanId || !paymentAmount || !paymentAccountId) return;
@@ -88,6 +101,17 @@ export default function Socios() {
       handleClosePaymentPanel();
     } catch (err: any) {
       alert(err.message || 'Error al registrar el pago');
+    }
+  };
+
+  const handleCapitalizationSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!capitalizationPanelLoanId || !capitalizationAmount) return;
+    try {
+      await registerCapitalization(capitalizationPanelLoanId, Number(capitalizationAmount), capitalizationDesc);
+      handleCloseCapitalizationPanel();
+    } catch (err: any) {
+      alert(err.message || 'Error al capitalizar préstamo');
     }
   };
 
@@ -273,7 +297,7 @@ export default function Socios() {
                       </div>
                       <div style={{ borderTop: '1px solid var(--border-color)', paddingTop: '8px' }}>
                         <span style={{ fontSize: '10px', color: 'var(--text-secondary)', display: 'block', textTransform: 'uppercase', fontWeight: 600 }}>Capital Neto</span>
-                        <strong style={{ fontSize: '15px', color: '#2563eb' }}>{formatCurrency(balance - prestamosPendientes)}</strong>
+                        <strong style={{ fontSize: '15px', color: '#2563eb' }}>{formatCurrency(balance + prestamosPendientes)}</strong>
                       </div>
                     </div>
 
@@ -378,13 +402,22 @@ export default function Socios() {
 
                   <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
                     {loan.status !== 'PAGADO' && (
-                      <button
-                        onClick={() => handleOpenPaymentPanel(loan.id)}
-                        className="btn-primary"
-                        style={{ padding: '8px 16px', fontSize: '12px' }}
-                      >
-                        Registrar Pago
-                      </button>
+                      <>
+                        <button
+                          onClick={() => handleOpenPaymentPanel(loan.id)}
+                          className="btn-primary"
+                          style={{ padding: '8px 16px', fontSize: '12px' }}
+                        >
+                          Registrar Pago
+                        </button>
+                        <button
+                          onClick={() => handleOpenCapitalizationPanel(loan.id)}
+                          className="btn-secondary"
+                          style={{ padding: '8px 16px', fontSize: '12px', color: '#16a34a', borderColor: '#16a34a' }}
+                        >
+                          Capitalizar Préstamo
+                        </button>
+                      </>
                     )}
                   </div>
 
@@ -624,6 +657,48 @@ export default function Socios() {
           <div style={{ display: 'flex', gap: '12px', marginTop: '24px' }}>
             <button type="button" className="btn-secondary" style={{ flex: 1 }} onClick={handleClosePaymentPanel}>Cancelar</button>
             <button type="submit" className="btn-primary" style={{ flex: 1 }}>Registrar Pago</button>
+          </div>
+        </form>
+      </RightPanel>
+
+      {/* Right panel for Capitalization */}
+      <RightPanel
+        isOpen={capitalizationPanelLoanId !== null}
+        onClose={handleCloseCapitalizationPanel}
+        title="Capitalizar Préstamo"
+      >
+        <form onSubmit={handleCapitalizationSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          <div style={{ background: '#e6f4ea', color: '#137333', padding: '12px', borderRadius: '8px', fontSize: '13px' }}>
+            Al capitalizar un préstamo, la deuda de la empresa con el socio disminuye y ese monto pasa a formar parte de su <strong>Capital Aportado</strong>.
+          </div>
+
+          <div className="form-group">
+            <label>Monto a Capitalizar ($) *</label>
+            <input
+              type="number"
+              step="0.01"
+              required
+              placeholder="0.00"
+              value={capitalizationAmount}
+              onChange={e => setCapitalizationAmount(e.target.value === '' ? '' : Number(e.target.value))}
+              autoFocus
+            />
+          </div>
+
+          <div className="form-group">
+            <label>Concepto / Referencia *</label>
+            <input
+              type="text"
+              required
+              value={capitalizationDesc}
+              onChange={e => setCapitalizationDesc(e.target.value)}
+              placeholder="Ej. Capitalización de préstamo para inversión"
+            />
+          </div>
+
+          <div style={{ display: 'flex', gap: '12px', marginTop: '24px' }}>
+            <button type="button" className="btn-secondary" style={{ flex: 1 }} onClick={handleCloseCapitalizationPanel}>Cancelar</button>
+            <button type="submit" className="btn-primary" style={{ flex: 1, backgroundColor: '#16a34a', borderColor: '#16a34a' }}>Capitalizar</button>
           </div>
         </form>
       </RightPanel>

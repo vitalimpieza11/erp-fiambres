@@ -49,7 +49,7 @@ export default function SocioDetalle({
   const capitalAportadoTotal = getBalance(socio.id);
   const prestamosRealizados = socioLoans.reduce((sum, l) => sum + l.amount, 0);
   const prestamosPendientes = socioLoans.reduce((sum, l) => sum + l.remainingAmount, 0);
-  const capitalNeto = Number((capitalAportadoTotal - prestamosPendientes).toFixed(2));
+  const capitalNeto = Number((capitalAportadoTotal + prestamosPendientes).toFixed(2));
   const participacion = socio.participacionPorcentaje;
 
   // Account helper
@@ -421,10 +421,8 @@ export default function SocioDetalle({
                         </td>
                         <td style={{ padding: '12px 8px', color: 'var(--text-secondary)' }}>{pay.description || '-'}</td>
                         <td style={{ padding: '12px 8px' }}>
-                          <span style={{ fontSize: '13px', background: '#f3f4f6', padding: '2px 8px', borderRadius: '4px' }}>
-                            {getAccountName(pay.linkedCajaMovementId ? accounts.find(a => a.id === pay.linkedCajaMovementId)?.id : undefined)} 
-                            {/* Actually we can query original caja movement, but since we don't have full join, we display the financial account */}
-                            {/* Wait, the repo saves linkedCajaMovementId, so we will show account name if matched */}
+                          <span style={{ fontSize: '13px', background: pay.type === 'CAPITALIZATION' ? '#e6f4ea' : '#f3f4f6', color: pay.type === 'CAPITALIZATION' ? '#137333' : 'inherit', padding: '2px 8px', borderRadius: '4px' }}>
+                            {pay.type === 'CAPITALIZATION' ? 'Capitalizado' : getAccountName(pay.linkedCajaMovementId ? accounts.find(a => a.id === pay.linkedCajaMovementId)?.id : undefined)}
                           </span>
                         </td>
                         <td style={{ padding: '12px 8px', textAlign: 'right', fontWeight: 700, color: '#16a34a' }}>

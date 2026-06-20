@@ -128,5 +128,64 @@ export const loansRepository = {
         transaction.set(doc(db, 'caja_movements', cajaMovId), cajaCompensatory);
       }
     });
+  },
+
+  async registerCapitalization(
+    loanId: string,
+    amount: number,
+    description: string
+  ): Promise<void> {
+    if (amount <= 0) throw new Error("El monto a capitalizar debe ser mayor a cero");
+
+    await runTransaction(db, async (transaction) => {
+      const loanRef = doc(db, 'shareholder_loans', loanId);
+      const loanSnap = await transaction.get(loanRef);
+      if (!loanSnap.exists()) throw new Error("Préstamo no encontrado");
+
+      const loan = loanSnap.data() as ShareholderLoan;
+      if (amount > loan.remainingAmount) {
+        throw new Error(`La capitalización ($${amount}) supera el saldo restante ($${loan.remainingAmount})`);
+      }
+
+      const paymentId = doc(collection(db, 'dummy')).id;
+      const date = new Date().toISOString();
+
+      // We do NOT create a caja movement, because it's an accounting capitalization
+      const newPayment: ShareholderLoanPayment = {
+        id: paymentId,
+        amount,
+        date,
+        description,
+        type: 'CAPITALIZATION'
+      };
+
+      const newRemaining = Number((loan.remainingAmount - amount).toFixed(2));
+      const newStatus = newRemaining === 0 ? 'PAGADO' : 'PENDIENTE';
+
+      // Update Loan
+      transaction.update(loanRef, {
+        remainingAmount: newRemaining,
+        status: newStatus,
+        payments: [...(loan.payments || []), newPayment]
+      });
+
+      // Register Shareholder Movement (APORTE)
+      const shareholderMovId = doc(collection(db, 'shareholder_movements')).id;
+      const mov: import('../../types/domain').ShareholderMovement = {
+        id: shareholderMovId,
+        shareholderId: loan.shareholderId,
+        date,
+        sourceType: 'APORTE_CAPITALIZACION',
+        sourceId: loanId,
+        reversalOf: null,
+        amount,
+        description: `Capitalización de Préstamo: ${description}`,
+        isDeleted: false,
+        estado: 'ACTIVO',
+        tipoAporte: 'DINERO'
+      };
+      
+      transaction.set(doc(db, 'shareholder_movements', shareholderMovId), mov);
+    });
   }
 };

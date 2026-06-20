@@ -325,10 +325,10 @@ export default function OrderProductionModal({
                               style={{ padding: '6px', fontSize: '13px', border: '1px solid var(--border-color)', borderRadius: '6px' }}
                               onChange={e => {
                                   const newItems = [...orderProdItems];
-                                  const updatedPesos = [...(newItems[activeStep].pesosReales || [])];
-                                  updatedPesos[pkgIdx] = e.target.value ? Number(e.target.value) : 0;
+                                  const updatedPesos = [...(newItems[activeStep].pesosReales || [])] as any[];
+                                  updatedPesos[pkgIdx] = e.target.value;
                                   
-                                  const pesoRealTotal = Number(updatedPesos.reduce((a, b) => a + b, 0).toFixed(3));
+                                  const pesoRealTotal = Number(updatedPesos.reduce((a, b) => Number(a) + Number(b), 0).toFixed(3));
                                   
                                   console.log('RECALCULANDO_COSTOS', { pesoRealTotal, updatedPesos });
 
@@ -346,7 +346,7 @@ export default function OrderProductionModal({
                       </div>
                       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginTop: '10px', padding: '10px', backgroundColor: '#f1f5f9', borderRadius: '8px' }}>
                         <span>Peso Total: <strong>{(currentItem.pesoReal || 0).toFixed(3)} kg</strong></span>
-                        <span>Promedio: <strong>{(currentItem.pesosReales.reduce((a, b) => a + b, 0) / currentItem.pesosReales.length || 0).toFixed(3)} kg</strong></span>
+                        <span>Promedio: <strong>{((currentItem.pesosReales.reduce((a, b) => Number(a) + Number(b), 0)) / currentItem.pesosReales.length || 0).toFixed(3)} kg</strong></span>
                       </div>
                     </div>
                   ) : !currentItem.recipeItems || currentItem.recipeItems.length === 0 ? (
@@ -363,7 +363,7 @@ export default function OrderProductionModal({
                           const newItems = [...orderProdItems];
                           newItems[activeStep] = {
                             ...newItems[activeStep],
-                            pesoReal: e.target.value ? Number(e.target.value) : undefined
+                            pesoReal: e.target.value as any
                           };
                           setOrderProdItems(newItems);
                         }} 

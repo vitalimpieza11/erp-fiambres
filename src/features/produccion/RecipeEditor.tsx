@@ -150,9 +150,9 @@ export default function RecipeEditor({
                   step="any"
                   placeholder="Cant"
                   style={{ width: '60px', padding: '6px', fontSize: '13px', border: '1px solid var(--border-color)', borderRadius: '6px' }}
-                  value={ing.quantity || ''}
+                  value={ing.quantity !== undefined ? ing.quantity : ''}
                   required
-                  onChange={(e) => handleIngredientQuantityChange(idx, Number(e.target.value))}
+                  onChange={(e) => handleIngredientQuantityChange(idx, e.target.value as any)}
                 />
                 <select
                   style={{ width: '110px', padding: '6px', fontSize: '13px', border: '1px solid var(--border-color)', borderRadius: '6px', backgroundColor: '#fff' }}
