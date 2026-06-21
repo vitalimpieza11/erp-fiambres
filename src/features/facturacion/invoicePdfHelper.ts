@@ -80,7 +80,7 @@ export function generateInvoicePDF(
   const tableData: any[][] = [];
 
   sale.items.forEach(item => {
-    console.log('PDF_ITEM', item.productId, item.pesosReales);
+    console.log('PDF_ITEM', { productId: item.productId, pesoReal: item.pesoReal, pesosReales: item.pesosReales });
     const prod = products.find(p => p.id === item.productId);
     const prodName = prod?.nombre || 'Producto Desconocido';
     const pesosReales = item.pesosReales || (item.pesoReal ? [item.pesoReal] : []);
@@ -109,7 +109,7 @@ export function generateInvoicePDF(
       pesosReales.forEach((w, idx) => {
         const pkgWeight = Number(w);
         const pkgPrice = pkgWeight * item.precioUnitario;
-        const subRowStyle = { textColor: [120, 120, 120], fontSize: 7, cellPadding: { top: 1, bottom: 1, left: 3, right: 3 } };
+        const subRowStyle = { textColor: [120, 120, 120], fontSize: 6.5, cellPadding: { top: 0.5, bottom: 0.5, left: 2, right: 2 } };
         
         if (showPrices) {
           tableData.push([
@@ -130,14 +130,15 @@ export function generateInvoicePDF(
     }
   });
 
-  const startTableY = currentY + boxHeight + 6;
+  const startTableY = currentY + boxHeight + 4;
 
   autoTable(doc, {
     startY: startTableY,
+    margin: { bottom: 25 },
     head: [tableHeaders],
     body: tableData,
     theme: 'grid',
-    styles: { fontSize: 8, cellPadding: 2.5, textColor: [30, 30, 30], valign: 'middle' },
+    styles: { fontSize: 7.5, cellPadding: 1.5, textColor: [30, 30, 30], valign: 'middle' },
     headStyles: { fillColor: BRAND_COLORS.primary, textColor: [255, 255, 255], fontStyle: 'bold' },
     alternateRowStyles: { fillColor: BRAND_COLORS.background },
     columnStyles: showPrices ? {
@@ -153,7 +154,14 @@ export function generateInvoicePDF(
     }
   });
 
-  const finalY = (doc as any).lastAutoTable.finalY || startTableY;
+  let finalY = (doc as any).lastAutoTable.finalY || startTableY;
+
+  // Pagination Logic for Closing Block
+  const spaceNeeded = showPrices ? 45 : 35;
+  if (finalY + spaceNeeded > 265) {
+    doc.addPage();
+    finalY = 20; // reset to top margin for drawing totals/signatures
+  }
 
   // 4. Totals Box
   let nextY = finalY;
@@ -166,9 +174,9 @@ export function generateInvoicePDF(
     doc.setTextColor(30, 30, 30);
     doc.text(`TOTAL:`, 133, finalY + 9.5, { align: 'left' });
     doc.text(`$ ${total.toLocaleString('es-AR', { minimumFractionDigits: 2 })}`, 192, finalY + 9.5, { align: 'right' });
-    nextY = finalY + 16;
+    nextY = finalY + 14; // Reduced from 16
   } else {
-    nextY = finalY + 8;
+    nextY = finalY + 6;  // Reduced from 8
   }
 
   // 5. Observations Box
@@ -183,7 +191,7 @@ export function generateInvoicePDF(
   doc.text(observationsText, 15, nextY + 4, { maxWidth: 180 });
 
   // 6. Signatures block
-  const sigY = Math.max(nextY + 18, 240);
+  const sigY = Math.max(nextY + 14, 230); // Reduced from nextY + 18, 240
   doc.setDrawColor(220, 220, 220);
   doc.line(15, sigY, 195, sigY);
 

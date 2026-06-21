@@ -161,6 +161,7 @@ export default function OrderProductionModal({
               cantidad: Number(item.cantidad || 0),
               unidad: item.unidad || p?.unitType || 'KG',
               pesoReal: initialPesoReal,
+              pesosReales: item.pesosReales || (initialPesoReal ? [initialPesoReal] : []),
               merma: undefined,
               observaciones: `Preparación de Pedido ${(orderId || '').slice(0, 6)}${clientSuffix} - ${p?.nombre || ''}`,
               elaborado: true,
@@ -308,30 +309,54 @@ export default function OrderProductionModal({
                       }} 
                     />
                   </div>
-
-                  {currentItem.pesosReales && currentItem.pesosReales.length > 0 ? (
+                  {currentItem.pesosReales !== undefined ? (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                      <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)' }}>Pesos Reales por Paquete (KG)</label>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)' }}>Pesos Reales por Paquete (KG)</label>
+                        <button 
+                          type="button" 
+                          className="btn-secondary" 
+                          style={{ padding: '4px 8px', fontSize: '11px' }}
+                          onClick={() => {
+                            const newItems = [...orderProdItems];
+                            const updatedPesos = [...(newItems[activeStep].pesosReales || []), 0];
+                            newItems[activeStep] = { ...newItems[activeStep], pesosReales: updatedPesos };
+                            setOrderProdItems(newItems);
+                          }}
+                        >
+                          + Agregar paquete
+                        </button>
+                      </div>
                       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))', gap: '10px' }}>
                         {currentItem.pesosReales.map((w, pkgIdx) => (
-                          <div key={pkgIdx} style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                            <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Paquete {pkgIdx + 1}</span>
+                          <div key={pkgIdx} style={{ display: 'flex', flexDirection: 'column', gap: '4px', position: 'relative' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                              <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>Paquete {pkgIdx + 1}</span>
+                              {currentItem.pesosReales!.length > 1 && (
+                                <button type="button" onClick={() => {
+                                  const newItems = [...orderProdItems];
+                                  const updatedPesos = [...(newItems[activeStep].pesosReales || [])];
+                                  updatedPesos.splice(pkgIdx, 1);
+                                  const pesoRealTotal = Number(updatedPesos.reduce((a, b) => Number(a) + Number(b), 0).toFixed(3));
+                                  newItems[activeStep] = { ...newItems[activeStep], pesosReales: updatedPesos, pesoReal: pesoRealTotal };
+                                  setOrderProdItems(newItems);
+                                }} style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', fontSize: '11px', padding: 0 }}>✕</button>
+                              )}
+                            </div>
                             <input
                               type="number"
                               step="0.001"
                               min="0.001"
                               required
-                              value={w !== undefined ? w : ''}
+                              value={w !== undefined && w !== 0 ? w : ''}
                               style={{ padding: '6px', fontSize: '13px', border: '1px solid var(--border-color)', borderRadius: '6px' }}
                               onChange={e => {
                                   const newItems = [...orderProdItems];
                                   const updatedPesos = [...(newItems[activeStep].pesosReales || [])] as any[];
-                                  updatedPesos[pkgIdx] = e.target.value;
+                                  updatedPesos[pkgIdx] = e.target.value ? Number(e.target.value) : 0;
                                   
                                   const pesoRealTotal = Number(updatedPesos.reduce((a, b) => Number(a) + Number(b), 0).toFixed(3));
                                   
-                                  console.log('RECALCULANDO_COSTOS', { pesoRealTotal, updatedPesos });
-
                                   newItems[activeStep] = {
                                     ...newItems[activeStep],
                                     pesosReales: updatedPesos,
@@ -346,7 +371,7 @@ export default function OrderProductionModal({
                       </div>
                       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginTop: '10px', padding: '10px', backgroundColor: '#f1f5f9', borderRadius: '8px' }}>
                         <span>Peso Total: <strong>{(currentItem.pesoReal || 0).toFixed(3)} kg</strong></span>
-                        <span>Promedio: <strong>{((currentItem.pesosReales.reduce((a, b) => Number(a) + Number(b), 0)) / currentItem.pesosReales.length || 0).toFixed(3)} kg</strong></span>
+                        <span>Promedio: <strong>{currentItem.pesosReales.length > 0 ? ((currentItem.pesosReales.reduce((a, b) => Number(a) + Number(b), 0)) / currentItem.pesosReales.length || 0).toFixed(3) : '0.000'} kg</strong></span>
                       </div>
                     </div>
                   ) : !currentItem.recipeItems || currentItem.recipeItems.length === 0 ? (

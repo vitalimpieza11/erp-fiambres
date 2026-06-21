@@ -25,8 +25,14 @@ export const salesRepository = {
       getDocs(COLLECTIONS.PACKAGES) // Fetch all for historical package mapping
     ]);
 
+    const salesData = salesSnap.docs.map(d => ({ id: d.id, ...d.data() } as Sale));
+    console.log(
+      'SALE_LEIDA_FIRESTORE',
+      JSON.stringify(salesData[0]?.items, null, 2)
+    );
+
     return {
-      sales: salesSnap.docs.map(d => ({ id: d.id, ...d.data() } as Sale)),
+      sales: salesData,
       orders: ordersSnap.docs.map(d => normalizeOrder({ id: d.id, ...d.data() })),
       customers: customersSnap.docs.map(d => ({ id: d.id, ...d.data() } as Customer)),
       products: productsSnap.docs.map(d => ({ id: d.id, ...d.data() } as Product)),
@@ -194,7 +200,10 @@ export const salesRepository = {
         tipoComprobante: tipoComprobante || 'PRESUPUESTO'
       };
 
-      console.log('SALE_GUARDADA', JSON.stringify(mappedItems, null, 2));
+      console.log(
+        'SALE_GUARDADA_REAL',
+        JSON.stringify(mappedItems, null, 2)
+      );
 
       // Sanitise saleData to remove undefined fields that crash Firestore using recursive helper
       const sanitizedSaleData = removeUndefinedFields(saleData);
@@ -218,7 +227,8 @@ export const salesRepository = {
         cantidad: truncateDecimals(item.cantidad, 3),
         unidad: item.unidad,
         precioEstimado: Number(item.precioUnitario.toFixed(2)),
-        subtotal: Number(item.subtotal.toFixed(2))
+        subtotal: Number(item.subtotal.toFixed(2)),
+        pesosReales: []
       })),
       totalEstimado: Number(data.totalAmount.toFixed(2)),
       isDeleted: false
@@ -470,7 +480,8 @@ export const salesRepository = {
         cantidad: truncateDecimals(Number(it.cantidad), 3),
         unidad: 'UNIDADES' as const,
         precioUnitario: 0,
-        subtotal: 0
+        subtotal: 0,
+        pesosReales: []
       }))
     };
 

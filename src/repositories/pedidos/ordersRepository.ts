@@ -4,7 +4,7 @@ import type { Order, Customer, Product, PriceList } from '../../types/domain';
 
 export function normalizeOrder(order: any): Order {
   if (!order) return order;
-  return {
+  const norm = {
     ...order,
     totalEstimado: Number(order.totalEstimado || 0),
     items: (order.items || []).map((item: any) => ({
@@ -19,6 +19,12 @@ export function normalizeOrder(order: any): Order {
       pesoPromedio: item.pesoPromedio !== undefined ? (Number(item.pesoPromedio) || 0) : undefined
     }))
   };
+  
+  if (norm.status === 'PRODUCIDO' || norm.status === 'EN_PRODUCCION') {
+    norm.items.forEach((it: any) => console.log('ORDEN_LEIDA', { productId: it.productId, pesoReal: it.pesoReal, pesosReales: it.pesosReales }));
+  }
+
+  return norm as Order;
 }
 
 export const ordersRepository = {

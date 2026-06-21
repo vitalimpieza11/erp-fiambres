@@ -121,11 +121,13 @@ export default function Facturacion() {
 
     setSaleItems(
       order.items.map(it => {
+        console.log('FACTURACION_ITEM', { productId: it.productId, pesoReal: it.pesoReal, pesosReales: it.pesosReales });
         const prod = products.find(p => p.id === it.productId);
         
         // Sum packages if usePackages = true
         let pkgWeightSum = 0;
         let pkgCostSum = 0;
+        let pkgWeights: number[] = [];
         if (settings.usePackages) {
           const prodPkgs = packages.filter(pkg => pkg.productId === it.productId && pkg.status === 'STOCK');
           prodPkgs.sort((a, b) => {
@@ -143,6 +145,7 @@ export default function Facturacion() {
           selectedPkgs.forEach(pkg => {
             pkgWeightSum += pkg.weight;
             pkgCostSum += pkg.totalCost;
+            pkgWeights.push(pkg.weight);
           });
         }
 
@@ -190,10 +193,10 @@ export default function Facturacion() {
           costoUnitarioHistorico: finalCostPerKg,
           costoTotalHistorico: finalTotalCost,
           rentabilidadBruta: Number((importeReal - finalTotalCost).toFixed(2)),
-          pesosReales: it.pesosReales || (it.pesoReal ? [it.pesoReal] : []),
-          cantidadPaquetes: it.cantidadPaquetes || (it.pesosReales ? it.pesosReales.length : (it.pesoReal ? 1 : 0)),
-          pesoTotal: it.pesoTotal || finalPesoReal,
-          pesoPromedio: it.pesoPromedio || (it.pesosReales && it.pesosReales.length > 0 ? finalPesoReal / it.pesosReales.length : finalPesoReal)
+          pesosReales: (settings.usePackages && pkgWeights.length > 0) ? pkgWeights : (it.pesosReales || (it.pesoReal ? [it.pesoReal] : [])),
+          cantidadPaquetes: (settings.usePackages && pkgWeights.length > 0) ? pkgWeights.length : (it.cantidadPaquetes || (it.pesosReales ? it.pesosReales.length : (it.pesoReal ? 1 : 0))),
+          pesoTotal: (settings.usePackages && pkgWeights.length > 0) ? pkgWeightSum : (it.pesoTotal || finalPesoReal),
+          pesoPromedio: (settings.usePackages && pkgWeights.length > 0) ? (pkgWeightSum / pkgWeights.length) : (it.pesoPromedio || (it.pesosReales && it.pesosReales.length > 0 ? finalPesoReal / it.pesosReales.length : finalPesoReal))
         };
       })
     );
@@ -263,10 +266,19 @@ export default function Facturacion() {
       }
     }
     
+    console.log(
+      'SALE_ITEMS_FACTURACION',
+      JSON.stringify(saleItems, null, 2)
+    );
+
     const confirmMsg = `¿Emitir Remito Comercial por un total de $${totalFacturar.toLocaleString('es-AR', { minimumFractionDigits: 2 })}?`;
     if (window.confirm(confirmMsg)) {
       try {
         // We pass 'REMITO' as the invoice type to indicate it is a delivery note
+        console.log(
+          'SALE_ITEMS_FACTURACION_REAL',
+          JSON.stringify(saleItems, null, 2)
+        );
         await createSaleFromOrder(selectedOrder, saleItems, totalFacturar, 'REMITO');
         setShowFacturarPanel(false);
         setSelectedOrder(null);

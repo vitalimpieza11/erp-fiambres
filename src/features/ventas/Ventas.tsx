@@ -103,6 +103,20 @@ export default function Ventas() {
   const [showQuickSale, setShowQuickSale] = useState(false);
   const [showHistoricalSale, setShowHistoricalSale] = useState(false);
   const [saleToCobrar, setSaleToCobrar] = useState<Sale | null>(null);
+  const { accounts, fetchAccounts } = useFinancialAccountsStore();
+  const [selectedAccountId, setSelectedAccountId] = useState('');
+
+  useEffect(() => {
+    fetchAccounts();
+  }, [fetchAccounts]);
+
+  useEffect(() => {
+    if (accounts.length > 0) {
+      const activeCash = accounts.find(a => a.activa && a.tipo === 'EFECTIVO');
+      const activeAny = accounts.find(a => a.activa);
+      setSelectedAccountId(activeCash?.id || activeAny?.id || '');
+    }
+  }, [accounts, saleToCobrar]);
   
   // Quick Sale State
   const [quickSale, setQuickSale] = useState<{ customerId: string; items: SaleItem[]; totalAmount: number; observaciones: string }>({
@@ -132,53 +146,7 @@ export default function Ventas() {
   const [searchTerm, setSearchTerm] = useState('');
   const [showHistorical, setShowHistorical] = useState(false);
 
-  const generateRemitoPDF = (sale: Sale) => {
-    const doc = createAlvacioPDF('REMITO COMERCIAL');
-    const customer = customers.find(c => c.id === sale.customerId);
-    
-    doc.setFontSize(10);
-    doc.text(`Fecha: ${new Date(sale.date).toLocaleDateString()}`, 15, 42);
-    doc.text(`Comprobante N°: ${sale.id.slice(-6).toUpperCase()}`, 15, 47);
-    
-    // Customer Info
-    doc.rect(15, 52, 180, 30);
-    doc.setFontSize(12);
-    doc.setFont("helvetica", "bold");
-    doc.text('Datos del Cliente', 20, 59);
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(10);
-    doc.text(`Nombre: ${customer?.nombre || 'Consumidor Final'}`, 20, 67);
-    doc.text(`Dirección: ${customer?.direccion || '-'}`, 20, 73);
-    doc.text(`Teléfono: ${customer?.telefono || '-'}`, 20, 79);
-    
-    // Items table
-    const tableData = sale.items.map(item => {
-      const prod = products.find(p => p.id === item.productId);
-      return [
-        prod?.nombre || 'Producto Desconocido',
-        `${item.cantidad} ${item.unidad}`,
-        `$${item.precioUnitario.toFixed(2)}`,
-        `$${item.subtotal.toFixed(2)}`
-      ];
-    });
 
-    autoTable(doc, {
-      startY: 87,
-      head: [['Producto', 'Cantidad', 'Precio Unit.', 'Subtotal']],
-      body: tableData,
-      theme: 'grid',
-      styles: { fontSize: 10, cellPadding: 3, textColor: [50, 50, 50] },
-      headStyles: { fillColor: [0, 0, 0], textColor: [255, 255, 255] }, // Apple-inspired dark header
-      alternateRowStyles: { fillColor: [250, 250, 250] },
-    });
-
-    // Total
-    const finalY = (doc as any).lastAutoTable.finalY || 85;
-    doc.setFontSize(14);
-    doc.text(`TOTAL: $${sale.totalAmount.toFixed(2)}`, 195, finalY + 15, { align: 'right' });
-
-    doc.save(`Remito_${sale.id.slice(-6).toUpperCase()}.pdf`);
-  };
 
   const handleCreateQuickSale = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -305,8 +273,12 @@ export default function Ventas() {
 
   const executeCobrar = async (method: 'EFECTIVO_TRANSFERENCIA' | 'CUENTA_CORRIENTE') => {
     if (!saleToCobrar) return;
+    if (method === 'EFECTIVO_TRANSFERENCIA' && !selectedAccountId) {
+      alert("Debe seleccionar una cuenta financiera para cobrar.");
+      return;
+    }
     try {
-      await cobrarSale(saleToCobrar, method);
+      await cobrarSale(saleToCobrar, method, method === 'EFECTIVO_TRANSFERENCIA' ? selectedAccountId : undefined);
       setSaleToCobrar(null);
     } catch (err: any) {
       alert(`Error al registrar cobro: ${err.message || err}`);
@@ -491,9 +463,7 @@ export default function Ventas() {
                       }
                       actions={
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', width: '100%' }}>
-                          <button className="btn-secondary" style={{ flex: 1, padding: '8px', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '4px' }} onClick={(e) => { e.stopPropagation(); generateRemitoPDF(sale); }}>
-                            <FileText size={16} /> Remito
-                          </button>
+
                           {sale.status === 'FACTURADO' && !sale.isHistorical && (
                             <button className="btn-primary" style={{ flex: 1, padding: '8px', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '4px' }} onClick={(e) => { e.stopPropagation(); handleCobrar(sale); }}>
                               <DollarSign size={16} /> Cobrar
@@ -827,11 +797,28 @@ export default function Ventas() {
               </strong>:
             </p>
 
+            <div className="form-group" style={{ display: 'flex', flexDirection: 'column', gap: '6px', margin: '8px 0 4px 0' }}>
+              <label style={{ fontSize: '13px', fontWeight: 600 }}>Cuenta de Destino (Solo para Efectivo/Transferencia)</label>
+              <select
+                value={selectedAccountId}
+                onChange={e => setSelectedAccountId(e.target.value)}
+                style={{ width: '100%', padding: '8px', borderRadius: '8px', border: '1px solid var(--border-color)', fontSize: '14px' }}
+              >
+                <option value="">Seleccione cuenta destino...</option>
+                {accounts.filter(a => a.activa).map(a => (
+                  <option key={a.id} value={a.id}>
+                    {a.nombre} ({a.tipo})
+                  </option>
+                ))}
+              </select>
+            </div>
+
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginTop: '8px' }}>
               <button
                 type="button"
                 className="btn-primary"
                 onClick={() => executeCobrar('EFECTIVO_TRANSFERENCIA')}
+                disabled={!selectedAccountId}
                 style={{
                   display: 'flex',
                   alignItems: 'center',
@@ -839,7 +826,9 @@ export default function Ventas() {
                   gap: '10px',
                   padding: '14px',
                   fontSize: '14px',
-                  fontWeight: 600
+                  fontWeight: 600,
+                  opacity: !selectedAccountId ? 0.5 : 1,
+                  cursor: !selectedAccountId ? 'not-allowed' : 'pointer'
                 }}
               >
                 💵 Efectivo / Transferencia (Ingreso a Caja)

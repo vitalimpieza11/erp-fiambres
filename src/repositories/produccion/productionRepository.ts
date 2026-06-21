@@ -626,6 +626,7 @@ export const productionRepository = {
     },
     equivalences: Equivalencia[]
   ): Promise<void> {
+    console.log('PRODUCCION_GUARDAR', { productId: data.productId, pesoReal: data.pesoReal, pesosReales: data.pesosReales });
     await runTransaction(db, async (transaction) => {
       // 1. READ PHASE
       const settingsRef = doc(db, 'settings', 'global');
