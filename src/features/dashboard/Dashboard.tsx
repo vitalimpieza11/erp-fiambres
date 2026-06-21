@@ -1,4 +1,4 @@
-import { useMemo, useEffect } from 'react';
+import { useMemo, useEffect, useState } from 'react';
 import { useDashboardCache } from './useDashboardCache';
 import { useFinancialAccountsStore } from '../../store/financialAccountsStore';
 import { useLoansStore } from '../../store/loansStore';
@@ -19,7 +19,8 @@ import {
   Scale,
   Package as PackageIcon,
   Calculator,
-  Briefcase
+  Briefcase,
+  X
 } from 'lucide-react';
 import { formatCurrency } from '../../lib/formatters';
 import LoadingSpinner from '../../components/LoadingSpinner';
@@ -35,6 +36,8 @@ export default function Dashboard() {
     cacheClientes,
     loading: cacheLoading
   } = useDashboardCache();
+
+  const [selectedProfitDetailOpen, setSelectedProfitDetailOpen] = useState(false);
 
   const { accounts, fetchAccounts } = useFinancialAccountsStore();
   const { movements: prodMovements, fetchData: fetchProduction, loading: prodLoading } = useProductionStore();
@@ -117,22 +120,70 @@ export default function Dashboard() {
 
   const patrimonioEstimado = totalDisponible + porCobrar + stockValorizado - porPagar - prestamosPendientes;
 
-  // Resultado Operativo Acumulado = Ventas Históricas - Compras Históricas - Gastos Históricos
+  // Resultado Operativo Acumulado = Ganancia Bruta Acumulada - Gastos Operativos Acumulados
   const resultadoOperativoAcumulado = useMemo(() => {
+    // 1. Ventas Históricas Totales
     const ventasHist = cacheVentas.sales
       .filter(s => s.status !== 'ANULADO')
       .reduce((acc, s) => acc + s.totalAmount, 0);
 
-    const comprasHist = cacheCompras.purchases
-      .filter(p => p.status !== 'VOIDED' && p.type === 'PURCHASE')
-      .reduce((acc, p) => acc + p.total, 0);
+    // 2. CMV Histórico Acumulado
+    const cmvHistoricoAcumulado = cacheVentas.sales
+      .filter(s => s.status !== 'ANULADO')
+      .reduce((acc, s) => {
+        // Prioridad 3: Ventas históricas globales
+        if (s.isHistorical && s.costoTotal !== undefined) {
+          return acc + s.costoTotal;
+        }
 
-    const gastosHist = cacheCaja.movements
+        const saleCost = (s.items || []).reduce((itemAcc, item) => {
+          // Prioridad 1: item.costoTotalHistorico
+          if (item.costoTotalHistorico !== undefined) {
+            return itemAcc + item.costoTotalHistorico;
+          }
+          // Prioridad 2: item.costoTotal
+          if (item.costoTotal !== undefined) {
+            return itemAcc + item.costoTotal;
+          }
+          
+          // Prioridad 4: Fallback a catálogo actual
+          const prod = cacheStock.products.find(p => p.id === item.productId);
+          if (prod) {
+            const qty = prod.unitType === 'KG' ? (item.pesoReal || item.cantidad) : item.cantidad;
+            return itemAcc + (qty * (prod.costoActual || prod.costoUltimaCompra || 0));
+          }
+          
+          return itemAcc;
+        }, 0);
+
+        return acc + saleCost;
+      }, 0);
+
+    // 3. Ganancia Bruta Acumulada
+    const gananciaBrutaAcumulada = ventasHist - cmvHistoricoAcumulado;
+
+    // 4. Gastos Operativos Acumulados
+    const gastosOperativosAcumulados = cacheCaja.movements
       .filter(m => m.type === 'EXPENSE')
+      .filter(m => {
+        const cat = (m.category || '').toUpperCase();
+        const excludeCategories = [
+          'COMPRA_PROVEEDOR', 
+          'SOCIOS', 
+          'APORTE_SOCIOS_INICIAL',
+          'ANULACION',
+          'ANULACION_VENTA', 
+          'ANULACION_COMPRA',
+          'SALDO_INICIAL',
+          'TRANSFERENCIA',
+          'MOVIMIENTO_INTERNO'
+        ];
+        return !excludeCategories.includes(cat);
+      })
       .reduce((acc, m) => acc + m.amount, 0);
 
-    return ventasHist - comprasHist - gastosHist;
-  }, [cacheVentas.sales, cacheCompras.purchases, cacheCaja.movements]);
+    return gananciaBrutaAcumulada - gastosOperativosAcumulados;
+  }, [cacheVentas.sales, cacheStock.products, cacheCaja.movements]);
 
 
   // ==========================================
@@ -412,7 +463,13 @@ export default function Dashboard() {
           </div>
 
           {/* Card Ganancia Bruta */}
-          <div className="apple-card" style={{ padding: '24px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+          <div 
+            className="apple-card" 
+            style={{ padding: '24px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', cursor: 'pointer', transition: 'all 0.2s ease' }}
+            onClick={() => setSelectedProfitDetailOpen(true)}
+            onMouseOver={(e) => e.currentTarget.style.transform = 'translateY(-2px)'}
+            onMouseOut={(e) => e.currentTarget.style.transform = 'none'}
+          >
             <div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
                 <span style={{ fontSize: '15px', fontWeight: 600, color: 'var(--text-secondary)' }}>Ganancia Bruta</span>
@@ -522,6 +579,108 @@ export default function Dashboard() {
           </div>
         </div>
       </div>
+
+      {/* --- MODAL DETALLE DE GANANCIA BRUTA --- */}
+      {selectedProfitDetailOpen && (() => {
+        const { startDate, endDate } = currentRange;
+        const periodSales = cacheVentas.sales.filter(s => {
+          const d = new Date(s.date);
+          return d >= startDate && d <= endDate && s.status !== 'ANULADO';
+        });
+
+        const profitDetailSales = periodSales.map(sale => {
+          let cost = 0;
+          if (sale.isHistorical && sale.costoTotal !== undefined) {
+            cost = sale.costoTotal;
+          } else {
+            cost = (sale.items || []).reduce((itemAcc, item) => {
+              if (item.costoTotalHistorico !== undefined) return itemAcc + item.costoTotalHistorico;
+              if (item.costoTotal !== undefined) return itemAcc + item.costoTotal;
+              const prod = cacheStock.products.find(p => p.id === item.productId);
+              return itemAcc + (item.cantidad * (prod?.costoActual || 0));
+            }, 0);
+          }
+          
+          const ganancia = sale.totalAmount - cost;
+          const margin = sale.totalAmount > 0 ? (ganancia / sale.totalAmount) * 100 : 0;
+          
+          const customer = cacheClientes.customers.find(c => c.id === sale.customerId);
+          const customerName = customer ? (customer.razonSocial || customer.nombre) : 'Cliente Desconocido';
+          
+          return {
+            id: sale.id,
+            fecha: new Date(sale.date).toLocaleDateString('es-AR'),
+            cliente: customerName,
+            venta: sale.totalAmount,
+            costo: cost,
+            ganancia,
+            margen: margin,
+            rawDate: new Date(sale.date).getTime()
+          };
+        }).sort((a, b) => b.rawDate - a.rawDate);
+
+        const profitTotals = profitDetailSales.reduce((acc, curr) => ({
+          venta: acc.venta + curr.venta,
+          costo: acc.costo + curr.costo,
+          ganancia: acc.ganancia + curr.ganancia
+        }), { venta: 0, costo: 0, ganancia: 0 });
+
+        return (
+          <div className="modal-overlay open" onClick={() => setSelectedProfitDetailOpen(false)}>
+            <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: '900px', width: '95%' }}>
+              <div className="modal-header">
+                <h2>Detalle de Ganancia Bruta</h2>
+                <button className="icon-btn" onClick={() => setSelectedProfitDetailOpen(false)}>
+                  <X size={20} />
+                </button>
+              </div>
+              <div className="modal-body" style={{ maxHeight: '60vh', overflowY: 'auto', padding: '0' }}>
+                <table className="table" style={{ margin: 0 }}>
+                  <thead style={{ position: 'sticky', top: 0, zIndex: 1, backgroundColor: 'var(--bg-secondary)' }}>
+                    <tr>
+                      <th style={{ padding: '12px 16px' }}>Fecha</th>
+                      <th style={{ padding: '12px 16px' }}>Cliente</th>
+                      <th style={{ padding: '12px 16px', textAlign: 'right' }}>Venta</th>
+                      <th style={{ padding: '12px 16px', textAlign: 'right' }}>Costo</th>
+                      <th style={{ padding: '12px 16px', textAlign: 'right' }}>Ganancia</th>
+                      <th style={{ padding: '12px 16px', textAlign: 'right' }}>Margen %</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {profitDetailSales.map(row => (
+                      <tr key={row.id}>
+                        <td style={{ padding: '12px 16px' }}>{row.fecha}</td>
+                        <td style={{ padding: '12px 16px' }}>{row.cliente}</td>
+                        <td style={{ padding: '12px 16px', textAlign: 'right' }}>{formatCurrency(row.venta)}</td>
+                        <td style={{ padding: '12px 16px', textAlign: 'right' }}>{formatCurrency(row.costo)}</td>
+                        <td style={{ padding: '12px 16px', textAlign: 'right', color: row.ganancia >= 0 ? '#15803d' : '#b91c1c', fontWeight: 500 }}>
+                          {formatCurrency(row.ganancia)}
+                        </td>
+                        <td style={{ padding: '12px 16px', textAlign: 'right' }}>{row.margen.toFixed(1)}%</td>
+                      </tr>
+                    ))}
+                    {profitDetailSales.length === 0 && (
+                      <tr>
+                        <td colSpan={6} style={{ textAlign: 'center', padding: '20px' }}>No hay ventas en este período.</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+              <div className="modal-footer" style={{ borderTop: '1px solid var(--border-color)', padding: '16px 24px', backgroundColor: 'var(--bg-secondary)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontWeight: 600 }}>
+                <div>Totales ({profitDetailSales.length} op)</div>
+                <div style={{ display: 'flex', gap: '24px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                  <div>Ventas: {formatCurrency(profitTotals.venta)}</div>
+                  <div>Costos: {formatCurrency(profitTotals.costo)}</div>
+                  <div style={{ color: profitTotals.ganancia >= 0 ? '#15803d' : '#b91c1c' }}>Ganancia: {formatCurrency(profitTotals.ganancia)}</div>
+                  <div>Margen: {profitTotals.venta > 0 ? ((profitTotals.ganancia / profitTotals.venta) * 100).toFixed(1) : 0}%</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
     </div>
   );
 }
