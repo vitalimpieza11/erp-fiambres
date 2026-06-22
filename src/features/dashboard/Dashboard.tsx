@@ -4,6 +4,7 @@ import { useFinancialAccountsStore } from '../../store/financialAccountsStore';
 import { useLoansStore } from '../../store/loansStore';
 import { usePeriodFilterStore } from '../../store/periodFilterStore';
 import { useProductionStore } from '../../store/productionStore';
+import { useSociosStore } from '../../store/sociosStore';
 import { 
   Wallet, 
   TrendingUp, 
@@ -24,6 +25,7 @@ import {
 } from 'lucide-react';
 import { formatCurrency } from '../../lib/formatters';
 import LoadingSpinner from '../../components/LoadingSpinner';
+import AnalyticsModal from '../../components/AnalyticsModal/AnalyticsModal';
 import './Dashboard.css';
 
 export default function Dashboard() {
@@ -38,18 +40,26 @@ export default function Dashboard() {
   } = useDashboardCache();
 
   const [selectedProfitDetailOpen, setSelectedProfitDetailOpen] = useState(false);
+  const [selectedOpAcumDetailOpen, setSelectedOpAcumDetailOpen] = useState(false);
+  const [selectedPatrimonioOpen, setSelectedPatrimonioOpen] = useState(false);
+  const [selectedStockValorizadoOpen, setSelectedStockValorizadoOpen] = useState(false);
 
   const { accounts, fetchAccounts } = useFinancialAccountsStore();
   const { movements: prodMovements, fetchData: fetchProduction, loading: prodLoading } = useProductionStore();
   const { getRanges, selectedPeriod } = usePeriodFilterStore();
   const { loans, subscribeLoans } = useLoansStore();
+  const { movements: sociosMovements, subscribeAll: subscribeSocios } = useSociosStore();
 
   useEffect(() => {
     fetchAccounts();
     fetchProduction();
     const unsubLoans = subscribeLoans();
-    return () => unsubLoans();
-  }, [fetchAccounts, fetchProduction, subscribeLoans]);
+    const unsubSocios = subscribeSocios();
+    return () => {
+      unsubLoans();
+      unsubSocios();
+    };
+  }, [fetchAccounts, fetchProduction, subscribeLoans, subscribeSocios]);
 
   const { current: currentRange, comparison: comparisonRange } = getRanges();
 
@@ -119,6 +129,19 @@ export default function Dashboard() {
   }, [loans]);
 
   const patrimonioEstimado = totalDisponible + porCobrar + stockValorizado - porPagar - prestamosPendientes;
+
+  const capitalAportadoSocios = useMemo(() => {
+    return sociosMovements.reduce((acc, mov) => {
+      if (mov.estado === 'ANULADO') return acc;
+      if (mov.sourceType === 'APORTE') return acc + mov.amount;
+      if (mov.sourceType === 'RETIRO') return acc - mov.amount;
+      if (mov.sourceType === 'AJUSTE') return acc + mov.amount;
+      if (mov.sourceType === 'ANULACION') return acc + mov.amount;
+      return acc;
+    }, 0);
+  }, [sociosMovements]);
+
+  const resultadoGenerado = patrimonioEstimado - capitalAportadoSocios;
 
   // Resultado Operativo Acumulado = Ganancia Bruta Acumulada - Gastos Operativos Acumulados
   const resultadoOperativoAcumulado = useMemo(() => {
@@ -246,6 +269,29 @@ export default function Dashboard() {
     });
     const produccionesRealizadas = periodProdMovs.length;
 
+    // 7. Gastos Operativos del período
+    const periodGastos = cacheCaja.movements.filter(m => {
+      if (m.type !== 'EXPENSE') return false;
+      const d = new Date(m.date);
+      if (d < start || d > end) return false;
+      
+      const cat = (m.category || '').toUpperCase();
+      const excludeCategories = [
+        'COMPRA_PROVEEDOR', 
+        'SOCIOS', 
+        'APORTE_SOCIOS_INICIAL',
+        'ANULACION',
+        'ANULACION_VENTA', 
+        'ANULACION_COMPRA',
+        'SALDO_INICIAL',
+        'TRANSFERENCIA',
+        'MOVIMIENTO_INTERNO'
+      ];
+      return !excludeCategories.includes(cat);
+    });
+    const gastosOperativos = periodGastos.reduce((acc, m) => acc + m.amount, 0);
+    const resultadoOperativo = gananciaBruta - gastosOperativos;
+
     const periodPackages = (cacheVentas.packages || []).filter(p => {
       const d = new Date(p.producedAt);
       return d >= start && d <= end;
@@ -287,7 +333,9 @@ export default function Dashboard() {
       proveedoresUtilizados,
       produccionesRealizadas,
       kgProducidos,
-      paquetesProducidos
+      paquetesProducidos,
+      gastosOperativos,
+      resultadoOperativo
     };
   };
 
@@ -410,7 +458,13 @@ export default function Dashboard() {
             </div>
           </div>
 
-          <div className="apple-card" style={{ padding: '20px', minHeight: '120px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', backgroundColor: '#e2f9ec', border: '1px solid #a7f3d0' }}>
+          <div 
+            className="apple-card" 
+            style={{ padding: '20px', minHeight: '120px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', backgroundColor: '#e2f9ec', border: '1px solid #a7f3d0', cursor: 'pointer', transition: 'all 0.2s ease' }}
+            onClick={() => setSelectedPatrimonioOpen(true)}
+            onMouseOver={(e) => e.currentTarget.style.transform = 'translateY(-2px)'}
+            onMouseOut={(e) => e.currentTarget.style.transform = 'none'}
+          >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span style={{ fontSize: '14px', fontWeight: 600, color: '#065f46' }}>Patrimonio Estimado</span>
               <div className="dash-icon" style={{ backgroundColor: '#10b981', color: '#ffffff' }}><Briefcase size={18} /></div>
@@ -420,7 +474,13 @@ export default function Dashboard() {
             </div>
           </div>
 
-          <div className="apple-card" style={{ padding: '20px', minHeight: '120px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', backgroundColor: '#eff6ff', border: '1px solid #bfdbfe' }}>
+          <div 
+            className="apple-card" 
+            style={{ padding: '20px', minHeight: '120px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', backgroundColor: '#eff6ff', border: '1px solid #bfdbfe', cursor: 'pointer', transition: 'all 0.2s ease' }}
+            onClick={() => setSelectedOpAcumDetailOpen(true)}
+            onMouseOver={(e) => e.currentTarget.style.transform = 'translateY(-2px)'}
+            onMouseOut={(e) => e.currentTarget.style.transform = 'none'}
+          >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span style={{ fontSize: '14px', fontWeight: 600, color: '#1e40af' }}>Res. Operativo Acumulado</span>
               <div className="dash-icon" style={{ backgroundColor: '#3b82f6', color: '#ffffff' }}><Calculator size={18} /></div>
@@ -480,6 +540,32 @@ export default function Dashboard() {
               </span>
             </div>
             {renderTrend(currentMetrics.gananciaBruta, comparisonMetrics.gananciaBruta, formatCurrency)}
+          </div>
+
+          {/* Card Gastos Operativos */}
+          <div className="apple-card" style={{ padding: '24px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                <span style={{ fontSize: '15px', fontWeight: 600, color: 'var(--text-secondary)' }}>Gastos Operativos</span>
+                <div className="dash-icon" style={{ backgroundColor: '#fee2e2', color: '#dc2626' }}><TrendingUp size={20} /></div>
+              </div>
+              <span className="dash-metric-value" style={{ fontSize: '32px', color: '#dc2626' }}>{formatCurrency(currentMetrics.gastosOperativos)}</span>
+            </div>
+            {renderTrend(currentMetrics.gastosOperativos, comparisonMetrics.gastosOperativos, formatCurrency, true)}
+          </div>
+
+          {/* Card Resultado Operativo del Período */}
+          <div className="apple-card" style={{ padding: '24px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', backgroundColor: '#eff6ff', border: '1px solid #bfdbfe' }}>
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                <span style={{ fontSize: '15px', fontWeight: 600, color: '#1e40af' }}>Resultado Operativo</span>
+                <div className="dash-icon" style={{ backgroundColor: '#3b82f6', color: '#ffffff' }}><Calculator size={20} /></div>
+              </div>
+              <span className="dash-metric-value" style={{ fontSize: '32px', color: currentMetrics.resultadoOperativo >= 0 ? '#1d4ed8' : '#dc2626' }}>
+                {formatCurrency(currentMetrics.resultadoOperativo)}
+              </span>
+            </div>
+            {renderTrend(currentMetrics.resultadoOperativo, comparisonMetrics.resultadoOperativo, formatCurrency)}
           </div>
 
           {/* Card Margen Bruto */}
@@ -626,55 +712,477 @@ export default function Dashboard() {
         }), { venta: 0, costo: 0, ganancia: 0 });
 
         return (
-          <div className="modal-overlay open" onClick={() => setSelectedProfitDetailOpen(false)}>
-            <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: '900px', width: '95%' }}>
-              <div className="modal-header">
-                <h2>Detalle de Ganancia Bruta</h2>
-                <button className="icon-btn" onClick={() => setSelectedProfitDetailOpen(false)}>
-                  <X size={20} />
-                </button>
+          <AnalyticsModal
+            isOpen={true}
+            onClose={() => setSelectedProfitDetailOpen(false)}
+            title="Ganancia Bruta"
+            subtitle="Desglose de operaciones del período seleccionado"
+          >
+            <div className="analytics-card">
+              <div className="analytics-card-title">
+                <Wallet size={18} /> Detalle de Ventas y Costos
               </div>
-              <div className="modal-body" style={{ maxHeight: '60vh', overflowY: 'auto', padding: '0' }}>
-                <table className="table" style={{ margin: 0 }}>
-                  <thead style={{ position: 'sticky', top: 0, zIndex: 1, backgroundColor: 'var(--bg-secondary)' }}>
+              <div style={{ border: '1px solid #e5e7eb', borderRadius: '8px', overflow: 'hidden' }}>
+                <table className="analytics-table">
+                  <thead>
                     <tr>
-                      <th style={{ padding: '12px 16px' }}>Fecha</th>
-                      <th style={{ padding: '12px 16px' }}>Cliente</th>
-                      <th style={{ padding: '12px 16px', textAlign: 'right' }}>Venta</th>
-                      <th style={{ padding: '12px 16px', textAlign: 'right' }}>Costo</th>
-                      <th style={{ padding: '12px 16px', textAlign: 'right' }}>Ganancia</th>
-                      <th style={{ padding: '12px 16px', textAlign: 'right' }}>Margen %</th>
+                      <th>Fecha</th>
+                      <th>Cliente</th>
+                      <th className="right-align">Venta</th>
+                      <th className="right-align">Costo</th>
+                      <th className="right-align">Ganancia</th>
+                      <th className="right-align">Margen %</th>
                     </tr>
                   </thead>
                   <tbody>
                     {profitDetailSales.map(row => (
                       <tr key={row.id}>
-                        <td style={{ padding: '12px 16px' }}>{row.fecha}</td>
-                        <td style={{ padding: '12px 16px' }}>{row.cliente}</td>
-                        <td style={{ padding: '12px 16px', textAlign: 'right' }}>{formatCurrency(row.venta)}</td>
-                        <td style={{ padding: '12px 16px', textAlign: 'right' }}>{formatCurrency(row.costo)}</td>
-                        <td style={{ padding: '12px 16px', textAlign: 'right', color: row.ganancia >= 0 ? '#15803d' : '#b91c1c', fontWeight: 500 }}>
+                        <td>{row.fecha}</td>
+                        <td>{row.cliente}</td>
+                        <td className="right-align">{formatCurrency(row.venta)}</td>
+                        <td className="right-align">{formatCurrency(row.costo)}</td>
+                        <td className="right-align" style={{ color: row.ganancia >= 0 ? '#15803d' : '#b91c1c', fontWeight: 500 }}>
                           {formatCurrency(row.ganancia)}
                         </td>
-                        <td style={{ padding: '12px 16px', textAlign: 'right' }}>{row.margen.toFixed(1)}%</td>
+                        <td className="right-align">{row.margen.toFixed(1)}%</td>
                       </tr>
                     ))}
                     {profitDetailSales.length === 0 && (
                       <tr>
-                        <td colSpan={6} style={{ textAlign: 'center', padding: '20px' }}>No hay ventas en este período.</td>
+                        <td colSpan={6} className="analytics-empty-state">No hay ventas en este período.</td>
                       </tr>
                     )}
                   </tbody>
                 </table>
               </div>
-              <div className="modal-footer" style={{ borderTop: '1px solid var(--border-color)', padding: '16px 24px', backgroundColor: 'var(--bg-secondary)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontWeight: 600 }}>
-                <div>Totales ({profitDetailSales.length} op)</div>
-                <div style={{ display: 'flex', gap: '24px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-                  <div>Ventas: {formatCurrency(profitTotals.venta)}</div>
-                  <div>Costos: {formatCurrency(profitTotals.costo)}</div>
-                  <div style={{ color: profitTotals.ganancia >= 0 ? '#15803d' : '#b91c1c' }}>Ganancia: {formatCurrency(profitTotals.ganancia)}</div>
-                  <div>Margen: {profitTotals.venta > 0 ? ((profitTotals.ganancia / profitTotals.venta) * 100).toFixed(1) : 0}%</div>
+              <div className="analytics-footer-summary">
+                <div style={{ color: '#6b7280' }}>Totales ({profitDetailSales.length} op)</div>
+                <div>Ventas: {formatCurrency(profitTotals.venta)}</div>
+                <div>Costos: {formatCurrency(profitTotals.costo)}</div>
+                <div style={{ color: profitTotals.ganancia >= 0 ? '#15803d' : '#b91c1c' }}>Ganancia: {formatCurrency(profitTotals.ganancia)}</div>
+                <div>Margen: {profitTotals.venta > 0 ? ((profitTotals.ganancia / profitTotals.venta) * 100).toFixed(1) : 0}%</div>
+              </div>
+            </div>
+          </AnalyticsModal>
+        );
+      })()}
+
+      {/* --- MODAL DETALLE DE RESULTADO OPERATIVO ACUMULADO --- */}
+      {selectedOpAcumDetailOpen && (() => {
+        const histVentas = cacheVentas.sales.filter(s => s.status !== 'ANULADO').map(sale => {
+          let cost = 0;
+          if (sale.isHistorical && sale.costoTotal !== undefined) {
+            cost = sale.costoTotal;
+          } else {
+            cost = (sale.items || []).reduce((itemAcc, item) => {
+              if (item.costoTotalHistorico !== undefined) return itemAcc + item.costoTotalHistorico;
+              if (item.costoTotal !== undefined) return itemAcc + item.costoTotal;
+              const prod = cacheStock.products.find(p => p.id === item.productId);
+              if (prod) {
+                const qty = prod.unitType === 'KG' ? (item.pesoReal || item.cantidad) : item.cantidad;
+                return itemAcc + (qty * (prod.costoActual || prod.costoUltimaCompra || 0));
+              }
+              return itemAcc;
+            }, 0);
+          }
+          const ganancia = sale.totalAmount - cost;
+          const customer = cacheClientes.customers.find(c => c.id === sale.customerId);
+          const customerName = customer ? (customer.razonSocial || customer.nombre) : 'Cliente Desconocido';
+          return {
+            id: sale.id,
+            fecha: new Date(sale.date).toLocaleDateString('es-AR'),
+            cliente: customerName,
+            venta: sale.totalAmount,
+            costo: cost,
+            ganancia,
+            rawDate: new Date(sale.date).getTime()
+          };
+        }).sort((a, b) => b.rawDate - a.rawDate);
+
+        const totalVentasHist = histVentas.reduce((acc, v) => acc + v.venta, 0);
+        const totalCmvHist = histVentas.reduce((acc, v) => acc + v.costo, 0);
+        const gananciaBrutaAcumulada = totalVentasHist - totalCmvHist;
+
+        const excludeCategories = [
+          'COMPRA_PROVEEDOR', 'SOCIOS', 'APORTE_SOCIOS_INICIAL',
+          'ANULACION', 'ANULACION_VENTA', 'ANULACION_COMPRA',
+          'SALDO_INICIAL', 'TRANSFERENCIA', 'MOVIMIENTO_INTERNO'
+        ];
+        
+        const histGastos = cacheCaja.movements
+          .filter(m => m.type === 'EXPENSE')
+          .filter(m => !excludeCategories.includes((m.category || '').toUpperCase()))
+          .map(m => ({
+            id: m.id,
+            fecha: new Date(m.date).toLocaleDateString('es-AR'),
+            categoria: m.category || 'Sin Categoría',
+            descripcion: m.description || '',
+            importe: m.amount,
+            rawDate: new Date(m.date).getTime()
+          }))
+          .sort((a, b) => b.rawDate - a.rawDate);
+          
+        const totalGastosAcumulados = histGastos.reduce((acc, g) => acc + g.importe, 0);
+        const resultadoOperativoAcumuladoFinal = gananciaBrutaAcumulada - totalGastosAcumulados;
+
+        const gastosPorCategoria = histGastos.reduce((acc, g) => {
+          acc[g.categoria] = (acc[g.categoria] || 0) + g.importe;
+          return acc;
+        }, {} as Record<string, number>);
+        
+        const gastosPorCategoriaArr = Object.entries(gastosPorCategoria)
+          .map(([categoria, total]) => ({ categoria, total }))
+          .sort((a, b) => b.total - a.total);
+
+        const visibleVentas = histVentas.slice(0, 100);
+        const visibleGastos = histGastos.slice(0, 100);
+
+        return (
+          <AnalyticsModal
+            isOpen={true}
+            onClose={() => setSelectedOpAcumDetailOpen(false)}
+            title="Resultado Operativo Acumulado"
+            subtitle="Desglose financiero histórico completo"
+          >
+            {/* RESUMEN ACUMULADO */}
+            <div className="analytics-card" style={{ backgroundColor: '#f8fafc', border: '1px solid #e2e8f0' }}>
+              <div className="analytics-card-title" style={{ color: '#0f172a' }}>
+                <TrendingUp size={18} color="#3b82f6" /> Resumen Histórico Global
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', fontSize: '15px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ color: '#64748b' }}>Ventas Históricas Totales</span>
+                  <span style={{ fontWeight: 500 }}>{formatCurrency(totalVentasHist)}</span>
                 </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ color: '#64748b' }}>(-) CMV Histórico Acumulado</span>
+                  <span style={{ fontWeight: 500 }}>{formatCurrency(totalCmvHist)}</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', paddingBottom: '16px', borderBottom: '1px solid #cbd5e1' }}>
+                  <span style={{ fontWeight: 600 }}>(=) Ganancia Bruta Acumulada</span>
+                  <span style={{ fontWeight: 600, color: gananciaBrutaAcumulada >= 0 ? '#15803d' : '#b91c1c' }}>{formatCurrency(gananciaBrutaAcumulada)}</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: '8px' }}>
+                  <span style={{ color: '#64748b' }}>(-) Gastos Operativos Acumulados</span>
+                  <span style={{ fontWeight: 500, color: '#dc2626' }}>{formatCurrency(totalGastosAcumulados)}</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: '16px', borderTop: '2px solid #cbd5e1' }}>
+                  <span style={{ fontWeight: 700, fontSize: '16px', color: '#1e40af' }}>(=) Resultado Operativo Final</span>
+                  <span style={{ fontWeight: 700, fontSize: '20px', color: resultadoOperativoAcumuladoFinal >= 0 ? '#1d4ed8' : '#dc2626' }}>{formatCurrency(resultadoOperativoAcumuladoFinal)}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* GASTOS POR CATEGORÍA */}
+            <div className="analytics-card">
+              <div className="analytics-card-title">
+                <Layers size={18} color="#f59e0b" /> Gastos por Categoría
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '16px' }}>
+                {gastosPorCategoriaArr.map(cat => (
+                  <div key={cat.categoria} style={{ backgroundColor: '#f9fafb', padding: '16px', borderRadius: '10px', border: '1px solid #f3f4f6' }}>
+                    <div style={{ fontSize: '13px', color: '#6b7280', textTransform: 'uppercase', marginBottom: '8px', fontWeight: 600, letterSpacing: '0.05em' }}>{cat.categoria}</div>
+                    <div style={{ fontWeight: 700, fontSize: '18px', color: '#dc2626' }}>{formatCurrency(cat.total)}</div>
+                  </div>
+                ))}
+                {gastosPorCategoriaArr.length === 0 && <div className="analytics-empty-state">No hay gastos registrados.</div>}
+              </div>
+            </div>
+
+            {/* DETALLE DE GASTOS */}
+            <div className="analytics-card">
+              <div className="analytics-card-title" style={{ justifyContent: 'space-between' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <Activity size={18} color="#ef4444" /> Detalle de Gastos Operativos
+                </div>
+                <span style={{ fontSize: '13px', color: '#9ca3af', fontWeight: 400 }}>Mostrando {visibleGastos.length} de {histGastos.length}</span>
+              </div>
+              <div style={{ border: '1px solid #e5e7eb', borderRadius: '8px', overflow: 'hidden' }}>
+                <table className="analytics-table">
+                  <thead>
+                    <tr>
+                      <th>Fecha</th>
+                      <th>Categoría</th>
+                      <th>Descripción</th>
+                      <th className="right-align">Importe</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {visibleGastos.map(row => (
+                      <tr key={row.id}>
+                        <td>{row.fecha}</td>
+                        <td>{row.categoria}</td>
+                        <td>{row.descripcion}</td>
+                        <td className="right-align" style={{ color: '#dc2626', fontWeight: 500 }}>{formatCurrency(row.importe)}</td>
+                      </tr>
+                    ))}
+                    {visibleGastos.length === 0 && (
+                      <tr>
+                        <td colSpan={4} className="analytics-empty-state">No hay gastos para mostrar.</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* DETALLE DE VENTAS */}
+            <div className="analytics-card">
+              <div className="analytics-card-title" style={{ justifyContent: 'space-between' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <Wallet size={18} color="#10b981" /> Detalle de Ventas Utilizadas
+                </div>
+                <span style={{ fontSize: '13px', color: '#9ca3af', fontWeight: 400 }}>Mostrando {visibleVentas.length} de {histVentas.length}</span>
+              </div>
+              <div style={{ border: '1px solid #e5e7eb', borderRadius: '8px', overflow: 'hidden' }}>
+                <table className="analytics-table">
+                  <thead>
+                    <tr>
+                      <th>Fecha</th>
+                      <th>Cliente</th>
+                      <th className="right-align">Venta</th>
+                      <th className="right-align">Costo</th>
+                      <th className="right-align">Ganancia</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {visibleVentas.map(row => (
+                      <tr key={row.id}>
+                        <td>{row.fecha}</td>
+                        <td>{row.cliente}</td>
+                        <td className="right-align">{formatCurrency(row.venta)}</td>
+                        <td className="right-align">{formatCurrency(row.costo)}</td>
+                        <td className="right-align" style={{ color: row.ganancia >= 0 ? '#15803d' : '#b91c1c', fontWeight: 500 }}>{formatCurrency(row.ganancia)}</td>
+                      </tr>
+                    ))}
+                    {visibleVentas.length === 0 && (
+                      <tr>
+                        <td colSpan={5} className="analytics-empty-state">No hay ventas para mostrar.</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </AnalyticsModal>
+        );
+      })()}
+
+      {/* --- MODAL DETALLE DE PATRIMONIO ESTIMADO --- */}
+      {selectedPatrimonioOpen && (
+        <div className="modal-overlay open" onClick={() => setSelectedPatrimonioOpen(false)}>
+          <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: '900px', width: '95%', padding: 0, borderRadius: '12px', overflow: 'hidden' }}>
+            
+            {/* HEADER */}
+            <div style={{ padding: '20px 24px', borderBottom: '1px solid #e5e7eb', display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#ffffff', position: 'sticky', top: 0, zIndex: 10 }}>
+              <div>
+                <h2 style={{ fontSize: '20px', fontWeight: 700, color: '#111827', margin: 0 }}>DESGLOSE DE PATRIMONIO</h2>
+                <p style={{ fontSize: '14px', color: '#6b7280', margin: '4px 0 0 0' }}>Composición actual del Patrimonio del negocio</p>
+              </div>
+              <button onClick={() => setSelectedPatrimonioOpen(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px', color: '#9ca3af' }}>
+                <X size={24} />
+              </button>
+            </div>
+
+            {/* BODY */}
+            <div style={{ padding: '24px', backgroundColor: '#f9fafb', maxHeight: '70vh', overflowY: 'auto' }}>
+              
+              {/* BLOQUE 1: ACTIVOS */}
+              <div className="apple-card" style={{ padding: '20px', marginBottom: '20px' }}>
+                <h3 style={{ fontSize: '16px', fontWeight: 700, color: '#111827', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#10b981' }}></div>
+                  ACTIVOS
+                </h3>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ color: '#4b5563' }}>Caja / Efectivo</span>
+                    <span style={{ fontWeight: 500 }}>{formatCurrency(cajaActual)}</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ color: '#4b5563' }}>Saldo Bancario</span>
+                    <span style={{ fontWeight: 500 }}>{formatCurrency(saldoBancos)}</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ color: '#4b5563' }}>Billeteras Virtuales</span>
+                    <span style={{ fontWeight: 500 }}>{formatCurrency(billeterasActual)}</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ color: '#4b5563' }}>Cuentas por Cobrar</span>
+                    <span style={{ fontWeight: 500 }}>{formatCurrency(porCobrar)}</span>
+                  </div>
+                  <div 
+                    style={{ display: 'flex', justifyContent: 'space-between', cursor: 'pointer', padding: '6px', borderRadius: '6px', transition: 'background-color 0.2s ease', margin: '-6px' }}
+                    onClick={() => setSelectedStockValorizadoOpen(true)}
+                    onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#f3f4f6'}
+                    onMouseOut={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                  >
+                    <span style={{ color: '#4b5563', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      Stock Valorizado
+                      <span style={{ fontSize: '12px', color: '#9ca3af' }}>↗</span>
+                    </span>
+                    <span style={{ fontWeight: 500 }}>{formatCurrency(stockValorizado)}</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: '12px', borderTop: '1px solid #e5e7eb', marginTop: '4px' }}>
+                    <span style={{ fontWeight: 700, color: '#111827' }}>TOTAL ACTIVOS</span>
+                    <span style={{ fontWeight: 700, color: '#10b981' }}>{formatCurrency(totalDisponible + porCobrar + stockValorizado)}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* BLOQUE 2: PASIVOS */}
+              <div className="apple-card" style={{ padding: '20px', marginBottom: '20px' }}>
+                <h3 style={{ fontSize: '16px', fontWeight: 700, color: '#111827', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#ef4444' }}></div>
+                  PASIVOS
+                </h3>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ color: '#4b5563' }}>Proveedores por Pagar</span>
+                    <span style={{ fontWeight: 500 }}>{formatCurrency(porPagar)}</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ color: '#4b5563' }}>Préstamos Pendientes</span>
+                    <span style={{ fontWeight: 500 }}>{formatCurrency(prestamosPendientes)}</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: '12px', borderTop: '1px solid #e5e7eb', marginTop: '4px' }}>
+                    <span style={{ fontWeight: 700, color: '#111827' }}>TOTAL PASIVOS</span>
+                    <span style={{ fontWeight: 700, color: '#ef4444' }}>{formatCurrency(porPagar + prestamosPendientes)}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* BLOQUE 3: PATRIMONIO NETO */}
+              <div className="apple-card" style={{ padding: '20px', marginBottom: '20px', backgroundColor: '#eff6ff', borderColor: '#bfdbfe' }}>
+                <h3 style={{ fontSize: '16px', fontWeight: 700, color: '#1e40af', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#3b82f6' }}></div>
+                  PATRIMONIO NETO
+                </h3>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ color: '#1e40af', fontWeight: 600 }}>Patrimonio Estimado</span>
+                  <span style={{ fontWeight: 700, fontSize: '20px', color: '#1d4ed8' }}>{formatCurrency(patrimonioEstimado)}</span>
+                </div>
+              </div>
+
+              {/* BLOQUE 4: COMPOSICIÓN DEL PATRIMONIO */}
+              <div className="apple-card" style={{ padding: '20px', marginBottom: '20px' }}>
+                <h3 style={{ fontSize: '16px', fontWeight: 700, color: '#111827', marginBottom: '16px' }}>COMPOSICIÓN DEL PATRIMONIO</h3>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ color: '#4b5563' }}>Capital Aportado por Socios</span>
+                    <span style={{ fontWeight: 600 }}>{formatCurrency(capitalAportadoSocios)}</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ color: '#4b5563' }}>{resultadoGenerado >= 0 ? 'Resultado Generado' : 'Pérdida Acumulada'}</span>
+                    <span style={{ fontWeight: 700, color: resultadoGenerado >= 0 ? '#10b981' : '#ef4444' }}>
+                      {formatCurrency(resultadoGenerado)}
+                    </span>
+                  </div>
+                  <div style={{ marginTop: '8px', paddingTop: '16px', borderTop: '1px dashed #d1d5db', textAlign: 'center', color: '#6b7280', fontSize: '14px', fontStyle: 'italic' }}>
+                    FÓRMULA VISUAL<br/>
+                    <span style={{ fontWeight: 600, color: '#3b82f6' }}>Patrimonio</span> = Capital Aportado {resultadoGenerado >= 0 ? '+' : '-'} {resultadoGenerado >= 0 ? 'Resultado Generado' : 'Pérdida Acumulada'}
+                  </div>
+                </div>
+              </div>
+
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* --- MODAL DETALLE DE STOCK VALORIZADO --- */}
+      {selectedStockValorizadoOpen && (() => {
+        const stockItems = cacheStock.products
+          .filter(p => p.activo)
+          .map(p => {
+            const stock = Math.max(0, p.stockActual || 0);
+            const costo = p.costoActual || p.costoUltimaCompra || 0;
+            const valorizacion = stock * costo;
+            const isSinCosto = stock > 0 && costo === 0;
+            return {
+              id: p.id,
+              nombre: p.nombre,
+              tipo: p.type,
+              stock,
+              unitType: p.unitType,
+              costo,
+              valorizacion,
+              isSinCosto
+            };
+          })
+          .filter(item => item.stock > 0)
+          .sort((a, b) => b.valorizacion - a.valorizacion);
+
+        const totalStockValorizado = stockItems.reduce((acc, curr) => acc + curr.valorizacion, 0);
+
+        return (
+          <div className="modal-overlay open" onClick={() => setSelectedStockValorizadoOpen(false)}>
+            <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: '1000px', width: '95%', padding: 0, borderRadius: '12px', overflow: 'hidden' }}>
+              <div style={{ padding: '20px 24px', borderBottom: '1px solid #e5e7eb', display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#ffffff', position: 'sticky', top: 0, zIndex: 10 }}>
+                <div>
+                  <h2 style={{ fontSize: '20px', fontWeight: 700, color: '#111827', margin: 0 }}>DESGLOSE DE STOCK VALORIZADO</h2>
+                  <p style={{ fontSize: '14px', color: '#6b7280', margin: '4px 0 0 0' }}>Composición detallada del capital inmovilizado en stock</p>
+                </div>
+                <button onClick={() => setSelectedStockValorizadoOpen(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px', color: '#9ca3af' }}>
+                  <X size={24} />
+                </button>
+              </div>
+
+              <div style={{ padding: '24px', backgroundColor: '#f9fafb', maxHeight: '70vh', overflowY: 'auto' }}>
+                <div className="apple-card" style={{ padding: '0', overflow: 'hidden' }}>
+                  <table className="analytics-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
+                    <thead>
+                      <tr>
+                        <th style={{ padding: '12px 16px', textAlign: 'left', borderBottom: '1px solid #e5e7eb', backgroundColor: '#f3f4f6', color: '#374151', fontWeight: 600, fontSize: '13px' }}>Producto</th>
+                        <th style={{ padding: '12px 16px', textAlign: 'left', borderBottom: '1px solid #e5e7eb', backgroundColor: '#f3f4f6', color: '#374151', fontWeight: 600, fontSize: '13px' }}>Tipo</th>
+                        <th style={{ padding: '12px 16px', textAlign: 'right', borderBottom: '1px solid #e5e7eb', backgroundColor: '#f3f4f6', color: '#374151', fontWeight: 600, fontSize: '13px' }}>Stock</th>
+                        <th style={{ padding: '12px 16px', textAlign: 'right', borderBottom: '1px solid #e5e7eb', backgroundColor: '#f3f4f6', color: '#374151', fontWeight: 600, fontSize: '13px' }}>Costo Unitario</th>
+                        <th style={{ padding: '12px 16px', textAlign: 'right', borderBottom: '1px solid #e5e7eb', backgroundColor: '#f3f4f6', color: '#374151', fontWeight: 600, fontSize: '13px' }}>Valorización</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {stockItems.map(item => (
+                        <tr key={item.id} style={{ borderBottom: '1px solid #e5e7eb' }}>
+                          <td style={{ padding: '12px 16px', fontSize: '14px', color: '#111827' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                              {item.nombre}
+                              {item.isSinCosto && (
+                                <span style={{ backgroundColor: '#fee2e2', color: '#b91c1c', fontSize: '11px', padding: '2px 6px', borderRadius: '4px', fontWeight: 600 }}>Sin costo</span>
+                              )}
+                            </div>
+                          </td>
+                          <td style={{ padding: '12px 16px', fontSize: '13px', color: '#6b7280' }}>{item.tipo}</td>
+                          <td style={{ padding: '12px 16px', fontSize: '14px', color: '#111827', textAlign: 'right', fontWeight: 500 }}>
+                            {item.stock.toLocaleString('es-AR', { maximumFractionDigits: 2 })} {item.unitType === 'KG' ? 'kg' : item.unitType === 'UNIDADES' ? 'un' : item.unitType?.toLowerCase() || ''}
+                          </td>
+                          <td style={{ padding: '12px 16px', fontSize: '14px', color: '#4b5563', textAlign: 'right' }}>
+                            {formatCurrency(item.costo)}
+                          </td>
+                          <td style={{ padding: '12px 16px', fontSize: '14px', color: '#047857', textAlign: 'right', fontWeight: 600 }}>
+                            {formatCurrency(item.valorizacion)}
+                          </td>
+                        </tr>
+                      ))}
+                      {stockItems.length === 0 && (
+                        <tr>
+                          <td colSpan={5} style={{ padding: '24px', textAlign: 'center', color: '#6b7280' }}>No hay productos activos con stock.</td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* FOOTER TOTALS */}
+                <div style={{ marginTop: '20px', display: 'flex', justifyContent: 'flex-end', gap: '24px', backgroundColor: '#ffffff', padding: '16px 24px', borderRadius: '8px', border: '1px solid #e5e7eb' }}>
+                  <div style={{ textAlign: 'right' }}>
+                    <div style={{ fontSize: '13px', color: '#6b7280', marginBottom: '4px' }}>Cantidad de Productos</div>
+                    <div style={{ fontSize: '18px', fontWeight: 600, color: '#111827' }}>{stockItems.length}</div>
+                  </div>
+                  <div style={{ textAlign: 'right' }}>
+                    <div style={{ fontSize: '13px', color: '#6b7280', marginBottom: '4px' }}>Total Stock Valorizado</div>
+                    <div style={{ fontSize: '20px', fontWeight: 700, color: '#10b981' }}>{formatCurrency(totalStockValorizado)}</div>
+                  </div>
+                </div>
+
               </div>
             </div>
           </div>
