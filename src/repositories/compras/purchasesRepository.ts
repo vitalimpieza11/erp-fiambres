@@ -1,5 +1,5 @@
 import { collection, onSnapshot, query, where, doc, setDoc, updateDoc, getDocs, orderBy, limit, runTransaction } from 'firebase/firestore';
-import { db, COLLECTIONS } from '../../lib/firebase';
+import { db, COLLECTIONS, removeUndefinedFields } from '../../lib/firebase';
 import type { Purchase, StockMovement, CajaMovement, SupplierMovement } from '../../types/domain';
 import { truncateDecimals } from '../../lib/formatters';
 
@@ -59,7 +59,7 @@ export const purchasesRepository = {
       });
 
       // 2. GUARDAR COMPRA
-      transaction.set(purchaseRef, newPurchase);
+      transaction.set(purchaseRef, removeUndefinedFields(newPurchase));
 
       // 3. IMPACTAR STOCK V2 y ACTUALIZAR PRODUCTOS V1
       for (const item of newPurchase.items) {
@@ -75,7 +75,7 @@ export const purchasesRepository = {
           observaciones: 'Compra a proveedor',
           isDeleted: false
         };
-        transaction.set(stockMovRef, stockMov);
+        transaction.set(stockMovRef, removeUndefinedFields(stockMov));
 
         // Actualizar stockActual y costos del producto (Fijar consistencia)
         const prodRef = doc(db, 'products', item.productId);
@@ -109,7 +109,7 @@ export const purchasesRepository = {
               accountId: pay.accountId,
               isDeleted: false
             };
-            transaction.set(cajaMovRef, cajaMov);
+            transaction.set(cajaMovRef, removeUndefinedFields(cajaMov));
           }
         }
       } else if (newPurchase.montoPagado > 0) {
@@ -129,7 +129,7 @@ export const purchasesRepository = {
           accountId: purchaseData.accountId,
           isDeleted: false
         };
-        transaction.set(cajaMovRef, cajaMov);
+        transaction.set(cajaMovRef, removeUndefinedFields(cajaMov));
       }
 
       // 5. IMPACTAR PROVEEDORES V2
@@ -147,7 +147,7 @@ export const purchasesRepository = {
           reversalOf: null,
           isDeleted: false
         };
-        transaction.set(suppMovRef, suppMov);
+        transaction.set(suppMovRef, removeUndefinedFields(suppMov));
       }
     });
   },
@@ -187,7 +187,7 @@ export const purchasesRepository = {
         reversalOf: original.id,
         isDeleted: false
       };
-      transaction.set(compPurchaseRef, compensatoryPurchase);
+      transaction.set(compPurchaseRef, removeUndefinedFields(compensatoryPurchase));
 
       // 3. REVERTIR STOCK V2 Y ACTUALIZAR PRODUCTOS V1
       for (const item of original.items) {
@@ -203,7 +203,7 @@ export const purchasesRepository = {
           observaciones: `Anulación de compra: ${reason}`,
           isDeleted: false
         };
-        transaction.set(stockMovRef, stockMov);
+        transaction.set(stockMovRef, removeUndefinedFields(stockMov));
 
         // Revertir stockActual
         const prodRef = doc(db, 'products', item.productId);
@@ -233,7 +233,7 @@ export const purchasesRepository = {
           accountId: origMov.accountId,
           isDeleted: false
         };
-        transaction.set(cajaMovRef, cajaMov);
+        transaction.set(cajaMovRef, removeUndefinedFields(cajaMov));
       }
 
       // 5. REVERTIR PROVEEDORES V2
@@ -251,7 +251,7 @@ export const purchasesRepository = {
           reversalOf: original.id,
           isDeleted: false
         };
-        transaction.set(suppMovRef, suppMov);
+        transaction.set(suppMovRef, removeUndefinedFields(suppMov));
       }
     });
   }
