@@ -21,6 +21,8 @@ const formatMoney = (val: number) =>
   new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(val);
 
 type FilterCategory = 'ALL' | 'EFECTIVO' | 'BANCOS';
+type ResolvedCajaMovement = CajaMovement & { resolvedAccountId: string };
+
 
 export default function Caja() {
   const {
@@ -144,7 +146,7 @@ export default function Caja() {
     await annulMovement(id, reason);
   };
 
-  const handleEditMovement = (mov: CajaMovement) => {
+  const handleEditMovement = (mov: ResolvedCajaMovement) => {
     setEditingId(mov.id);
     setMovType(mov.type === 'INCOME' ? 'INCOME' : 'EXPENSE');
     setAmount(mov.amount);

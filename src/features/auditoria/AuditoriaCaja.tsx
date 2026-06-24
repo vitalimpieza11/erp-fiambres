@@ -12,7 +12,7 @@ export default function AuditoriaCaja() {
   const [activeTab, setActiveTab] = useState<'AUDITORIA' | 'REVISAR' | 'DIAGNOSTICO'>('AUDITORIA');
   
   const movements = useCajaStore(state => state.movements);
-  const cacheCaja = useDashboardCache(state => state.cacheCaja);
+  const { cacheCaja } = useDashboardCache();
   const accounts = useFinancialAccountsStore(state => state.accounts);
 
   // A. Auditoria de Caja
