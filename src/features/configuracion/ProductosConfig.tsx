@@ -946,6 +946,44 @@ export default function ProductosConfig() {
               )}
             </div>
 
+            {/* FASE 3 - Códigos de Balanza */}
+            <div style={{ padding: '16px 20px', borderRadius: '12px', backgroundColor: '#eff6ff', border: '1px solid #bfdbfe' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '14px' }}>
+                <span style={{ fontSize: '16px' }}>⚖️</span>
+                <span style={{ fontSize: '13px', fontWeight: 700, color: '#1d4ed8' }}>Código de Balanza (opcional)</span>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '16px' }}>
+                <div className="form-group">
+                  <label style={{ display: 'block', marginBottom: '6px', fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)' }}>
+                    Código de Balanza
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    step="1"
+                    value={currentProduct.codigoBalanza !== undefined && currentProduct.codigoBalanza !== null && currentProduct.codigoBalanza !== 0 ? currentProduct.codigoBalanza : ''}
+                    onChange={e => setCurrentProduct({ ...currentProduct, codigoBalanza: e.target.value ? Number(e.target.value) : undefined })}
+                    placeholder="Ej: 42"
+                    style={{ width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid #93c5fd', background: '#fff' }}
+                  />
+                </div>
+                <div className="form-group">
+                  <label style={{ display: 'block', marginBottom: '6px', fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)' }}>
+                    Nombre Corto de Balanza
+                  </label>
+                  <input
+                    type="text"
+                    maxLength={20}
+                    value={currentProduct.nombreCortoBalanza || ''}
+                    onChange={e => setCurrentProduct({ ...currentProduct, nombreCortoBalanza: e.target.value })}
+                    placeholder="Ej: JAM COCIDO (máx. 20 caracteres)"
+                    style={{ width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid #93c5fd', background: '#fff' }}
+                  />
+                </div>
+              </div>
+            </div>
+
+
             {currentProduct.type === 'PRESENTACION' && (
               <div style={{ padding: '20px', borderRadius: '12px', backgroundColor: '#f0fdf4', border: '1px solid #bbf7d0' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>

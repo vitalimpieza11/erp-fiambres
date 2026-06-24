@@ -8,6 +8,14 @@ interface LoansState {
   isSubscribed: boolean;
   unsubscribeRef: (() => void) | null;
   subscribeLoans: () => () => void;
+  // FASE 5: Registra un préstamo del socio a la empresa (genera INCOME en caja)
+  registerLoan: (data: {
+    shareholderId: string;
+    shareholderName: string;
+    amount: number;
+    description: string;
+    accountId: string;
+  }) => Promise<void>;
   registerPayment: (loanId: string, amount: number, description: string, accountId: string) => Promise<void>;
   registerCapitalization: (loanId: string, amount: number, description: string) => Promise<void>;
   annulPayment: (loanId: string, paymentId: string, reason: string) => Promise<void>;
@@ -32,6 +40,9 @@ export const useLoansStore = create<LoansState>((set, get) => ({
     set({ unsubscribeRef: unsub });
     return () => {};
   },
+  registerLoan: async (data) => {
+    await loansRepository.registerLoan(data);
+  },
   registerPayment: async (loanId, amount, description, accountId) => {
     await loansRepository.registerPayment(loanId, amount, description, accountId);
   },
@@ -42,3 +53,4 @@ export const useLoansStore = create<LoansState>((set, get) => ({
     await loansRepository.annulPayment(loanId, paymentId, reason);
   }
 }));
+

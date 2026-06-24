@@ -1,0 +1,20 @@
+﻿commit 0afdbab34b8fe88ce03c841484263138185a14af
+Author: Gonzalo Juarez <gonojuarez17@gmail.com>
+Date:   Sat Jun 13 18:36:32 2026 -0300
+
+    feat: implement core repository and store architecture with initial Firebase integration for inventory, sales, and accounts management
+
+M	src/features/compras/usePurchases.ts
+A	src/repositories/purchasesRepository.ts
+A	src/store/purchasesStore.ts
+
+commit 215f027ef6bec4dab63cfc72f2ccfe96719a2794
+Author: vitalimpieza11 <tiemporaiz11@gmail.com>
+Date:   Sat Jun 13 14:01:23 2026 -0300
+
+    first version
+    
+    primera version
+
+A	src/features/compras/Compras.tsx
+A	src/features/compras/usePurchases.ts

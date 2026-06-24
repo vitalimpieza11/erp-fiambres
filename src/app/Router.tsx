@@ -19,6 +19,7 @@ const Compras = lazy(() => import('../features/compras/Compras'));
 const Auditoria = lazy(() => import('../features/auditoria/AuditoriaCaja'));
 const Login = lazy(() => import('../features/auth/Login'));
 const AsistenteInicio = lazy(() => import('../features/asistente-inicio/AsistenteInicio'));
+const CodigosBalanza = lazy(() => import('../features/balanza/CodigosBalanza'));
 
 // Guard for authenticated users
 function AuthGuard({ children }: { children: React.ReactNode }) {
@@ -79,6 +80,7 @@ export default function Router() {
             <Route path="socios" element={<Socios />} />
             <Route path="configuracion" element={<Configuracion />} />
             <Route path="asistente-inicio" element={<AsistenteInicio />} />
+            <Route path="balanza" element={<CodigosBalanza />} />
             <Route path="*" element={<Navigate to="/dashboard" replace />} />
           </Route>
         </Routes>

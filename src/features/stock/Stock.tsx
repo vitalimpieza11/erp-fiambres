@@ -70,7 +70,7 @@ export default function Stock() {
     filteredProducts.forEach(p => {
       if (stats[p.type]) {
         stats[p.type].count += 1;
-        const cost = p.costoActual || 0;
+        const cost = Number(p.costoActual) || 0;
         const stock = p.stockActual || 0;
         stats[p.type].value += (stock * cost);
         stats[p.type].items.push(p);
@@ -315,7 +315,7 @@ export default function Stock() {
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                                 <span style={{ color: 'var(--text-secondary)' }}>Costo Actual</span>
-                                <strong>${p.costoActual?.toFixed(2) || '0.00'}</strong>
+                                <strong>${Number(p.costoActual || 0).toFixed(2)}</strong>
                               </div>
                               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px dashed var(--border-color)', paddingTop: '8px' }}>
                                 <span style={{ color: 'var(--text-secondary)' }}>Valorización Stock</span>

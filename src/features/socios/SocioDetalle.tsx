@@ -348,50 +348,139 @@ export default function SocioDetalle({
 
         {activeTab === 'prestamos' && (
           <div>
-            <h3 style={{ margin: '0 0 20px 0', fontSize: '18px', color: 'var(--text-primary)' }}>Historial de Préstamos</h3>
-            {socioLoans.length === 0 ? (
-              <p style={{ color: 'var(--text-secondary)', textAlign: 'center' }}>No hay préstamos registrados.</p>
-            ) : (
-              <div style={{ overflowX: 'auto' }}>
-                <table className="apple-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
-                  <thead>
-                    <tr style={{ borderBottom: '2px solid var(--border-color)', textAlign: 'left', fontSize: '13px', color: 'var(--text-secondary)' }}>
-                      <th style={{ padding: '12px 8px' }}>Fecha</th>
-                      <th style={{ padding: '12px 8px' }}>Descripción</th>
-                      <th style={{ padding: '12px 8px', textAlign: 'right' }}>Monto Original</th>
-                      <th style={{ padding: '12px 8px', textAlign: 'right' }}>Saldo Pendiente</th>
-                      <th style={{ padding: '12px 8px', textAlign: 'center' }}>Estado</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {socioLoans.map((loan) => (
-                      <tr key={loan.id} style={{ borderBottom: '1px solid var(--border-color)', fontSize: '14px' }}>
-                        <td style={{ padding: '12px 8px' }}>{formatDate(loan.date)}</td>
-                        <td style={{ padding: '12px 8px', color: 'var(--text-secondary)' }}>{loan.description || '-'}</td>
-                        <td style={{ padding: '12px 8px', textAlign: 'right', fontWeight: 600 }}>{formatCurrency(loan.amount)}</td>
-                        <td style={{ padding: '12px 8px', textAlign: 'right', fontWeight: 700, color: loan.remainingAmount > 0 ? '#ef4444' : 'var(--text-primary)' }}>
-                          {formatCurrency(loan.remainingAmount)}
-                        </td>
-                        <td style={{ padding: '12px 8px', textAlign: 'center' }}>
-                          <span
-                            style={{
-                              fontSize: '11px',
-                              fontWeight: 600,
-                              padding: '2px 8px',
-                              borderRadius: '12px',
-                              backgroundColor: loan.status === 'PAGADO' ? '#dcfce7' : '#fff3cd',
-                              color: loan.status === 'PAGADO' ? '#16a34a' : '#d97706',
-                            }}
-                          >
-                            {loan.status}
-                          </span>
+            <h3 style={{ margin: '0 0 20px 0', fontSize: '18px', color: 'var(--text-primary)' }}>
+              Historial de Préstamos y Devoluciones
+            </h3>
+
+            {/* Summary chips */}
+            <div style={{ display: 'flex', gap: '12px', marginBottom: '20px', flexWrap: 'wrap' }}>
+              <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '10px', padding: '10px 16px' }}>
+                <span style={{ fontSize: '11px', color: '#1e40af', fontWeight: 600, textTransform: 'uppercase' }}>Prestado</span>
+                <div style={{ fontSize: '16px', fontWeight: 700, color: '#1e3a8a' }}>{formatCurrency(prestamosRealizados)}</div>
+              </div>
+              <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '10px', padding: '10px 16px' }}>
+                <span style={{ fontSize: '11px', color: '#15803d', fontWeight: 600, textTransform: 'uppercase' }}>Devuelto</span>
+                <div style={{ fontSize: '16px', fontWeight: 700, color: '#14532d' }}>
+                  {formatCurrency(prestamosRealizados - prestamosPendientes)}
+                </div>
+              </div>
+              <div style={{
+                background: prestamosPendientes > 0 ? '#fef2f2' : '#f0fdf4',
+                border: `1px solid ${prestamosPendientes > 0 ? '#fecaca' : '#bbf7d0'}`,
+                borderRadius: '10px', padding: '10px 16px'
+              }}>
+                <span style={{ fontSize: '11px', color: prestamosPendientes > 0 ? '#dc2626' : '#15803d', fontWeight: 600, textTransform: 'uppercase' }}>Saldo Pendiente</span>
+                <div style={{ fontSize: '16px', fontWeight: 700, color: prestamosPendientes > 0 ? '#991b1b' : '#14532d' }}>
+                  {formatCurrency(prestamosPendientes)}
+                </div>
+              </div>
+            </div>
+
+            {/* Unified timeline with saldo acumulado */}
+            {(() => {
+              // Build unified events: loans creations + all payments
+              type EventType = 'PRESTAMO_SOCIO_EMPRESA' | 'DEVOLUCION_EMPRESA_SOCIO' | 'CAPITALIZACION';
+              const events: { date: string; type: EventType; label: string; importe: number; description: string; id: string }[] = [];
+
+              socioLoans.forEach(loan => {
+                events.push({
+                  date: loan.date,
+                  type: 'PRESTAMO_SOCIO_EMPRESA',
+                  label: 'Préstamo',
+                  importe: loan.amount,
+                  description: loan.description,
+                  id: loan.id,
+                });
+                (loan.payments || []).forEach(pay => {
+                  events.push({
+                    date: pay.date,
+                    type: pay.type === 'CAPITALIZATION' ? 'CAPITALIZACION' : 'DEVOLUCION_EMPRESA_SOCIO',
+                    label: pay.type === 'CAPITALIZATION' ? 'Capitalización' : 'Devolución',
+                    importe: -pay.amount,
+                    description: pay.description,
+                    id: pay.id || '',
+                  });
+                });
+              });
+
+              // Sort chronologically ascending
+              events.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+              // Compute running saldo
+              let saldo = 0;
+              const eventsWithSaldo = events.map(ev => {
+                saldo = Number((saldo + ev.importe).toFixed(2));
+                return { ...ev, saldoAcumulado: saldo };
+              });
+
+              // Display newest first
+              const eventsDesc = [...eventsWithSaldo].reverse();
+
+              if (eventsDesc.length === 0) {
+                return <p style={{ color: 'var(--text-secondary)', textAlign: 'center' }}>No hay préstamos registrados.</p>;
+              }
+
+              return (
+                <div style={{ overflowX: 'auto' }}>
+                  <table className="apple-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
+                    <thead>
+                      <tr style={{ borderBottom: '2px solid var(--border-color)', textAlign: 'left', fontSize: '13px', color: 'var(--text-secondary)' }}>
+                        <th style={{ padding: '12px 8px' }}>Fecha</th>
+                        <th style={{ padding: '12px 8px' }}>Tipo</th>
+                        <th style={{ padding: '12px 8px' }}>Concepto</th>
+                        <th style={{ padding: '12px 8px', textAlign: 'right' }}>Importe</th>
+                        <th style={{ padding: '12px 8px', textAlign: 'right' }}>Saldo Acumulado</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {eventsDesc.map((ev, idx) => {
+                        const isPrestamo = ev.type === 'PRESTAMO_SOCIO_EMPRESA';
+                        const isCapitalizacion = ev.type === 'CAPITALIZACION';
+                        return (
+                          <tr key={ev.id || idx} style={{ borderBottom: '1px solid var(--border-color)', fontSize: '14px' }}>
+                            <td style={{ padding: '12px 8px', whiteSpace: 'nowrap' }}>{formatDate(ev.date)}</td>
+                            <td style={{ padding: '12px 8px' }}>
+                              <span style={{
+                                fontSize: '11px', fontWeight: 600, padding: '3px 8px', borderRadius: '8px',
+                                backgroundColor: isPrestamo ? '#eff6ff' : isCapitalizacion ? '#f0fdf4' : '#fef2f2',
+                                color: isPrestamo ? '#1e40af' : isCapitalizacion ? '#15803d' : '#dc2626',
+                              }}>
+                                {ev.label}
+                              </span>
+                            </td>
+                            <td style={{ padding: '12px 8px', color: 'var(--text-secondary)', fontSize: '13px' }}>{ev.description || '-'}</td>
+                            <td style={{
+                              padding: '12px 8px', textAlign: 'right', fontWeight: 700,
+                              color: isPrestamo ? '#1e40af' : '#dc2626'
+                            }}>
+                              {isPrestamo ? '+' : ''}{formatCurrency(ev.importe)}
+                            </td>
+                            <td style={{
+                              padding: '12px 8px', textAlign: 'right', fontWeight: 700,
+                              color: ev.saldoAcumulado > 0 ? '#dc2626' : '#16a34a',
+                              fontSize: '15px'
+                            }}>
+                              {formatCurrency(ev.saldoAcumulado)}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                    <tfoot>
+                      <tr style={{ borderTop: '2px solid var(--border-color)', background: 'var(--bg-color)' }}>
+                        <td colSpan={4} style={{ padding: '12px 8px', fontWeight: 700, fontSize: '14px' }}>Saldo Pendiente Actual</td>
+                        <td style={{
+                          padding: '12px 8px', textAlign: 'right', fontWeight: 800, fontSize: '16px',
+                          color: prestamosPendientes > 0 ? '#dc2626' : '#16a34a'
+                        }}>
+                          {formatCurrency(prestamosPendientes)}
                         </td>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
+                    </tfoot>
+                  </table>
+                </div>
+              );
+            })()}
           </div>
         )}
 

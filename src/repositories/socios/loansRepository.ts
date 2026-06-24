@@ -14,6 +14,56 @@ export const loansRepository = {
     });
   },
 
+  // FASE 5: Registra un nuevo préstamo del socio a la empresa.
+  // Transacción atómica: crea el préstamo en shareholder_loans + movimiento INCOME en caja.
+  async registerLoan(data: {
+    shareholderId: string;
+    shareholderName: string;
+    amount: number;
+    description: string;
+    accountId: string;
+  }): Promise<void> {
+    if (data.amount <= 0) throw new Error('El monto del préstamo debe ser mayor a cero');
+
+    await runTransaction(db, async (transaction) => {
+      const loanRef = doc(collection(db, 'shareholder_loans'));
+      const cajaMovRef = doc(collection(db, 'caja_movements'));
+      const date = new Date().toISOString();
+
+      const newLoan: ShareholderLoan = {
+        id: loanRef.id,
+        shareholderId: data.shareholderId,
+        shareholderName: data.shareholderName,
+        amount: data.amount,
+        date,
+        description: data.description,
+        remainingAmount: data.amount,
+        status: 'PENDIENTE',
+        isDeleted: false,
+        payments: [],
+        linkedCajaMovementId: cajaMovRef.id,
+      };
+
+      const cajaMov: CajaMovement = {
+        id: cajaMovRef.id,
+        type: 'INCOME',
+        amount: data.amount,
+        date,
+        category: 'PRESTAMO_SOCIO',
+        description: `Préstamo Socio → Empresa: ${data.shareholderName}. ${data.description}`,
+        operation: 'MOVEMENT',
+        reasonType: 'PRESTAMO_SOCIO_EMPRESA',
+        sourceId: loanRef.id,
+        shareholderId: data.shareholderId,
+        accountId: data.accountId,
+        isDeleted: false,
+      };
+
+      transaction.set(loanRef, newLoan);
+      transaction.set(cajaMovRef, cajaMov);
+    });
+  },
+
   async registerPayment(
     loanId: string,
     amount: number,

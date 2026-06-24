@@ -58,13 +58,20 @@ export default function Socios() {
   const [selectedSocioForDetail, setSelectedSocioForDetail] = useState<Shareholder | null>(null);
 
   // Loans State - Always subscribe on mount so capital cards can use loan stats
-  const { loans, loading: loansLoading, subscribeLoans, registerPayment, annulPayment, registerCapitalization } = useLoansStore();
+  const { loans, loading: loansLoading, subscribeLoans, registerPayment, annulPayment, registerCapitalization, registerLoan } = useLoansStore();
   const [paymentPanelLoanId, setPaymentPanelLoanId] = useState<string | null>(null);
   const [capitalizationPanelLoanId, setCapitalizationPanelLoanId] = useState<string | null>(null);
   const [capitalizationAmount, setCapitalizationAmount] = useState<number | ''>('');
   const [capitalizationDesc, setCapitalizationDesc] = useState<string>('');
   const [paymentAmount, setPaymentAmount] = useState<number | ''>('');
   const [paymentDesc, setPaymentDesc] = useState<string>('');
+
+  // FASE 5: Estado para panel de nuevo préstamo
+  const [newLoanPanelOpen, setNewLoanPanelOpen] = useState(false);
+  const [newLoanShareholderId, setNewLoanShareholderId] = useState('');
+  const [newLoanAmount, setNewLoanAmount] = useState<number | ''>('');
+  const [newLoanDesc, setNewLoanDesc] = useState('Préstamo de socio a la empresa');
+  const [newLoanAccountId, setNewLoanAccountId] = useState('');
   const [paymentAccountId, setPaymentAccountId] = useState<string>('');
 
   useEffect(() => {
@@ -125,6 +132,38 @@ export default function Socios() {
     }
   };
 
+  // FASE 5: Handlers para nuevo préstamo
+  const handleOpenNewLoanPanel = (shareholderId?: string) => {
+    setNewLoanPanelOpen(true);
+    setNewLoanShareholderId(shareholderId || '');
+    setNewLoanAmount('');
+    setNewLoanDesc('Préstamo de socio a la empresa');
+    // Default al primer account activo
+    const defaultAcc = accounts.find(a => a.activa && a.tipo === 'EFECTIVO') || accounts.find(a => a.activa);
+    setNewLoanAccountId(defaultAcc?.id || '');
+  };
+
+  const handleCloseNewLoanPanel = () => setNewLoanPanelOpen(false);
+
+  const handleNewLoanSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newLoanShareholderId || !newLoanAmount || !newLoanAccountId) return;
+    const socio = shareholders.find(s => s.id === newLoanShareholderId);
+    if (!socio) return;
+    try {
+      await registerLoan({
+        shareholderId: newLoanShareholderId,
+        shareholderName: socio.nombre,
+        amount: Number(newLoanAmount),
+        description: newLoanDesc,
+        accountId: newLoanAccountId,
+      });
+      handleCloseNewLoanPanel();
+    } catch (err: any) {
+      alert(err.message || 'Error al registrar el préstamo');
+    }
+  };
+
   const totalPrestado = loans.reduce((acc, l) => acc + l.amount, 0);
   const totalRestante = loans.reduce((acc, l) => acc + l.remainingAmount, 0);
   const totalDevuelto = totalPrestado - totalRestante;
@@ -158,6 +197,11 @@ export default function Socios() {
         {activeTab === 'aportes' && (
           <button className="btn-primary" style={{ display: 'flex', alignItems: 'center', gap: '8px' }} onClick={handleOpenNewSocio}>
             <Plus size={18} /> Nuevo Socio
+          </button>
+        )}
+        {activeTab === 'prestamos' && (
+          <button className="btn-primary" style={{ display: 'flex', alignItems: 'center', gap: '8px', backgroundColor: '#2563eb', borderColor: '#2563eb' }} onClick={() => handleOpenNewLoanPanel()}>
+            <Plus size={18} /> Registrar Préstamo
           </button>
         )}
       </div>
@@ -334,6 +378,12 @@ export default function Socios() {
                       >
                         ± Ajuste
                       </button>
+                      <button 
+                        onClick={() => handleOpenNewLoanPanel(socio.id)}
+                        className="btn-secondary" style={{ flex: 1, padding: '6px', fontSize: '11px', color: '#2563eb', borderColor: '#2563eb' }}
+                      >
+                        💰 Préstamo
+                      </button>
                     </div>
                   </div>
                 );
@@ -343,19 +393,26 @@ export default function Socios() {
         </>
       ) : (
         <div>
-          {/* Metrics summary */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '24px', marginBottom: '32px' }}>
+          {/* Metrics summary — incluye préstamos históricos y nuevos (única fuente de verdad) */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px', marginBottom: '32px' }}>
             <div className="apple-card" style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
               <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Total Prestado</span>
-              <strong style={{ fontSize: '24px', color: '#1d1d1f' }}>{formatCurrency(totalPrestado)}</strong>
+              <strong style={{ fontSize: '22px', color: '#1d1d1f' }}>{formatCurrency(totalPrestado)}</strong>
+              <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>{loans.length} préstamo{loans.length !== 1 ? 's' : ''}</span>
             </div>
             <div className="apple-card" style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
               <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Total Devuelto</span>
-              <strong style={{ fontSize: '24px', color: '#16a34a' }}>{formatCurrency(totalDevuelto)}</strong>
+              <strong style={{ fontSize: '22px', color: '#16a34a' }}>{formatCurrency(totalDevuelto)}</strong>
             </div>
-            <div className="apple-card" style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
-              <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>Saldo Restante</span>
-              <strong style={{ fontSize: '24px', color: '#ef4444' }}>{formatCurrency(totalRestante)}</strong>
+            <div className="apple-card" style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '6px', border: '1px solid #fecaca', background: 'linear-gradient(135deg,#fef2f2,#fff)' }}>
+              <span style={{ fontSize: '12px', fontWeight: 600, color: '#dc2626', textTransform: 'uppercase' }}>Total Adeudado por Empresa</span>
+              <strong style={{ fontSize: '22px', color: '#dc2626' }}>{formatCurrency(totalRestante)}</strong>
+              <span style={{ fontSize: '11px', color: '#ef4444' }}>{loans.filter(l => l.status === 'PENDIENTE').length} préstamo{loans.filter(l => l.status === 'PENDIENTE').length !== 1 ? 's' : ''} pendiente{loans.filter(l => l.status === 'PENDIENTE').length !== 1 ? 's' : ''}</span>
+            </div>
+            <div className="apple-card" style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '6px', border: '1px solid #bbf7d0', background: 'linear-gradient(135deg,#f0fdf4,#fff)' }}>
+              <span style={{ fontSize: '12px', fontWeight: 600, color: '#16a34a', textTransform: 'uppercase' }}>% Devuelto</span>
+              <strong style={{ fontSize: '22px', color: '#16a34a' }}>{totalPrestado > 0 ? ((totalDevuelto / totalPrestado) * 100).toFixed(1) : '0.0'}%</strong>
+              <span style={{ fontSize: '11px', color: 'var(--text-secondary)' }}>{loans.filter(l => l.status === 'PAGADO').length} saldado{loans.filter(l => l.status === 'PAGADO').length !== 1 ? 's' : ''}</span>
             </div>
           </div>
 
@@ -699,6 +756,76 @@ export default function Socios() {
           <div style={{ display: 'flex', gap: '12px', marginTop: '24px' }}>
             <button type="button" className="btn-secondary" style={{ flex: 1 }} onClick={handleCloseCapitalizationPanel}>Cancelar</button>
             <button type="submit" className="btn-primary" style={{ flex: 1, backgroundColor: '#16a34a', borderColor: '#16a34a' }}>Capitalizar</button>
+          </div>
+        </form>
+      </RightPanel>
+
+      {/* FASE 5: Right panel para registrar nuevo préstamo (Socio → Empresa) */}
+      <RightPanel
+        isOpen={newLoanPanelOpen}
+        onClose={handleCloseNewLoanPanel}
+        title="Registrar Préstamo de Socio"
+      >
+        <form onSubmit={handleNewLoanSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          <div style={{ background: '#eff6ff', color: '#1e40af', padding: '12px', borderRadius: '8px', fontSize: '13px', borderLeft: '3px solid #2563eb' }}>
+            El socio presta dinero a la empresa. El monto ingresará automáticamente a la cuenta de caja seleccionada.
+          </div>
+
+          <div className="form-group">
+            <label>Socio que presta *</label>
+            <select
+              required
+              value={newLoanShareholderId}
+              onChange={e => setNewLoanShareholderId(e.target.value)}
+            >
+              <option value="">Seleccione un socio...</option>
+              {shareholders.filter(s => s.activo).map(s => (
+                <option key={s.id} value={s.id}>{s.nombre}</option>
+              ))}
+            </select>
+          </div>
+
+          <div className="form-group">
+            <label>Monto ($) *</label>
+            <input
+              type="number"
+              step="0.01"
+              required
+              placeholder="0.00"
+              value={newLoanAmount}
+              onChange={e => setNewLoanAmount(e.target.value === '' ? '' : Number(e.target.value))}
+              autoFocus
+            />
+          </div>
+
+          <div className="form-group">
+            <label>Concepto / Descripción *</label>
+            <input
+              type="text"
+              required
+              value={newLoanDesc}
+              onChange={e => setNewLoanDesc(e.target.value)}
+              placeholder="Ej. Préstamo para capital de trabajo"
+            />
+          </div>
+
+          <div className="form-group">
+            <label>Cuenta de Ingreso (Caja) *</label>
+            <select
+              required
+              value={newLoanAccountId}
+              onChange={e => setNewLoanAccountId(e.target.value)}
+            >
+              <option value="">Seleccione cuenta...</option>
+              {accounts.filter(a => a.activa).map(a => (
+                <option key={a.id} value={a.id}>{a.nombre} ({a.tipo})</option>
+              ))}
+            </select>
+          </div>
+
+          <div style={{ display: 'flex', gap: '12px', marginTop: '24px' }}>
+            <button type="button" className="btn-secondary" style={{ flex: 1 }} onClick={handleCloseNewLoanPanel}>Cancelar</button>
+            <button type="submit" className="btn-primary" style={{ flex: 1, backgroundColor: '#2563eb', borderColor: '#2563eb' }}>Registrar Préstamo</button>
           </div>
         </form>
       </RightPanel>

@@ -18,6 +18,21 @@ export function validateProduct(product: Partial<Product>, catalog: Product[]): 
       field: 'nombre'
     } as DomainError;
   }
+
+  // FASE 3: Validar código de balanza único
+  if (product.codigoBalanza !== undefined && product.codigoBalanza !== null && product.codigoBalanza !== 0) {
+    const duplicado = catalog.find(p =>
+      p.codigoBalanza === product.codigoBalanza &&
+      p.id !== product.id
+    );
+    if (duplicado) {
+      throw {
+        code: 'CODIGO_BALANZA_DUPLICADO',
+        message: `El código de balanza ${product.codigoBalanza} ya está asignado al producto "${duplicado.nombre}". Cada código debe ser único.`,
+        field: 'codigoBalanza'
+      } as DomainError;
+    }
+  }
 }
 
 export const productsRepository = {
@@ -28,7 +43,21 @@ export const productsRepository = {
       return {
         id: d.id,
         ...data,
-        nombre: data.nombre || (data as any).name || ''
+        nombre: data.nombre || (data as any).name || '',
+        costoActual: data.costoActual !== undefined ? Number(data.costoActual) || 0 : undefined,
+        costoUltimaCompra: data.costoUltimaCompra !== undefined ? Number(data.costoUltimaCompra) || 0 : undefined,
+        stockActual: data.stockActual !== undefined ? Number(data.stockActual) || 0 : undefined,
+        precio1kg: data.precio1kg !== undefined && data.precio1kg !== null ? Number(data.precio1kg) : null,
+        precio150g: data.precio150g !== undefined && data.precio150g !== null ? Number(data.precio150g) : null,
+        precio250g: data.precio250g !== undefined && data.precio250g !== null ? Number(data.precio250g) : null,
+        precio500g: data.precio500g !== undefined && data.precio500g !== null ? Number(data.precio500g) : null,
+        precioComercial: data.precioComercial !== undefined ? Number(data.precioComercial) || 0 : undefined,
+        pesoFeta: data.pesoFeta !== undefined ? Number(data.pesoFeta) || 0 : undefined,
+        pesoObjetivoGramos: data.pesoObjetivoGramos !== undefined ? Number(data.pesoObjetivoGramos) || 0 : undefined,
+        pesoObjetivoKg: data.pesoObjetivoKg !== undefined ? Number(data.pesoObjetivoKg) || 0 : undefined,
+        margenDeseado: data.margenDeseado !== undefined ? Number(data.margenDeseado) || 0 : undefined,
+        utilidadObjetivo: data.utilidadObjetivo !== undefined ? Number(data.utilidadObjetivo) || 0 : undefined,
+        mermaObjetivo: data.mermaObjetivo !== undefined ? Number(data.mermaObjetivo) || 0 : undefined,
       } as Product;
     });
   },
@@ -58,6 +87,14 @@ export const productsRepository = {
     } else {
       dataToSave.costoActual = Number(product.costoActual || 0);
     }
+
+    // FASE 3: Persistir campos de balanza
+    if (product.codigoBalanza !== undefined && product.codigoBalanza !== null && String(product.codigoBalanza).trim() !== '' && Number(product.codigoBalanza) !== 0) {
+      dataToSave.codigoBalanza = Number(product.codigoBalanza);
+    } else {
+      dataToSave.codigoBalanza = null;
+    }
+    dataToSave.nombreCortoBalanza = product.nombreCortoBalanza ? String(product.nombreCortoBalanza).trim() : '';
 
     // Do not modify legacy recipe fields in DB during migration to support rollback
     delete dataToSave.recipeItems;

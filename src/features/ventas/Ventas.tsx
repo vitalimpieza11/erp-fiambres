@@ -217,8 +217,8 @@ export default function Ventas() {
     let weightInKg = calculateWeightInKg(Number(item.cantidad), item.unidad, prod);
     weightInKg = truncateDecimals(weightInKg, 3);
 
-    item.cantidad = parsedVal as any;
-    item.precioUnitario = field === 'precioUnitario' ? parsedVal as any : Number(Number(item.precioUnitario).toFixed(2));
+    item.cantidad = Number(parsedVal) || 0;
+    item.precioUnitario = field === 'precioUnitario' ? Number(parsedVal) || 0 : Number(Number(item.precioUnitario).toFixed(2));
     item.subtotal = Number((weightInKg * Number(item.precioUnitario)).toFixed(2));
     newItems[idx] = item as SaleItem;
     
@@ -631,13 +631,13 @@ export default function Ventas() {
                         onChange={e => {
                           const val = e.target.value;
                           const parsedVal = products.find(p => p.id === item.productId)?.type === 'PRESENTACION' ? Math.round(Number(val)) : val;
-                          updateQuickSaleItem(idx, 'cantidad', parsedVal as any);
+                          updateQuickSaleItem(idx, 'cantidad', Number(parsedVal) || 0);
                         }} 
                       />
                     </div>
                     <div style={{ flex: 1 }}>
                       <label style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Precio U.</label>
-                      <input type="number" required step="0.01" value={item.precioUnitario || ''} onChange={e => updateQuickSaleItem(idx, 'precioUnitario', e.target.value as any)} />
+                      <input type="number" required step="0.01" value={item.precioUnitario || ''} onChange={e => updateQuickSaleItem(idx, 'precioUnitario', Number(e.target.value) || 0)} />
                     </div>
                   </div>
                   
@@ -688,7 +688,7 @@ export default function Ventas() {
             <label>Estado de Entrega</label>
             <select 
               value={historicalSale.deliveryStatus} 
-              onChange={e => setHistoricalSale({...historicalSale, deliveryStatus: e.target.value as any, items: []})}
+              onChange={e => setHistoricalSale({...historicalSale, deliveryStatus: e.target.value as 'PENDIENTE' | 'ENTREGADO', items: []})}
             >
               <option value="ENTREGADO">ENTREGADA (Sin impacto de stock)</option>
               <option value="PENDIENTE">PENDIENTE DE ENTREGA (Requiere remito posterior)</option>

@@ -120,7 +120,7 @@ export default function SistemaConfig() {
               <select value={bolsaProductId} onChange={e => setBolsaProductId(e.target.value)}>
                 <option value="">Seleccione un insumo...</option>
                 {productos.filter(p => p.type === 'INSUMO').map(p => (
-                  <option key={p.id} value={p.id}>{p.nombre} (${p.costoActual?.toFixed(2) || '0.00'})</option>
+                  <option key={p.id} value={p.id}>{p.nombre} (${Number(p.costoActual || 0).toFixed(2)})</option>
                 ))}
               </select>
             </div>
@@ -129,7 +129,7 @@ export default function SistemaConfig() {
               <select value={etiquetaProductId} onChange={e => setEtiquetaProductId(e.target.value)}>
                 <option value="">Seleccione un insumo...</option>
                 {productos.filter(p => p.type === 'INSUMO').map(p => (
-                  <option key={p.id} value={p.id}>{p.nombre} (${p.costoActual?.toFixed(2) || '0.00'})</option>
+                  <option key={p.id} value={p.id}>{p.nombre} (${Number(p.costoActual || 0).toFixed(2)})</option>
                 ))}
               </select>
             </div>
@@ -138,7 +138,7 @@ export default function SistemaConfig() {
               <select value={folexProductId} onChange={e => setFolexProductId(e.target.value)}>
                 <option value="">Seleccione un insumo...</option>
                 {productos.filter(p => p.type === 'INSUMO').map(p => (
-                  <option key={p.id} value={p.id}>{p.nombre} (${p.costoActual?.toFixed(2) || '0.00'})</option>
+                  <option key={p.id} value={p.id}>{p.nombre} (${Number(p.costoActual || 0).toFixed(2)})</option>
                 ))}
               </select>
             </div>

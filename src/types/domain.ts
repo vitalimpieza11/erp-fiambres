@@ -105,6 +105,9 @@ export type Product = {
   precio1kg?: number;
   margenDeseado?: number;
   pricingMode?: 'AUTO' | 'MANUAL';
+  // FASE 3 - Códigos de Balanza
+  codigoBalanza?: number;
+  nombreCortoBalanza?: string;
 }
 
 export type Equivalencia = {
@@ -398,6 +401,8 @@ export type ShareholderLoan = {
   status: 'PENDIENTE' | 'PAGADO';
   isDeleted: boolean;
   payments?: ShareholderLoanPayment[];
+  // FASE 5: liga al movimiento INCOME de caja creado al registrar el préstamo
+  linkedCajaMovementId?: string;
 };
 
 export type ProductionItem = {

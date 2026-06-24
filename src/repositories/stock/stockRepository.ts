@@ -23,7 +23,21 @@ export const stockRepository = {
           return {
             id: d.id,
             ...data,
-            nombre: data.nombre || (data as any).name || ''
+            nombre: data.nombre || (data as any).name || '',
+            costoActual: data.costoActual !== undefined ? Number(data.costoActual) || 0 : undefined,
+            costoUltimaCompra: data.costoUltimaCompra !== undefined ? Number(data.costoUltimaCompra) || 0 : undefined,
+            stockActual: data.stockActual !== undefined ? Number(data.stockActual) || 0 : undefined,
+            precio1kg: data.precio1kg !== undefined && data.precio1kg !== null ? Number(data.precio1kg) : null,
+            precio150g: data.precio150g !== undefined && data.precio150g !== null ? Number(data.precio150g) : null,
+            precio250g: data.precio250g !== undefined && data.precio250g !== null ? Number(data.precio250g) : null,
+            precio500g: data.precio500g !== undefined && data.precio500g !== null ? Number(data.precio500g) : null,
+            precioComercial: data.precioComercial !== undefined ? Number(data.precioComercial) || 0 : undefined,
+            pesoFeta: data.pesoFeta !== undefined ? Number(data.pesoFeta) || 0 : undefined,
+            pesoObjetivoGramos: data.pesoObjetivoGramos !== undefined ? Number(data.pesoObjetivoGramos) || 0 : undefined,
+            pesoObjetivoKg: data.pesoObjetivoKg !== undefined ? Number(data.pesoObjetivoKg) || 0 : undefined,
+            margenDeseado: data.margenDeseado !== undefined ? Number(data.margenDeseado) || 0 : undefined,
+            utilidadObjetivo: data.utilidadObjetivo !== undefined ? Number(data.utilidadObjetivo) || 0 : undefined,
+            mermaObjetivo: data.mermaObjetivo !== undefined ? Number(data.mermaObjetivo) || 0 : undefined,
           } as Product;
         })
         .sort((a, b) => a.nombre.localeCompare(b.nombre)),
@@ -45,8 +59,8 @@ export const stockRepository = {
       const prodDoc = await transaction.get(prodRef);
       if (!prodDoc.exists()) throw new Error("Producto no encontrado");
 
-      const currentStock = prodDoc.data().stockActual || 0;
-      const truncatedQty = truncateDecimals(data.qty, 3);
+      const currentStock = Number(prodDoc.data().stockActual) || 0;
+      const truncatedQty = truncateDecimals(Number(data.qty) || 0, 3);
       const newStock = truncateDecimals(currentStock + truncatedQty, 3);
 
       // Create movement
