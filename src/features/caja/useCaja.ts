@@ -30,7 +30,33 @@ export function useCaja() {
   const subscribeMovements = useCajaStore((state) => state.subscribeMovements);
   const addMovement = useCajaStore((state) => state.addMovement);
   const annulMovement = useCajaStore((state) => state.annulMovement);
+  const updateMovement = useCajaStore((state) => state.updateMovement);
+  const deleteMovementFisico = useCajaStore((state) => state.deleteMovementFisico);
   const { accounts, fetchAccounts } = useFinancialAccountsStore();
+
+  const transferFunds = async (fromAccountId: string, toAccountId: string, amount: number, description: string) => {
+    const fromAccount = accounts.find(a => a.id === fromAccountId);
+    const toAccount = accounts.find(a => a.id === toAccountId);
+    if (!fromAccount || !toAccount) return;
+
+    const baseDescription = description || 'Transferencia entre cuentas';
+
+    await addMovement({
+      type: 'EXPENSE',
+      amount,
+      category: 'TRANSFERENCIA',
+      description: `${baseDescription} (a ${toAccount.nombre})`,
+      accountId: fromAccountId
+    });
+
+    await addMovement({
+      type: 'INCOME',
+      amount,
+      category: 'TRANSFERENCIA',
+      description: `${baseDescription} (de ${fromAccount.nombre})`,
+      accountId: toAccountId
+    });
+  };
 
   useEffect(() => {
     const unsubscribe = subscribeMovements();
@@ -69,7 +95,8 @@ export function useCaja() {
         resolvedId = isBanco ? bankFallback?.id : cashFallback?.id;
       }
       if (resolvedId && balanceMap.has(resolvedId)) {
-        const delta = mov.type === 'INCOME' ? mov.amount : -mov.amount;
+        const amount = Number(mov.amount) || 0;
+        const delta = mov.type === 'INCOME' ? amount : -amount;
         balanceMap.set(resolvedId, (balanceMap.get(resolvedId) || 0) + delta);
       }
     });
@@ -107,10 +134,10 @@ export function useCaja() {
     const movementsThisMonth = activeMovements.filter(m => m.date >= startOfMonth);
 
     return {
-      ingresosHoy: movementsToday.filter(m => m.type === 'INCOME').reduce((acc, m) => acc + m.amount, 0),
-      egresosHoy: movementsToday.filter(m => m.type === 'EXPENSE').reduce((acc, m) => acc + m.amount, 0),
-      ingresosMes: movementsThisMonth.filter(m => m.type === 'INCOME').reduce((acc, m) => acc + m.amount, 0),
-      egresosMes: movementsThisMonth.filter(m => m.type === 'EXPENSE').reduce((acc, m) => acc + m.amount, 0)
+      ingresosHoy: movementsToday.filter(m => m.type === 'INCOME').reduce((acc, m) => acc + (Number(m.amount) || 0), 0),
+      egresosHoy: movementsToday.filter(m => m.type === 'EXPENSE').reduce((acc, m) => acc + (Number(m.amount) || 0), 0),
+      ingresosMes: movementsThisMonth.filter(m => m.type === 'INCOME').reduce((acc, m) => acc + (Number(m.amount) || 0), 0),
+      egresosMes: movementsThisMonth.filter(m => m.type === 'EXPENSE').reduce((acc, m) => acc + (Number(m.amount) || 0), 0)
     };
   }, [activeMovements]);
 
@@ -138,6 +165,9 @@ export function useCaja() {
     loading,
     addMovement,
     annulMovement,
+    updateMovement,
+    deleteMovementFisico,
+    transferFunds,
     currentBalance,
     totalEfectivo,
     totalBancos,

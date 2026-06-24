@@ -184,25 +184,39 @@ export default function ListasPreciosConfig() {
           <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '30px' }}>
             <thead>
               <tr style={{ borderBottom: '2px solid #e2e8f0', textAlign: 'left', color: '#4a5568', fontSize: '13px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                <th style={{ padding: '12px 8px' }}>Producto</th>
-                <th style={{ padding: '12px 8px', textAlign: 'right' }}>Precio por Kg</th>
+                <th style={{ padding: '12px 8px' }}>PRODUCTO</th>
+                <th style={{ padding: '12px 8px', textAlign: 'right' }}>150g</th>
+                <th style={{ padding: '12px 8px', textAlign: 'right' }}>250g</th>
+                <th style={{ padding: '12px 8px', textAlign: 'right' }}>500g</th>
+                <th style={{ padding: '12px 8px', textAlign: 'right' }}>1kg</th>
               </tr>
             </thead>
             <tbody>
               {previewLista.items.map((item, idx) => {
                 const prod = presentaciones.find(p => p.id === item.productId);
+                const formatPrice = (price?: number | null) => price !== undefined && price !== null ? formatCurrency(price) : '-';
+
                 return (
                   <tr key={idx} style={{ borderBottom: '1px solid #edf2f7', fontSize: '14px' }}>
                     <td style={{ padding: '12px 8px', fontWeight: 600, color: '#2d3748' }}>{prod?.nombre || 'Producto Desconocido'}</td>
                     <td style={{ padding: '12px 8px', textAlign: 'right', fontWeight: 700, color: '#1a202c' }}>
-                      {formatCurrency(item.price)}
+                      {formatPrice(prod?.precio150g)}
+                    </td>
+                    <td style={{ padding: '12px 8px', textAlign: 'right', fontWeight: 700, color: '#1a202c' }}>
+                      {formatPrice(prod?.precio250g)}
+                    </td>
+                    <td style={{ padding: '12px 8px', textAlign: 'right', fontWeight: 700, color: '#1a202c' }}>
+                      {formatPrice(prod?.precio500g)}
+                    </td>
+                    <td style={{ padding: '12px 8px', textAlign: 'right', fontWeight: 700, color: '#1a202c' }}>
+                      {formatPrice(prod?.precio1kg)}
                     </td>
                   </tr>
                 );
               })}
               {previewLista.items.length === 0 && (
                 <tr>
-                  <td colSpan={2} style={{ padding: '24px', textAlign: 'center', color: '#718096', fontStyle: 'italic' }}>Esta lista de precios no contiene productos.</td>
+                  <td colSpan={5} style={{ padding: '24px', textAlign: 'center', color: '#718096', fontStyle: 'italic' }}>Esta lista de precios no contiene productos.</td>
                 </tr>
               )}
             </tbody>

@@ -65,7 +65,16 @@ export default function Ventas() {
         if (item.pesoTotal !== undefined && item.pesoTotal > 0) return itemAcc + item.pesoTotal;
         if (item.unidad === 'KG') return itemAcc + item.cantidad;
         if (prod) {
-          const weight = item.cantidad * (prod.pesoObjetivoKg || (prod.pesoObjetivoGramos || 0) / 1000 || 0);
+          let weight = 0;
+          if (prod.type === 'PRESENTACION' && item.presentationType) {
+            if (item.presentationType === '150G') weight = item.cantidad * 0.15;
+            else if (item.presentationType === '250G') weight = item.cantidad * 0.25;
+            else if (item.presentationType === '500G') weight = item.cantidad * 0.5;
+            else if (item.presentationType === '1KG') weight = item.cantidad * 1;
+            else weight = item.cantidad; // Fallback
+          } else {
+            weight = item.cantidad * (prod.pesoObjetivoKg || (prod.pesoObjetivoGramos || 0) / 1000 || 0);
+          }
           return itemAcc + weight;
         }
         return itemAcc;
@@ -180,12 +189,24 @@ export default function Ventas() {
       const prod = products.find(p => p.id === val);
       if (prod) {
         newItems[idx].unidad = prod.type === 'PRESENTACION' ? 'UNIDADES' : prod.unitType;
-        newItems[idx].precioUnitario = prod.precioComercial || 0;
+        newItems[idx].precioUnitario = prod.type === 'PRESENTACION' ? (prod.precio1kg || 0) : (prod.precioComercial || 0);
+        newItems[idx].presentationType = undefined;
       }
     }
 
     const item = { ...newItems[idx], [field]: parsedVal };
     const prod = products.find(p => p.id === item.productId);
+
+    if (field === 'presentationType' || field === 'productId') {
+      if (prod) {
+        let newPrice = prod.type === 'PRESENTACION' ? (prod.precio1kg || 0) : (prod.precioComercial || 0);
+        if (item.presentationType === '150G' && prod.precio150g !== undefined && prod.precio150g !== null) newPrice = prod.precio150g;
+        if (item.presentationType === '250G' && prod.precio250g !== undefined && prod.precio250g !== null) newPrice = prod.precio250g;
+        if (item.presentationType === '500G' && prod.precio500g !== undefined && prod.precio500g !== null) newPrice = prod.precio500g;
+        if (item.presentationType === '1KG' && prod.precio1kg !== undefined && prod.precio1kg !== null) newPrice = prod.precio1kg;
+        item.precioUnitario = newPrice;
+      }
+    }
 
     if (field === 'cantidad' && prod && prod.type === 'PRESENTACION') {
       parsedVal = Math.round(Number(val));
@@ -582,6 +603,21 @@ export default function Ventas() {
                       );
                     })()}
                   </select>
+
+                  <div style={{ display: 'flex', flexDirection: 'column' }}>
+                    <label style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '4px' }}>Presentación</label>
+                    <select
+                      value={item.presentationType || ''}
+                      onChange={e => updateQuickSaleItem(idx, 'presentationType', e.target.value)}
+                      style={{ padding: '8px 10px', borderRadius: '6px', border: '1px solid var(--border-color)', fontSize: '13px', background: '#fff' }}
+                    >
+                      <option value="">(Sin Presentación Específica)</option>
+                      <option value="150G">150G</option>
+                      <option value="250G">250G</option>
+                      <option value="500G">500G</option>
+                      <option value="1KG">1KG</option>
+                    </select>
+                  </div>
                   
                   <div style={{ display: 'flex', gap: '12px' }}>
                     <div style={{ flex: 1 }}>

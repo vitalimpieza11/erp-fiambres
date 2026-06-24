@@ -1,4 +1,4 @@
-import { collection, onSnapshot, query, where, doc, setDoc, orderBy, limit } from 'firebase/firestore';
+import { collection, onSnapshot, query, where, doc, setDoc, updateDoc, deleteDoc, orderBy, limit } from 'firebase/firestore';
 import { db, COLLECTIONS } from '../../lib/firebase';
 import type { CajaMovement, Arqueo } from '../../types/domain';
 
@@ -45,6 +45,16 @@ export const cajaRepository = {
       isDeleted: false
     };
     await setDoc(docRef, compensatoryMovement);
+  },
+
+  async updateMovement(id: string, data: Partial<Omit<CajaMovement, 'id'>>): Promise<void> {
+    const docRef = doc(db, 'caja_movements', id);
+    await updateDoc(docRef, data);
+  },
+
+  async deleteMovementFisico(id: string): Promise<void> {
+    const docRef = doc(db, 'caja_movements', id);
+    await deleteDoc(docRef);
   },
 
   subscribeArqueos(onData: (arqueos: Arqueo[]) => void): () => void {

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useSettingsStore } from '../../store/settingsStore';
+import { useProducts } from './useProducts';
 import { Save, Layers, ToggleLeft, ToggleRight, Info, AlertTriangle } from 'lucide-react';
 import LoadingSpinner from '../../components/LoadingSpinner';
 
@@ -7,19 +8,34 @@ export default function SistemaConfig() {
   const { settings, loading, fetchSettings, updateSettings } = useSettingsStore();
   const [usePackages, setUsePackages] = useState(false);
   const [allowNegativeStock, setAllowNegativeStock] = useState(true);
+  const { productos } = useProducts();
+  const [bolsaProductId, setBolsaProductId] = useState('');
+  const [etiquetaProductId, setEtiquetaProductId] = useState('');
+  const [folexProductId, setFolexProductId] = useState('');
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     fetchSettings().then((res) => {
       setUsePackages(res.usePackages);
       setAllowNegativeStock(res.allowNegativeStock ?? true);
+      setBolsaProductId(res.packagingSettings?.bolsaProductId || '');
+      setEtiquetaProductId(res.packagingSettings?.etiquetaProductId || '');
+      setFolexProductId(res.packagingSettings?.folexProductId || '');
     });
   }, [fetchSettings]);
 
   const handleSave = async () => {
     setSaving(true);
     try {
-      await updateSettings({ usePackages, allowNegativeStock });
+      await updateSettings({ 
+        usePackages, 
+        allowNegativeStock, 
+        packagingSettings: {
+          bolsaProductId,
+          etiquetaProductId,
+          folexProductId
+        }
+      });
       alert("Configuración del sistema guardada con éxito.");
     } catch (e) {
       alert("Error al guardar la configuración.");
@@ -88,6 +104,45 @@ export default function SistemaConfig() {
           >
             {allowNegativeStock ? <ToggleRight size={48} /> : <ToggleLeft size={48} />}
           </button>
+        </div>
+
+        {/* Costos de Embalaje Globales */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', backgroundColor: 'var(--bg-color)', padding: '20px', borderRadius: '16px' }}>
+          <div style={{ flex: 1 }}>
+            <h4 style={{ fontSize: '16px', fontWeight: 600, margin: '0 0 6px 0', color: 'var(--text-primary)' }}>Costos de Embalaje Globales</h4>
+            <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: '0 0 16px 0', lineHeight: 1.5 }}>
+              Estos valores se utilizan como base para el cálculo del costo operativo y precio sugerido en las presentaciones.
+            </p>
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <div className="form-group">
+              <label>Insumo Bolsa</label>
+              <select value={bolsaProductId} onChange={e => setBolsaProductId(e.target.value)}>
+                <option value="">Seleccione un insumo...</option>
+                {productos.filter(p => p.type === 'INSUMO').map(p => (
+                  <option key={p.id} value={p.id}>{p.nombre} (${p.costoActual?.toFixed(2) || '0.00'})</option>
+                ))}
+              </select>
+            </div>
+            <div className="form-group">
+              <label>Insumo Etiqueta</label>
+              <select value={etiquetaProductId} onChange={e => setEtiquetaProductId(e.target.value)}>
+                <option value="">Seleccione un insumo...</option>
+                {productos.filter(p => p.type === 'INSUMO').map(p => (
+                  <option key={p.id} value={p.id}>{p.nombre} (${p.costoActual?.toFixed(2) || '0.00'})</option>
+                ))}
+              </select>
+            </div>
+            <div className="form-group">
+              <label>Insumo Folex</label>
+              <select value={folexProductId} onChange={e => setFolexProductId(e.target.value)}>
+                <option value="">Seleccione un insumo...</option>
+                {productos.filter(p => p.type === 'INSUMO').map(p => (
+                  <option key={p.id} value={p.id}>{p.nombre} (${p.costoActual?.toFixed(2) || '0.00'})</option>
+                ))}
+              </select>
+            </div>
+          </div>
         </div>
 
         {/* Margen Objetivo Global */}

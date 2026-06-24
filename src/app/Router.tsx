@@ -16,6 +16,7 @@ const Caja = lazy(() => import('../features/caja/Caja'));
 const Socios = lazy(() => import('../features/socios/Socios'));
 const Configuracion = lazy(() => import('../features/configuracion/Configuracion'));
 const Compras = lazy(() => import('../features/compras/Compras'));
+const Auditoria = lazy(() => import('../features/auditoria/AuditoriaCaja'));
 const Login = lazy(() => import('../features/auth/Login'));
 const AsistenteInicio = lazy(() => import('../features/asistente-inicio/AsistenteInicio'));
 
@@ -74,6 +75,7 @@ export default function Router() {
             <Route path="facturacion" element={<Facturacion />} />
             <Route path="stock" element={<Stock />} />
             <Route path="caja" element={<Caja />} />
+            <Route path="auditoria" element={<Auditoria />} />
             <Route path="socios" element={<Socios />} />
             <Route path="configuracion" element={<Configuracion />} />
             <Route path="asistente-inicio" element={<AsistenteInicio />} />

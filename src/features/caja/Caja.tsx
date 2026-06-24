@@ -9,10 +9,12 @@ import {
   LayoutDashboard,
   ChevronRight,
   RotateCcw,
-  Info
+  Info,
+  Pen,
+  Trash2
 } from 'lucide-react';
 import LoadingSpinner from '../../components/LoadingSpinner';
-import type { FinancialAccount, Arqueo } from '../../types/domain';
+import type { FinancialAccount, Arqueo, CajaMovement } from '../../types/domain';
 import { cajaRepository } from '../../repositories/caja/cajaRepository';
 
 const formatMoney = (val: number) =>
@@ -34,11 +36,15 @@ export default function Caja() {
     ingresosMes,
     egresosMes,
     addMovement,
-    annulMovement
+    annulMovement,
+    updateMovement,
+    deleteMovementFisico,
+    transferFunds
   } = useCaja();
 
   const [showAddPanel, setShowAddPanel] = useState(false);
-  const [movType, setMovType] = useState<'INCOME' | 'EXPENSE'>('INCOME');
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [movType, setMovType] = useState<'INCOME' | 'EXPENSE' | 'TRANSFER'>('INCOME');
   
   // Arqueo & Corte de Caja States
   const [activeView, setActiveView] = useState<'MOVIMIENTOS' | 'ARQUEO'>('MOVIMIENTOS');
@@ -79,6 +85,7 @@ export default function Caja() {
   const [amount, setAmount] = useState<number | ''>('');
   const [description, setDescription] = useState('');
   const [formAccountId, setFormAccountId] = useState('');
+  const [formToAccountId, setFormToAccountId] = useState('');
 
   // Filtering states
   const [filterCategory, setFilterCategory] = useState<FilterCategory>('ALL');
@@ -88,19 +95,41 @@ export default function Caja() {
     e.preventDefault();
     if (!amount || amount <= 0) return;
     if (!formAccountId) return alert('Debe seleccionar una cuenta financiera.');
-    await addMovement({
-      type: movType,
-      amount: Number(amount),
-      category: 'OTROS',
-      description,
-      accountId: formAccountId
-    });
+
+    if (editingId) {
+      await updateMovement(editingId, {
+        type: movType as 'INCOME' | 'EXPENSE',
+        amount: Number(amount),
+        description,
+        accountId: formAccountId
+      });
+    } else {
+      if (movType === 'TRANSFER') {
+        if (!formToAccountId) return alert('Debe seleccionar la cuenta destino.');
+        if (formAccountId === formToAccountId) return alert('La cuenta origen y destino no pueden ser la misma.');
+        await transferFunds(formAccountId, formToAccountId, Number(amount), description);
+      } else {
+        await addMovement({
+          type: movType as 'INCOME' | 'EXPENSE',
+          amount: Number(amount),
+          category: 'OTROS',
+          description,
+          accountId: formAccountId
+        });
+      }
+    }
+
     setShowAddPanel(false);
+    setEditingId(null);
     setAmount('');
     setDescription('');
+    setFormToAccountId('');
   };
 
-  const handleOpenAdd = (type: 'INCOME' | 'EXPENSE') => {
+  const handleOpenAdd = (type: 'INCOME' | 'EXPENSE' | 'TRANSFER') => {
+    setEditingId(null);
+    setAmount('');
+    setDescription('');
     setMovType(type);
     // Default to active cash account, or first account in the current filter category
     const activeCash = accounts.find(a => a.activa && a.tipo === 'EFECTIVO');
@@ -113,6 +142,21 @@ export default function Caja() {
     const reason = window.prompt('Motivo de anulación:');
     if (!reason) return;
     await annulMovement(id, reason);
+  };
+
+  const handleEditMovement = (mov: CajaMovement) => {
+    setEditingId(mov.id);
+    setMovType(mov.type === 'INCOME' ? 'INCOME' : 'EXPENSE');
+    setAmount(mov.amount);
+    setDescription(mov.description || '');
+    setFormAccountId(mov.resolvedAccountId || '');
+    setShowAddPanel(true);
+  };
+
+  const handleDeleteDefinitivo = async (id: string) => {
+    if (window.confirm("ATENCIÓN: ¿Estás seguro de que deseas eliminar PERMANENTEMENTE este movimiento? Esta acción borrará el registro de la base de datos sin dejar rastro.")) {
+      await deleteMovementFisico(id);
+    }
   };
 
   const handleSelectCategory = (cat: FilterCategory) => {
@@ -134,15 +178,15 @@ export default function Caja() {
     
     const saldoInicial = accMovements
       .filter(m => m.category === 'SALDO_INICIAL' || m.category === 'APORTE_SOCIOS_INICIAL' || m.description?.toLowerCase().includes('inicial'))
-      .reduce((sum, m) => sum + m.amount, 0);
+      .reduce((sum, m) => sum + (Number(m.amount) || 0), 0);
       
     const ingresos = accMovements
       .filter(m => m.type === 'INCOME' && m.category !== 'SALDO_INICIAL' && m.category !== 'APORTE_SOCIOS_INICIAL' && !m.description?.toLowerCase().includes('inicial'))
-      .reduce((sum, m) => sum + m.amount, 0);
+      .reduce((sum, m) => sum + (Number(m.amount) || 0), 0);
       
     const egresos = accMovements
       .filter(m => m.type === 'EXPENSE')
-      .reduce((sum, m) => sum + m.amount, 0);
+      .reduce((sum, m) => sum + (Number(m.amount) || 0), 0);
       
     const saldoTeorico = saldoInicial + ingresos - egresos;
     
@@ -260,6 +304,13 @@ export default function Caja() {
             style={{ color: '#ef4444' }}
           >
             − Egreso Manual
+          </button>
+          <button
+            onClick={() => handleOpenAdd('TRANSFER')}
+            className="btn-secondary"
+            style={{ color: '#0284c7' }}
+          >
+            ⇄ Transferencia
           </button>
         </div>
       </div>
@@ -629,19 +680,44 @@ export default function Caja() {
                               }}>
                                 {mov.type === 'INCOME' ? '+' : '−'}{formatMoney(mov.amount)}
                               </span>
-                              {mov.category !== 'ANULACION' && (
+                              <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
                                 <button
-                                  onClick={() => handleAnnul(mov.id)}
+                                  onClick={() => handleEditMovement(mov)}
+                                  title="Editar movimiento"
                                   style={{
                                     background: 'transparent', border: 'none',
-                                    color: '#ef4444', textDecoration: 'underline',
-                                    fontSize: '12px', cursor: 'pointer', padding: 0
+                                    color: '#3b82f6', cursor: 'pointer', padding: 0,
+                                    display: 'flex', alignItems: 'center'
                                   }}
                                 >
-                                  Anular
+                                  <Pen size={14} />
                                 </button>
-                              )}
-                            </div>
+                                <button
+                                  onClick={() => handleDeleteDefinitivo(mov.id)}
+                                  title="Eliminar definitivamente"
+                                  style={{
+                                    background: 'transparent', border: 'none',
+                                    color: '#ef4444', cursor: 'pointer', padding: 0,
+                                    display: 'flex', alignItems: 'center'
+                                  }}
+                                >
+                                  <Trash2 size={14} />
+                                </button>
+                                {mov.category !== 'ANULACION' && (
+                                  <button
+                                    onClick={() => handleAnnul(mov.id)}
+                                    title="Anulación contable"
+                                    style={{
+                                      background: 'transparent', border: 'none',
+                                      color: 'var(--text-secondary)', textDecoration: 'underline',
+                                      fontSize: '12px', cursor: 'pointer', padding: 0
+                                    }}
+                                  >
+                                    Anular
+                                  </button>
+                                )}
+                              </div>
+                              </div>
                           </div>
                         );
                       })}
@@ -842,8 +918,8 @@ export default function Caja() {
       {/* --- Panel Lateral de Nuevo Movimiento --- */}
       <RightPanel
         isOpen={showAddPanel}
-        onClose={() => setShowAddPanel(false)}
-        title={movType === 'INCOME' ? 'Nuevo Ingreso' : 'Nuevo Egreso'}
+        onClose={() => { setShowAddPanel(false); setEditingId(null); }}
+        title={editingId ? 'Editar Movimiento' : (movType === 'INCOME' ? 'Nuevo Ingreso' : movType === 'EXPENSE' ? 'Nuevo Egreso' : 'Transferencia')}
       >
         <form onSubmit={handleAdd} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
           <div className="form-group">
@@ -859,7 +935,7 @@ export default function Caja() {
             />
           </div>
           <div className="form-group">
-            <label>Cuenta Financiera *</label>
+            <label>{movType === 'TRANSFER' ? 'Cuenta Origen *' : 'Cuenta Financiera *'}</label>
             <select
               required
               value={formAccountId}
@@ -873,6 +949,23 @@ export default function Caja() {
               ))}
             </select>
           </div>
+          {movType === 'TRANSFER' && (
+            <div className="form-group">
+              <label>Cuenta Destino *</label>
+              <select
+                required
+                value={formToAccountId}
+                onChange={(e) => setFormToAccountId(e.target.value)}
+              >
+                <option value="">Seleccione cuenta destino...</option>
+                {accounts.filter(a => a.activa && a.id !== formAccountId).map(a => (
+                  <option key={a.id} value={a.id}>
+                    {a.nombre} ({getTipoLabel(a.tipo)})
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
           <div className="form-group">
             <label>Descripción</label>
             <input

@@ -8,6 +8,8 @@ import { useClientesStore } from '../../store/clientesStore';
 import { useSettingsStore } from '../../store/settingsStore';
 import { groupPresentacionesByCustomer } from '../../lib/groupByCustomer';
 import { convertUnit } from '../../lib/unitConverter';
+import { calculatePresentationPrices } from '../../utils/pricingHelpers';
+import type { CalculatedPrices } from '../../utils/pricingHelpers';
 
 export default function ProductosConfig() {
   const { productos, loading: loadingProd, saveProduct, toggleStatus } = useProducts();
@@ -32,14 +34,6 @@ export default function ProductosConfig() {
     return 30; // Default
   };
 
-  const getPesoRealKg = (prod: Product): number => {
-    const peso = prod.pesoObjetivoKg || 1;
-    if (peso > 10) {
-      return peso / 1000;
-    }
-    return peso <= 0 ? 1 : peso;
-  };
-
   const getFolexQty = (name: string): number => {
     const n = String(name || '').toLowerCase();
     if (n.includes('cheddar')) return 12;
@@ -62,6 +56,7 @@ export default function ProductosConfig() {
   
   const [recipeItems, setRecipeItems] = useState<RecipeItem[]>([]);
   const [recipeExpanded, setRecipeExpanded] = useState(false);
+  const [calculatedPrices, setCalculatedPrices] = useState<CalculatedPrices | null>(null);
 
   const [expandedCategories, setExpandedCategories] = useState<Record<string, boolean>>({
     'MERCADERIA': true,
@@ -172,12 +167,22 @@ export default function ProductosConfig() {
   };
 
   const getProductMetrics = useMemo(() => (prod: Product) => {
-    const cost = prod.type === 'PRESENTACION' ? getProductRecipeCost(prod.id) : (prod.costoActual || 0);
-    const sellPrice = prod.precioComercial || 0;
+    let rawCost = 0;
+    let sellPrice = 0;
+    if (prod.type === 'PRESENTACION') {
+      const recipe = recipes.find(r => r.productId === prod.id);
+      const calc = calculatePresentationPrices(prod, recipe?.items || [], settings, equivalences, productos);
+      rawCost = calc.precioMercaderia + calc.costoEmbalaje;
+      sellPrice = calc.precio1kg;
+    } else {
+      rawCost = Number(prod.costoActual) || 0;
+      sellPrice = Number(prod.precioComercial) || 0;
+    }
+    const cost = Number(rawCost) || 0;
     const gain = sellPrice - cost;
     const margin = sellPrice > 0 ? (gain / sellPrice) * 100 : 0;
     return { cost, sellPrice, gain, margin };
-  }, [getProductRecipeCost]);
+  }, [recipes, settings, equivalences, productos]);
 
   const groupedProducts = useMemo(() => {
     const listMercaderia = productos.filter(p => p.type === 'MERCADERIA');
@@ -325,7 +330,7 @@ export default function ProductosConfig() {
                                   <td style={{ padding: '14px 10px', color: 'var(--text-primary)' }}><strong>{prod.nombre}</strong></td>
                                   <td style={{ padding: '14px 10px', color: 'var(--text-secondary)' }}>{prod.unitType}</td>
                                   <td style={{ padding: '14px 10px', color: 'var(--text-primary)' }}>
-                                    ${metrics.cost.toFixed(2)}
+                                    ${Number(metrics.cost || 0).toFixed(2)}
                                   </td>
                                   <td style={{ padding: '14px 10px' }}>
                                     <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '12px', fontWeight: 500, padding: '4px 8px', borderRadius: '20px', background: prod.activo ? '#e6f4ea' : '#fce8e6', color: prod.activo ? '#137333' : '#c5221f' }}>
@@ -349,28 +354,22 @@ export default function ProductosConfig() {
                         {(() => {
                           const groups = groupedProducts['PRESENTACION_GROUPS' as keyof typeof groupedProducts] as any;
                           const renderProductRow = (prod: Product) => {
-                            const metrics = getProductMetrics(prod);
                             const recipe = recipes.find(r => r.productId === prod.id);
+                            const calc = calculatePresentationPrices(prod, recipe?.items || [], settings, equivalences, productos);
+                            const costoTotal = calc.precioMercaderia + calc.costoEmbalaje;
+                            const margen = prod.margenDeseado !== undefined ? prod.margenDeseado : (prod.utilidadObjetivo !== undefined ? prod.utilidadObjetivo : getDefaultUtility(prod.nombre));
+                            
                             return (
                               <tr key={prod.id} style={{ borderBottom: '1px solid #edf2f7', transition: 'background-color 0.2s', fontSize: '14px' }}>
                                 <td style={{ padding: '14px 10px', color: 'var(--text-primary)' }}><strong>{prod.nombre}</strong></td>
-                                <td style={{ padding: '14px 10px', color: 'var(--text-secondary)' }}>{prod.unitType}</td>
                                 <td style={{ padding: '14px 10px', color: 'var(--text-primary)' }}>
-                                  <span style={{ fontWeight: 600 }}>${metrics.cost.toFixed(2)}</span>
-                                  <span style={{ fontSize: '10px', color: '#16a34a', display: 'block', fontWeight: 500 }}>(Costo Receta)</span>
+                                  <span style={{ fontWeight: 600 }}>${Number(costoTotal || 0).toFixed(2)}</span>
                                 </td>
-                                <td style={{ padding: '14px 10px', color: 'var(--text-secondary)' }}>${prod.precioComercial || 0}</td>
-                                <td style={{ padding: '14px 10px' }}>
-                                  {recipe && recipe.items && recipe.items.length > 0 ? (
-                                    <div style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                                      {recipe.items.map((r, i) => (
-                                        <div key={i} style={{ padding: '1px 0' }}>• {r.quantity} {r.unit} de <span style={{ color: 'var(--text-primary)' }}>{r.ingredientName}</span></div>
-                                      ))}
-                                    </div>
-                                  ) : (
-                                    <span style={{ color: '#a0aec0', fontSize: '12px', fontStyle: 'italic' }}>Sin receta</span>
-                                  )}
-                                </td>
+                                <td style={{ padding: '14px 10px', color: 'var(--text-secondary)' }}>{margen}%</td>
+                                <td style={{ padding: '14px 10px', color: 'var(--text-secondary)' }}>${Number(calc.precio150g || 0).toFixed(2)}</td>
+                                <td style={{ padding: '14px 10px', color: 'var(--text-secondary)' }}>${Number(calc.precio250g || 0).toFixed(2)}</td>
+                                <td style={{ padding: '14px 10px', color: 'var(--text-secondary)' }}>${Number(calc.precio500g || 0).toFixed(2)}</td>
+                                <td style={{ padding: '14px 10px', color: 'var(--text-primary)' }}><strong>${Number(calc.precio1kg || 0).toFixed(2)}</strong></td>
                                 <td style={{ padding: '14px 10px' }}>
                                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '12px', fontWeight: 500, padding: '4px 8px', borderRadius: '20px', background: prod.activo ? '#e6f4ea' : '#fce8e6', color: prod.activo ? '#137333' : '#c5221f' }}>
                                     <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: prod.activo ? '#137333' : '#c5221f' }} />
@@ -389,10 +388,12 @@ export default function ProductosConfig() {
                             <thead>
                               <tr style={{ borderBottom: '2px solid #edf2f7', textAlign: 'left', color: 'var(--text-secondary)', fontSize: '13px' }}>
                                 <th style={{ padding: '12px 10px', fontWeight: 600 }}>Nombre</th>
-                                <th style={{ padding: '12px 10px', fontWeight: 600 }}>Unidad Base</th>
-                                <th style={{ padding: '12px 10px', fontWeight: 600 }}>Costo</th>
-                                <th style={{ padding: '12px 10px', fontWeight: 600 }}>Precio Comercial</th>
-                                <th style={{ padding: '12px 10px', fontWeight: 600 }}>Receta</th>
+                                <th style={{ padding: '12px 10px', fontWeight: 600 }}>Costo Total</th>
+                                <th style={{ padding: '12px 10px', fontWeight: 600 }}>Margen</th>
+                                <th style={{ padding: '12px 10px', fontWeight: 600 }}>150g</th>
+                                <th style={{ padding: '12px 10px', fontWeight: 600 }}>250g</th>
+                                <th style={{ padding: '12px 10px', fontWeight: 600 }}>500g</th>
+                                <th style={{ padding: '12px 10px', fontWeight: 600 }}>1kg</th>
                                 <th style={{ padding: '12px 10px', fontWeight: 600 }}>Estado</th>
                                 <th style={{ padding: '12px 10px', fontWeight: 600, textAlign: 'right' }}>Acciones</th>
                               </tr>
@@ -518,7 +519,7 @@ export default function ProductosConfig() {
                       <th style={{ padding: '12px 10px', fontWeight: 600 }}>Nombre</th>
                       <th style={{ padding: '12px 10px', fontWeight: 600 }}>Estado</th>
                       <th style={{ padding: '12px 10px', fontWeight: 600 }}>Unidad</th>
-                      <th style={{ padding: '12px 10px', fontWeight: 600 }}>Precio Comercial / Kg</th>
+                      <th style={{ padding: '12px 10px', fontWeight: 600 }}>Precio 1kg</th>
                       <th style={{ padding: '12px 10px', fontWeight: 600 }}>Utilidad Objetivo</th>
                       <th style={{ padding: '12px 10px', fontWeight: 600 }}>Merma Objetivo</th>
                       <th style={{ padding: '12px 10px', fontWeight: 600, textAlign: 'right' }}>Acciones</th>
@@ -528,6 +529,8 @@ export default function ProductosConfig() {
                     {groupedProducts.PRESENTACION.map(prod => {
                       const util = prod.utilidadObjetivo !== undefined ? prod.utilidadObjetivo : getDefaultUtility(prod.nombre);
                       const merma = prod.mermaObjetivo !== undefined ? prod.mermaObjetivo : 5;
+                      const recipe = recipes.find(r => r.productId === prod.id);
+                      const calc = calculatePresentationPrices(prod, recipe?.items || [], settings, equivalences, productos);
                       return (
                         <tr key={prod.id} style={{ borderBottom: '1px solid #edf2f7', fontSize: '14px' }}>
                           <td style={{ padding: '14px 10px', color: 'var(--text-primary)', fontWeight: 600 }}>{prod.nombre}</td>
@@ -539,7 +542,7 @@ export default function ProductosConfig() {
                           </td>
                           <td style={{ padding: '14px 10px', color: 'var(--text-secondary)' }}>{prod.unitType}</td>
                           <td style={{ padding: '14px 10px', color: 'var(--text-primary)', fontWeight: 600 }}>
-                            ${(prod.precioComercial || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                            ${Number(calc.precio1kg || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
                           </td>
                           <td style={{ padding: '14px 10px', color: 'var(--text-primary)' }}>{util}%</td>
                           <td style={{ padding: '14px 10px', color: 'var(--text-primary)' }}>{merma}%</td>
@@ -580,7 +583,6 @@ export default function ProductosConfig() {
                     <tr style={{ borderBottom: '2px solid #edf2f7', textAlign: 'left', color: 'var(--text-secondary)', fontSize: '13px' }}>
                       <th style={{ width: '40px' }}></th>
                       <th style={{ padding: '12px 10px', fontWeight: 600 }}>Presentación</th>
-                      <th style={{ padding: '12px 10px', fontWeight: 600 }}>Peso Objetivo</th>
                       <th style={{ padding: '12px 10px', fontWeight: 600 }}>Costo Mercadería Kg</th>
                       <th style={{ padding: '12px 10px', fontWeight: 600 }}>Packaging</th>
                       <th style={{ padding: '12px 10px', fontWeight: 600 }}>Costo Operativo Kg</th>
@@ -589,10 +591,9 @@ export default function ProductosConfig() {
                   <tbody>
                     {groupedProducts.PRESENTACION.map(prod => {
                       const recipe = recipes.find(r => r.productId === prod.id);
-                      const pesoReal = getPesoRealKg(prod);
                       const isExpanded = !!expandedCostoRows[prod.id];
 
-                      let comestibleCost = 0;
+
                       const itemsDetails = (recipe?.items || []).map(item => {
                         const ing = productos.find(p => p.id === item.ingredientProductId);
                         const cost = ing?.costoActual || 0;
@@ -613,10 +614,6 @@ export default function ProductosConfig() {
                                        nameLower.includes('film') || 
                                        nameLower.includes('packaging');
 
-                        if (!isPack) {
-                          comestibleCost += subtotal;
-                        }
-
                         return {
                           nombre: ing?.nombre || item.ingredientName,
                           quantity: item.quantity,
@@ -627,10 +624,19 @@ export default function ProductosConfig() {
                         };
                       });
 
-                      const costoMercaderiaKg = comestibleCost / pesoReal;
-                      const folexQty = getFolexQty(prod.nombre);
-                      const packagingCost = 550 + 0.25 + (folexQty * 7);
+                      const calc = calculatePresentationPrices(
+                        prod,
+                        recipe?.items || [],
+                        settings,
+                        equivalences,
+                        productos
+                      );
+
+                      const calcComestibleCost = calc.costoMercaderia;
+                      const costoMercaderiaKg = calcComestibleCost;
+                      const packagingCost = calc.costoEmbalaje;
                       const costoOperativoKg = costoMercaderiaKg + packagingCost;
+                      const folexQty = calc.folexQuantity;
 
                       return (
                         <>
@@ -645,9 +651,6 @@ export default function ProductosConfig() {
                               </button>
                             </td>
                             <td style={{ padding: '14px 10px', color: 'var(--text-primary)', fontWeight: 600 }}>{prod.nombre}</td>
-                            <td style={{ padding: '14px 10px', color: 'var(--text-secondary)' }}>
-                              {prod.pesoObjetivoKg || 1} Kg {prod.pesoObjetivoKg && prod.pesoObjetivoKg > 10 ? '(Autocorregido a ' + pesoReal.toFixed(3) + ' Kg)' : ''}
-                            </td>
                             <td style={{ padding: '14px 10px', color: 'var(--text-primary)' }}>
                               ${costoMercaderiaKg.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
                             </td>
@@ -697,25 +700,17 @@ export default function ProductosConfig() {
                                       <h5 style={{ margin: '0 0 4px 0', fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)' }}>Estructura Comercial Fija</h5>
                                       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
                                         <span>Mercadería (Costo Receta Comestible):</span>
-                                        <strong style={{ color: 'var(--text-primary)' }}>${comestibleCost.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</strong>
+                                        <strong style={{ color: 'var(--text-primary)' }}>${calcComestibleCost.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</strong>
                                       </div>
                                       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
-                                        <span>Bolsa (Costo Fijo):</span>
-                                        <strong>$550,00</strong>
-                                      </div>
-                                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
-                                        <span>Etiqueta (Costo Fijo):</span>
-                                        <strong>$0,25</strong>
-                                      </div>
-                                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px' }}>
-                                        <span>Folex (Cantidad: {folexQty}):</span>
-                                        <strong>{folexQty} x $7,00 = ${(folexQty * 7).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</strong>
+                                        <span>Embalaje (Bolsa, Etiqueta, Folex):</span>
+                                        <strong>${packagingCost.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</strong>
                                       </div>
                                       <hr style={{ border: 'none', borderTop: '1px solid #edf2f7', margin: '8px 0' }} />
                                       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px', fontWeight: 700 }}>
                                         <span>Costo Operativo Final (Paquete):</span>
                                         <span style={{ color: 'var(--alvacio-red)' }}>
-                                          ${(comestibleCost + packagingCost).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                                          ${(calcComestibleCost + packagingCost).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
                                         </span>
                                       </div>
                                       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px', fontWeight: 700 }}>
@@ -752,10 +747,10 @@ export default function ProductosConfig() {
                     <tr style={{ borderBottom: '2px solid #edf2f7', textAlign: 'left', color: 'var(--text-secondary)', fontSize: '13px' }}>
                       <th style={{ padding: '12px 10px', fontWeight: 600 }}>Nombre</th>
                       <th style={{ padding: '12px 10px', fontWeight: 600 }}>Costo Base / Kg</th>
-                      <th style={{ padding: '12px 10px', fontWeight: 600 }}>Precio Sugerido / Kg</th>
-                      <th style={{ padding: '12px 10px', fontWeight: 600 }}>Precio Comercial / Kg</th>
-                      <th style={{ padding: '12px 10px', fontWeight: 600 }}>Margen Objetivo</th>
-                      <th style={{ padding: '12px 10px', fontWeight: 600 }}>Margen Real Actual</th>
+                      <th style={{ padding: '12px 10px', fontWeight: 600 }}>Costo Operativo / Kg</th>
+                      <th style={{ padding: '12px 10px', fontWeight: 600 }}>Precio 1kg (Automático)</th>
+                      <th style={{ padding: '12px 10px', fontWeight: 600 }}>Margen Configurado</th>
+                      <th style={{ padding: '12px 10px', fontWeight: 600 }}>Margen Real Resultante</th>
                       <th style={{ padding: '12px 10px', fontWeight: 600 }}>Diferencia $</th>
                       <th style={{ padding: '12px 10px', textAlign: 'center', fontWeight: 600 }}>Estado</th>
                     </tr>
@@ -764,49 +759,25 @@ export default function ProductosConfig() {
                     {(() => {
                       const items = groupedProducts.PRESENTACION.map(prod => {
                         const recipe = recipes.find(r => r.productId === prod.id);
-                        const pesoReal = getPesoRealKg(prod);
+                        const calc = calculatePresentationPrices(
+                          prod,
+                          recipe?.items || [],
+                          settings,
+                          equivalences,
+                          productos
+                        );
 
-                        let comestibleCost = 0;
-                        if (recipe && recipe.items) {
-                          recipe.items.forEach(item => {
-                            const ing = productos.find(p => p.id === item.ingredientProductId);
-                            const cost = ing?.costoActual || 0;
-                            const convertedQty = convertUnit(
-                              item.quantity,
-                              mapRecipeUnitToUnitType(item.unit),
-                              ing?.unitType || 'KG',
-                              ing?.nombre || '',
-                              '',
-                              equivalences
-                            );
-                            const subtotal = convertedQty * cost;
-
-                            const nameLower = (ing?.nombre || item.ingredientName || '').toLowerCase();
-                            const isPack = nameLower.includes('bolsa') || 
-                                           nameLower.includes('etiqueta') || 
-                                           nameLower.includes('folex') || 
-                                           nameLower.includes('film') || 
-                                           nameLower.includes('packaging');
-
-                            if (!isPack) {
-                              comestibleCost += subtotal;
-                            }
-                          });
-                        }
-
-                        const costoMercaderiaKg = comestibleCost / pesoReal;
-                        const folexQty = getFolexQty(prod.nombre);
-                        const packagingCost = 550 + 0.25 + (folexQty * 7);
+                        const calcComestibleCost = calc.costoMercaderia;
+                        const costoMercaderiaKg = calcComestibleCost;
+                        const packagingCost = calc.costoEmbalaje * (1000 / 1000); // 1kg
                         const costoOperativoKg = costoMercaderiaKg + packagingCost;
 
-                        const util = prod.utilidadObjetivo !== undefined ? prod.utilidadObjetivo : getDefaultUtility(prod.nombre);
-                        const merma = prod.mermaObjetivo !== undefined ? prod.mermaObjetivo : 5;
-                        const denom = 1 - (merma / 100) - (util / 100);
-                        const sugeridoKg = denom <= 0 ? 0 : costoOperativoKg / denom;
-                        const comercial = prod.precioComercial || 0;
+                        const util = prod.margenDeseado || 0;
+                        const sugeridoKg = util >= 100 ? 0 : costoMercaderiaKg / (1 - (util / 100)) + packagingCost;
+                        const comercial = calc.precio1kg;
 
                         const diff = comercial - sugeridoKg;
-                        const margenReal = comercial > 0 ? ((comercial - costoOperativoKg) / comercial) * 100 : 0;
+                        const margenReal = calc.margenReal1kg || 0;
 
                         let stateLabel = 'OK';
                         let badgeColor = '#137333';
@@ -859,7 +830,7 @@ export default function ProductosConfig() {
                             {util}%
                           </td>
                           <td style={{ padding: '14px 10px', color: badgeColor, fontWeight: 600 }}>
-                            {margenReal.toFixed(1)}%
+                            {Number(margenReal || 0).toFixed(1)}%
                           </td>
                           <td style={{ padding: '14px 10px', color: diff >= 0 ? '#137333' : '#c5221f', fontWeight: 600 }}>
                             {diff >= 0 ? '+' : ''}${diff.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
@@ -950,42 +921,215 @@ export default function ProductosConfig() {
                   step="0.01" 
                   disabled={currentProduct.type === 'PRESENTACION'}
                   value={currentProduct.type === 'PRESENTACION' ? computedRecipeCost : (currentProduct.costoActual !== undefined ? currentProduct.costoActual : '')} 
-                  onChange={e => setCurrentProduct({...currentProduct, costoActual: e.target.value as any})} 
+                  onChange={e => setCurrentProduct({...currentProduct, costoActual: Number(e.target.value) || 0})} 
                   placeholder={currentProduct.type === 'PRESENTACION' ? 'Calculado al vuelo' : '0.00'}
                   style={{ width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid var(--border-color)', backgroundColor: currentProduct.type === 'PRESENTACION' ? '#f8fafc' : '#fff', fontWeight: currentProduct.type === 'PRESENTACION' ? 600 : 'normal' }}
                 />
               </div>
-              {currentProduct.type === 'PRESENTACION' ? (
+              <div className="form-group">
+                {/* Removed pesoObjetivoKg for PRESENTACION */}
+              </div>
+              {currentProduct.type !== 'PRESENTACION' && (
                 <div className="form-group">
-                  <label style={{ display: 'block', marginBottom: '6px', fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)' }}>Peso Objetivo (Kg)</label>
+                  <label style={{ display: 'block', marginBottom: '6px', fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)' }}>
+                    Precio Comercial
+                  </label>
                   <input 
                     type="number" 
-                    step="0.001" 
-                    value={currentProduct.pesoObjetivoKg !== undefined ? currentProduct.pesoObjetivoKg : ''} 
-                    onChange={e => setCurrentProduct({...currentProduct, pesoObjetivoKg: e.target.value as any})} 
-                    placeholder="Ej: 1.200"
+                    step="0.01" 
+                    value={currentProduct.precioComercial !== undefined ? currentProduct.precioComercial : ''} 
+                    onChange={e => setCurrentProduct({...currentProduct, precioComercial: Number(e.target.value) || 0})} 
+                    placeholder="0.00"
                     style={{ width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid var(--border-color)' }}
                   />
                 </div>
-              ) : (
-                <div className="form-group">
-                  {/* Empty placeholder to keep grid layout */}
-                </div>
               )}
-              <div className="form-group">
-                <label style={{ display: 'block', marginBottom: '6px', fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)' }}>
-                  {currentProduct.type === 'PRESENTACION' ? 'Precio Comercial / Kg' : 'Precio Comercial'}
-                </label>
-                <input 
-                  type="number" 
-                  step="0.01" 
-                  value={currentProduct.precioComercial !== undefined ? currentProduct.precioComercial : ''} 
-                  onChange={e => setCurrentProduct({...currentProduct, precioComercial: e.target.value as any})} 
-                  placeholder="0.00"
-                  style={{ width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid var(--border-color)' }}
-                />
-              </div>
             </div>
+
+            {currentProduct.type === 'PRESENTACION' && (
+              <div style={{ padding: '20px', borderRadius: '12px', backgroundColor: '#f0fdf4', border: '1px solid #bbf7d0' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <h4 style={{ margin: 0, color: '#166534' }}>Calculadora de Precios</h4>
+                      <div style={{ display: 'flex', backgroundColor: '#dcfce3', borderRadius: '20px', padding: '2px' }}>
+                        <button
+                          type="button"
+                          onClick={() => setCurrentProduct({ ...currentProduct, pricingMode: 'AUTO' })}
+                          style={{
+                            padding: '4px 12px',
+                            borderRadius: '18px',
+                            border: 'none',
+                            fontSize: '12px',
+                            fontWeight: 600,
+                            backgroundColor: (!currentProduct.pricingMode || currentProduct.pricingMode === 'AUTO') ? '#16a34a' : 'transparent',
+                            color: (!currentProduct.pricingMode || currentProduct.pricingMode === 'AUTO') ? '#fff' : '#166534',
+                            cursor: 'pointer',
+                            transition: 'all 0.2s'
+                          }}
+                        >
+                          Automático
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setCurrentProduct({ ...currentProduct, pricingMode: 'MANUAL' })}
+                          style={{
+                            padding: '4px 12px',
+                            borderRadius: '18px',
+                            border: 'none',
+                            fontSize: '12px',
+                            fontWeight: 600,
+                            backgroundColor: currentProduct.pricingMode === 'MANUAL' ? '#16a34a' : 'transparent',
+                            color: currentProduct.pricingMode === 'MANUAL' ? '#fff' : '#166534',
+                            cursor: 'pointer',
+                            transition: 'all 0.2s'
+                          }}
+                        >
+                          Manual
+                        </button>
+                      </div>
+                    </div>
+                    <span style={{ fontSize: '12px', color: '#15803d' }}>
+                      {(!currentProduct.pricingMode || currentProduct.pricingMode === 'AUTO') 
+                        ? 'Costo → Margen → Precio' 
+                        : 'Costo → Precio → Margen'}
+                    </span>
+                  </div>
+
+                  <button 
+                    type="button" 
+                    className="btn-primary" 
+                    style={{ backgroundColor: '#16a34a', borderColor: '#16a34a', padding: '6px 12px', fontSize: '13px' }}
+                    onClick={() => {
+                      const result = calculatePresentationPrices(currentProduct, recipeItems, settings, equivalences, productos);
+                      setCalculatedPrices(result);
+                      
+                      if (!currentProduct.pricingMode || currentProduct.pricingMode === 'AUTO') {
+                        setCurrentProduct(prev => ({
+                          ...prev,
+                          precio150g: Number(result.precio150g.toFixed(2)),
+                          precio250g: Number(result.precio250g.toFixed(2)),
+                          precio500g: Number(result.precio500g.toFixed(2)),
+                          precio1kg: Number(result.precio1kg.toFixed(2))
+                        }));
+                      }
+                    }}
+                  >
+                    Recalcular
+                  </button>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+                  {/* Seccion 1 y 2 combinadas visualmente */}
+                  <div style={{ backgroundColor: '#fff', padding: '16px', borderRadius: '8px', border: '1px solid #dcfce3' }}>
+                    <h5 style={{ margin: '0 0 12px 0', fontSize: '14px', color: '#15803d' }}>Costos Desglosados</h5>
+                    <div style={{ fontSize: '13px', display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                      <span>Costo Mercadería (Receta):</span>
+                      <strong>${calculatedPrices ? Number(calculatedPrices.costoMercaderia || 0).toFixed(2) : '0.00'}</strong>
+                    </div>
+                    <div style={{ fontSize: '13px', display: 'flex', justifyContent: 'space-between', marginBottom: '4px', color: 'var(--text-secondary)' }}>
+                      <span>Costo Bolsa:</span>
+                      <span>${calculatedPrices ? Number(calculatedPrices.costoBolsaTotal || 0).toFixed(2) : '0.00'}</span>
+                    </div>
+                    <div style={{ fontSize: '13px', display: 'flex', justifyContent: 'space-between', marginBottom: '4px', color: 'var(--text-secondary)' }}>
+                      <span>Costo Etiqueta:</span>
+                      <span>${calculatedPrices ? Number(calculatedPrices.costoEtiquetaTotal || 0).toFixed(2) : '0.00'}</span>
+                    </div>
+                    <div style={{ fontSize: '13px', display: 'flex', justifyContent: 'space-between', marginBottom: '4px', color: 'var(--text-secondary)' }}>
+                      <span>Costo Folex ({calculatedPrices?.folexQuantity || 0} cant):</span>
+                      <span>${calculatedPrices ? Number(calculatedPrices.costoFolexTotal || 0).toFixed(2) : '0.00'}</span>
+                    </div>
+                    <hr style={{ margin: '8px 0', borderColor: '#dcfce3' }}/>
+                    <div style={{ fontSize: '13px', display: 'flex', justifyContent: 'space-between', fontWeight: 600 }}>
+                      <span>Embalaje por Paquete:</span>
+                      <span>${calculatedPrices ? Number(calculatedPrices.costoEmbalaje || 0).toFixed(2) : '0.00'}</span>
+                    </div>
+                  </div>
+
+                  {/* Seccion 3: Margen / Precios Manuales */}
+                  <div style={{ backgroundColor: '#fff', padding: '16px', borderRadius: '8px', border: '1px solid #dcfce3' }}>
+                    {(!currentProduct.pricingMode || currentProduct.pricingMode === 'AUTO') ? (
+                      <>
+                        <h5 style={{ margin: '0 0 12px 0', fontSize: '14px', color: '#15803d' }}>Margen Comercial</h5>
+                        <div className="form-group">
+                          <label style={{ display: 'block', marginBottom: '6px', fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)' }}>
+                            Margen Deseado (%)
+                          </label>
+                          <input 
+                            type="number" 
+                            step="0.1" 
+                            value={currentProduct.margenDeseado !== undefined ? currentProduct.margenDeseado : ''} 
+                            onChange={e => setCurrentProduct({...currentProduct, margenDeseado: Number(e.target.value) || 0})} 
+                            placeholder="Ej: 50"
+                            style={{ width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid var(--border-color)' }}
+                          />
+                        </div>
+                        <div style={{ fontSize: '13px', display: 'flex', justifyContent: 'space-between', marginTop: '12px', color: 'var(--text-secondary)' }}>
+                          <span>Precio Base Mercadería:</span>
+                          <strong>${calculatedPrices ? Number(calculatedPrices.precioMercaderia || 0).toFixed(2) : '0.00'}</strong>
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <h5 style={{ margin: '0 0 12px 0', fontSize: '14px', color: '#15803d' }}>Precios de Venta (Manual)</h5>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                          <div>
+                            <label style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Precio 150g</label>
+                            <input type="number" step="0.01" value={currentProduct.precio150g || ''} onChange={e => setCurrentProduct({...currentProduct, precio150g: Number(e.target.value) || 0})} style={{ width: '100%', padding: '6px', borderRadius: '6px', border: '1px solid var(--border-color)' }} />
+                          </div>
+                          <div>
+                            <label style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Precio 250g</label>
+                            <input type="number" step="0.01" value={currentProduct.precio250g || ''} onChange={e => setCurrentProduct({...currentProduct, precio250g: Number(e.target.value) || 0})} style={{ width: '100%', padding: '6px', borderRadius: '6px', border: '1px solid var(--border-color)' }} />
+                          </div>
+                          <div>
+                            <label style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Precio 500g</label>
+                            <input type="number" step="0.01" value={currentProduct.precio500g || ''} onChange={e => setCurrentProduct({...currentProduct, precio500g: Number(e.target.value) || 0})} style={{ width: '100%', padding: '6px', borderRadius: '6px', border: '1px solid var(--border-color)' }} />
+                          </div>
+                          <div>
+                            <label style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Precio 1kg</label>
+                            <input type="number" step="0.01" value={currentProduct.precio1kg || ''} onChange={e => setCurrentProduct({...currentProduct, precio1kg: Number(e.target.value) || 0})} style={{ width: '100%', padding: '6px', borderRadius: '6px', border: '1px solid var(--border-color)' }} />
+                          </div>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                </div>
+
+                {/* Seccion 4: Resultado */}
+                <div style={{ marginTop: '20px', backgroundColor: '#fff', borderRadius: '8px', border: '1px solid #dcfce3', overflow: 'hidden' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'center', fontSize: '13px' }}>
+                    <thead>
+                      <tr style={{ backgroundColor: '#f0fdf4', borderBottom: '1px solid #dcfce3', color: '#166534' }}>
+                        <th style={{ padding: '10px' }}>Presentación</th>
+                        <th style={{ padding: '10px' }}>Costo Operativo</th>
+                        <th style={{ padding: '10px' }}>Precio Venta</th>
+                        <th style={{ padding: '10px' }}>Margen Real</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {[
+                        { size: '150g', pId: '150g', grams: 150 },
+                        { size: '250g', pId: '250g', grams: 250 },
+                        { size: '500g', pId: '500g', grams: 500 },
+                        { size: '1kg', pId: '1kg', grams: 1000 },
+                      ].map((row, i) => {
+                        const price = currentProduct[`precio${row.pId}` as keyof typeof currentProduct] as number || 0;
+                        const margin = calculatedPrices ? calculatedPrices[`margenReal${row.pId}` as keyof typeof calculatedPrices] as number : 0;
+                        const cost = calculatedPrices ? calculatedPrices.costoMercaderia + (calculatedPrices.costoEmbalaje * (1000 / row.grams)) : 0;
+                        return (
+                          <tr key={i} style={{ borderBottom: i < 3 ? '1px solid #edf2f7' : 'none' }}>
+                            <td style={{ padding: '10px', fontWeight: 600, color: 'var(--text-secondary)' }}>{row.size}</td>
+                            <td style={{ padding: '10px', color: 'var(--text-primary)' }}>${Number(cost || 0).toFixed(2)}</td>
+                            <td style={{ padding: '10px', fontWeight: 700, color: 'var(--text-primary)' }}>${Number(price || 0).toFixed(2)}</td>
+                            <td style={{ padding: '10px', fontWeight: 600, color: margin < 0 ? '#ef4444' : '#16a34a' }}>{Number(margin || 0).toFixed(1)}%</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
 
             {currentProduct.type === 'MERCADERIA' && (
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '20px' }}>
@@ -997,7 +1141,7 @@ export default function ProductosConfig() {
                     type="number" 
                     step="0.001" 
                     value={currentProduct.mermaPorDefecto !== undefined ? currentProduct.mermaPorDefecto : ''} 
-                    onChange={e => setCurrentProduct({...currentProduct, mermaPorDefecto: e.target.value as any})} 
+                    onChange={e => setCurrentProduct({...currentProduct, mermaPorDefecto: Number(e.target.value) || 0})} 
                     placeholder="0.000"
                     style={{ width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid var(--border-color)' }}
                   />
@@ -1034,7 +1178,7 @@ export default function ProductosConfig() {
                     step="0.1"
                     placeholder="30"
                     value={currentProduct.utilidadObjetivo !== undefined ? currentProduct.utilidadObjetivo : ''}
-                    onChange={e => setCurrentProduct({ ...currentProduct, utilidadObjetivo: e.target.value as any })}
+                    onChange={e => setCurrentProduct({ ...currentProduct, utilidadObjetivo: Number(e.target.value) || 0 })}
                     style={{ width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid var(--border-color)' }}
                   />
                 </div>
@@ -1047,7 +1191,7 @@ export default function ProductosConfig() {
                     step="0.1"
                     placeholder="5"
                     value={currentProduct.mermaObjetivo !== undefined ? currentProduct.mermaObjetivo : ''}
-                    onChange={e => setCurrentProduct({ ...currentProduct, mermaObjetivo: e.target.value as any })}
+                    onChange={e => setCurrentProduct({ ...currentProduct, mermaObjetivo: Number(e.target.value) || 0 })}
                     style={{ width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid var(--border-color)' }}
                   />
                 </div>
@@ -1089,7 +1233,7 @@ export default function ProductosConfig() {
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                     <span style={{ fontSize: '13px', fontWeight: 600, color: '#16a34a', backgroundColor: '#e6f4ea', padding: '4px 10px', borderRadius: '20px' }}>
-                      Costo Dinámico: ${computedRecipeCost.toFixed(2)}
+                      Costo Dinámico: ${Number(computedRecipeCost || 0).toFixed(2)}
                     </span>
                     {recipeExpanded ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
                   </div>

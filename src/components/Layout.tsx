@@ -14,7 +14,8 @@ import {
   LogOut,
   Receipt,
   Sparkles,
-  Calendar
+  Calendar,
+  ShieldCheck
 } from 'lucide-react';
 import TopLogo from './TopLogo';
 import { useAuthStore } from '../store/authStore';
@@ -37,6 +38,7 @@ export default function Layout() {
     { path: '/proveedores', label: 'Proveedores', icon: <Truck size={22} /> },
     { path: '/compras', label: 'Compras', icon: <CreditCard size={22} /> },
     { path: '/caja', label: 'Caja', icon: <Wallet size={22} /> },
+    { path: '/auditoria', label: 'Auditoría', icon: <ShieldCheck size={22} /> },
     { path: '/socios', label: 'Socios', icon: <Briefcase size={22} /> },
     { path: '/asistente-inicio', label: 'Asistente de Inicio', icon: <Sparkles size={22} /> },
     { path: '/configuracion', label: 'Configuración', icon: <Settings size={22} /> },

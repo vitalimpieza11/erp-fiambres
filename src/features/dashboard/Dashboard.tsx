@@ -92,7 +92,7 @@ export default function Dashboard() {
         const acc = activeAccounts.find(a => a.id === m.accountId);
         return acc ? acc.tipo === type : false;
       })
-      .reduce((acc, mov) => acc + (mov.type === 'INCOME' ? mov.amount : -mov.amount), 0);
+      .reduce((acc, mov) => acc + (mov.type === 'INCOME' ? (Number(mov.amount) || 0) : -(Number(mov.amount) || 0)), 0);
   };
 
   const cajaActual = useMemo(() => getBalanceByAccountType('EFECTIVO'), [cacheCaja.movements, activeAccounts]);
@@ -102,18 +102,18 @@ export default function Dashboard() {
 
   const porCobrar = useMemo(() => {
     return cacheClientes.movements.reduce((acc, m) => {
-      if (m.type === 'DEUDA') return acc + m.amount;
-      if (m.type === 'PAGO') return acc - m.amount;
-      if (m.type === 'AJUSTE') return acc + m.amount;
+      if (m.type === 'DEUDA') return acc + (Number(m.amount) || 0);
+      if (m.type === 'PAGO') return acc - (Number(m.amount) || 0);
+      if (m.type === 'AJUSTE') return acc + (Number(m.amount) || 0);
       return acc;
     }, 0);
   }, [cacheClientes.movements]);
 
   const porPagar = useMemo(() => {
     return cacheProveedores.movements.reduce((acc, m) => {
-      if (m.type === 'COMPRA') return acc + m.amount;
-      if (m.type === 'PAGO') return acc - m.amount;
-      if (m.type === 'AJUSTE' || m.type === 'ANULACION') return acc + m.amount;
+      if (m.type === 'COMPRA') return acc + (Number(m.amount) || 0);
+      if (m.type === 'PAGO') return acc - (Number(m.amount) || 0);
+      if (m.type === 'AJUSTE' || m.type === 'ANULACION') return acc + (Number(m.amount) || 0);
       return acc;
     }, 0);
   }, [cacheProveedores.movements]);
@@ -121,11 +121,11 @@ export default function Dashboard() {
   const stockValorizado = useMemo(() => {
     return cacheStock.products
       .filter(p => p.activo)
-      .reduce((acc, p) => acc + (Math.max(0, p.stockActual || 0) * (p.costoActual || p.costoUltimaCompra || 0)), 0);
+      .reduce((acc, p) => acc + (Math.max(0, Number(p.stockActual) || 0) * (Number(p.costoActual) || Number(p.costoUltimaCompra) || 0)), 0);
   }, [cacheStock.products]);
 
   const prestamosPendientes = useMemo(() => {
-    return loans.reduce((acc, l) => acc + l.remainingAmount, 0);
+    return loans.reduce((acc, l) => acc + (Number(l.remainingAmount) || 0), 0);
   }, [loans]);
 
   const patrimonioEstimado = totalDisponible + porCobrar + stockValorizado - porPagar - prestamosPendientes;
@@ -133,10 +133,10 @@ export default function Dashboard() {
   const capitalAportadoSocios = useMemo(() => {
     return sociosMovements.reduce((acc, mov) => {
       if (mov.estado === 'ANULADO') return acc;
-      if (mov.sourceType === 'APORTE') return acc + mov.amount;
-      if (mov.sourceType === 'RETIRO') return acc - mov.amount;
-      if (mov.sourceType === 'AJUSTE') return acc + mov.amount;
-      if (mov.sourceType === 'ANULACION') return acc + mov.amount;
+      if (mov.sourceType === 'APORTE') return acc + (Number(mov.amount) || 0);
+      if (mov.sourceType === 'RETIRO') return acc - (Number(mov.amount) || 0);
+      if (mov.sourceType === 'AJUSTE') return acc + (Number(mov.amount) || 0);
+      if (mov.sourceType === 'ANULACION') return acc + (Number(mov.amount) || 0);
       return acc;
     }, 0);
   }, [sociosMovements]);
@@ -148,7 +148,7 @@ export default function Dashboard() {
     // 1. Ventas Históricas Totales
     const ventasHist = cacheVentas.sales
       .filter(s => s.status !== 'ANULADO')
-      .reduce((acc, s) => acc + s.totalAmount, 0);
+      .reduce((acc, s) => acc + (Number(s.totalAmount) || 0), 0);
 
     // 2. CMV Histórico Acumulado
     const cmvHistoricoAcumulado = cacheVentas.sales
@@ -156,24 +156,24 @@ export default function Dashboard() {
       .reduce((acc, s) => {
         // Prioridad 3: Ventas históricas globales
         if (s.isHistorical && s.costoTotal !== undefined) {
-          return acc + s.costoTotal;
+          return acc + (Number(s.costoTotal) || 0);
         }
 
         const saleCost = (s.items || []).reduce((itemAcc, item) => {
           // Prioridad 1: item.costoTotalHistorico
           if (item.costoTotalHistorico !== undefined) {
-            return itemAcc + item.costoTotalHistorico;
+            return itemAcc + (Number(item.costoTotalHistorico) || 0);
           }
           // Prioridad 2: item.costoTotal
           if (item.costoTotal !== undefined) {
-            return itemAcc + item.costoTotal;
+            return itemAcc + (Number(item.costoTotal) || 0);
           }
           
           // Prioridad 4: Fallback a catálogo actual
           const prod = cacheStock.products.find(p => p.id === item.productId);
           if (prod) {
-            const qty = prod.unitType === 'KG' ? (item.pesoReal || item.cantidad) : item.cantidad;
-            return itemAcc + (qty * (prod.costoActual || prod.costoUltimaCompra || 0));
+            const qty = prod.unitType === 'KG' ? (Number(item.pesoReal) || Number(item.cantidad) || 0) : (Number(item.cantidad) || 0);
+            return itemAcc + (qty * (Number(prod.costoActual) || Number(prod.costoUltimaCompra) || 0));
           }
           
           return itemAcc;
@@ -203,7 +203,7 @@ export default function Dashboard() {
         ];
         return !excludeCategories.includes(cat);
       })
-      .reduce((acc, m) => acc + m.amount, 0);
+      .reduce((acc, m) => acc + (Number(m.amount) || 0), 0);
 
     return gananciaBrutaAcumulada - gastosOperativosAcumulados;
   }, [cacheVentas.sales, cacheStock.products, cacheCaja.movements]);
@@ -220,17 +220,17 @@ export default function Dashboard() {
       return d >= start && d <= end && s.status !== 'ANULADO';
     });
 
-    const totalVentas = periodSales.reduce((acc, s) => acc + s.totalAmount, 0);
+    const totalVentas = periodSales.reduce((acc, s) => acc + (Number(s.totalAmount) || 0), 0);
     const totalCmv = periodSales.reduce((acc, s) => {
       if (s.isHistorical && s.costoTotal !== undefined) {
-        return acc + s.costoTotal;
+        return acc + (Number(s.costoTotal) || 0);
       }
       const saleCost = (s.items || []).reduce((itemAcc, item) => {
         const prod = cacheStock.products.find(p => p.id === item.productId);
         if (prod && prod.type === 'PRESENTACION') {
-          return itemAcc + (item.costoTotalHistorico || item.costoTotal || 0);
+          return itemAcc + (Number(item.costoTotalHistorico) || Number(item.costoTotal) || 0);
         }
-        return itemAcc + (item.cantidad * (prod?.costoActual || 0));
+        return itemAcc + ((Number(item.cantidad) || 0) * (Number(prod?.costoActual) || 0));
       }, 0);
       return acc + saleCost;
     }, 0);
@@ -258,7 +258,7 @@ export default function Dashboard() {
       const d = new Date(p.date);
       return d >= start && d <= end;
     });
-    const totalCompras = periodPurchases.reduce((acc, p) => acc + p.total, 0);
+    const totalCompras = periodPurchases.reduce((acc, p) => acc + (Number(p.total) || 0), 0);
     const proveedoresUtilizados = new Set(periodPurchases.map(p => p.supplierId)).size;
 
     // 6. Producción
@@ -289,7 +289,7 @@ export default function Dashboard() {
       ];
       return !excludeCategories.includes(cat);
     });
-    const gastosOperativos = periodGastos.reduce((acc, m) => acc + m.amount, 0);
+    const gastosOperativos = periodGastos.reduce((acc, m) => acc + (Number(m.amount) || 0), 0);
     const resultadoOperativo = gananciaBruta - gastosOperativos;
 
     const periodPackages = (cacheVentas.packages || []).filter(p => {
@@ -301,14 +301,14 @@ export default function Dashboard() {
     let paquetesProducidos = 0;
 
     if (periodPackages.length > 0) {
-      kgProducidos = periodPackages.reduce((acc, p) => acc + (p.weight || 0), 0);
+      kgProducidos = periodPackages.reduce((acc, p) => acc + (Number(p.weight) || 0), 0);
       paquetesProducidos = periodPackages.length;
     } else {
       kgProducidos = periodProdMovs.reduce((acc, m) => {
         const prod = cacheStock.products.find(p => p.id === m.productId);
         if (prod && prod.type === 'PRESENTACION') {
-          if (prod.unitType === 'KG') return acc + m.qty;
-          return acc + (m.qty * (prod.pesoObjetivoKg || (prod.pesoObjetivoGramos || 0) / 1000 || 0));
+          if (prod.unitType === 'KG') return acc + (Number(m.qty) || 0);
+          return acc + ((Number(m.qty) || 0) * (Number(prod.pesoObjetivoKg) || (Number(prod.pesoObjetivoGramos) || 0) / 1000 || 0));
         }
         return acc;
       }, 0);
@@ -316,7 +316,7 @@ export default function Dashboard() {
       paquetesProducidos = periodProdMovs.reduce((acc, m) => {
         const prod = cacheStock.products.find(p => p.id === m.productId);
         if (prod && prod.type === 'PRESENTACION' && prod.unitType === 'UNIDADES') {
-          return acc + m.qty;
+          return acc + (Number(m.qty) || 0);
         }
         return acc;
       }, 0);
@@ -677,13 +677,13 @@ export default function Dashboard() {
         const profitDetailSales = periodSales.map(sale => {
           let cost = 0;
           if (sale.isHistorical && sale.costoTotal !== undefined) {
-            cost = sale.costoTotal;
+            cost = Number(sale.costoTotal) || 0;
           } else {
             cost = (sale.items || []).reduce((itemAcc, item) => {
-              if (item.costoTotalHistorico !== undefined) return itemAcc + item.costoTotalHistorico;
-              if (item.costoTotal !== undefined) return itemAcc + item.costoTotal;
+              if (item.costoTotalHistorico !== undefined) return itemAcc + (Number(item.costoTotalHistorico) || 0);
+              if (item.costoTotal !== undefined) return itemAcc + (Number(item.costoTotal) || 0);
               const prod = cacheStock.products.find(p => p.id === item.productId);
-              return itemAcc + (item.cantidad * (prod?.costoActual || 0));
+              return itemAcc + ((Number(item.cantidad) || 0) * (Number(prod?.costoActual) || 0));
             }, 0);
           }
           
@@ -706,9 +706,9 @@ export default function Dashboard() {
         }).sort((a, b) => b.rawDate - a.rawDate);
 
         const profitTotals = profitDetailSales.reduce((acc, curr) => ({
-          venta: acc.venta + curr.venta,
-          costo: acc.costo + curr.costo,
-          ganancia: acc.ganancia + curr.ganancia
+          venta: acc.venta + (Number(curr.venta) || 0),
+          costo: acc.costo + (Number(curr.costo) || 0),
+          ganancia: acc.ganancia + (Number(curr.ganancia) || 0)
         }), { venta: 0, costo: 0, ganancia: 0 });
 
         return (
@@ -772,15 +772,15 @@ export default function Dashboard() {
         const histVentas = cacheVentas.sales.filter(s => s.status !== 'ANULADO').map(sale => {
           let cost = 0;
           if (sale.isHistorical && sale.costoTotal !== undefined) {
-            cost = sale.costoTotal;
+            cost = Number(sale.costoTotal) || 0;
           } else {
             cost = (sale.items || []).reduce((itemAcc, item) => {
-              if (item.costoTotalHistorico !== undefined) return itemAcc + item.costoTotalHistorico;
-              if (item.costoTotal !== undefined) return itemAcc + item.costoTotal;
+              if (item.costoTotalHistorico !== undefined) return itemAcc + (Number(item.costoTotalHistorico) || 0);
+              if (item.costoTotal !== undefined) return itemAcc + (Number(item.costoTotal) || 0);
               const prod = cacheStock.products.find(p => p.id === item.productId);
               if (prod) {
-                const qty = prod.unitType === 'KG' ? (item.pesoReal || item.cantidad) : item.cantidad;
-                return itemAcc + (qty * (prod.costoActual || prod.costoUltimaCompra || 0));
+                const qty = prod.unitType === 'KG' ? (Number(item.pesoReal) || Number(item.cantidad) || 0) : (Number(item.cantidad) || 0);
+                return itemAcc + (qty * (Number(prod.costoActual) || Number(prod.costoUltimaCompra) || 0));
               }
               return itemAcc;
             }, 0);
@@ -799,8 +799,8 @@ export default function Dashboard() {
           };
         }).sort((a, b) => b.rawDate - a.rawDate);
 
-        const totalVentasHist = histVentas.reduce((acc, v) => acc + v.venta, 0);
-        const totalCmvHist = histVentas.reduce((acc, v) => acc + v.costo, 0);
+        const totalVentasHist = histVentas.reduce((acc, v) => acc + (Number(v.venta) || 0), 0);
+        const totalCmvHist = histVentas.reduce((acc, v) => acc + (Number(v.costo) || 0), 0);
         const gananciaBrutaAcumulada = totalVentasHist - totalCmvHist;
 
         const excludeCategories = [
@@ -817,16 +817,16 @@ export default function Dashboard() {
             fecha: new Date(m.date).toLocaleDateString('es-AR'),
             categoria: m.category || 'Sin Categoría',
             descripcion: m.description || '',
-            importe: m.amount,
+            importe: Number(m.amount) || 0,
             rawDate: new Date(m.date).getTime()
           }))
           .sort((a, b) => b.rawDate - a.rawDate);
           
-        const totalGastosAcumulados = histGastos.reduce((acc, g) => acc + g.importe, 0);
+        const totalGastosAcumulados = histGastos.reduce((acc, g) => acc + (Number(g.importe) || 0), 0);
         const resultadoOperativoAcumuladoFinal = gananciaBrutaAcumulada - totalGastosAcumulados;
 
         const gastosPorCategoria = histGastos.reduce((acc, g) => {
-          acc[g.categoria] = (acc[g.categoria] || 0) + g.importe;
+          acc[g.categoria] = (acc[g.categoria] || 0) + (Number(g.importe) || 0);
           return acc;
         }, {} as Record<string, number>);
         
@@ -1112,7 +1112,7 @@ export default function Dashboard() {
           .filter(item => item.stock > 0)
           .sort((a, b) => b.valorizacion - a.valorizacion);
 
-        const totalStockValorizado = stockItems.reduce((acc, curr) => acc + curr.valorizacion, 0);
+        const totalStockValorizado = stockItems.reduce((acc, curr) => acc + (Number(curr.valorizacion) || 0), 0);
 
         return (
           <div className="modal-overlay open" onClick={() => setSelectedStockValorizadoOpen(false)}>

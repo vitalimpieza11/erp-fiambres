@@ -40,6 +40,10 @@ export const productsRepository = {
       ...product,
       precioComercial: Number(product.precioComercial || 0),
       stockActual: truncateDecimals(Number(product.stockActual || 0), 3),
+      precio150g: product.precio150g !== undefined && product.precio150g !== null ? Number(product.precio150g) : null,
+      precio250g: product.precio250g !== undefined && product.precio250g !== null ? Number(product.precio250g) : null,
+      precio500g: product.precio500g !== undefined && product.precio500g !== null ? Number(product.precio500g) : null,
+      precio1kg: product.precio1kg !== undefined && product.precio1kg !== null ? Number(product.precio1kg) : null,
     } as any;
 
     if (product.type === 'PRESENTACION') {

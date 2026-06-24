@@ -115,27 +115,27 @@ export default function Compras() {
     setItems(newItems);
   };
 
-  const subtotal = items.reduce((acc, it) => acc + (it.totalCost || 0), 0);
-  const total = subtotal + impuestos;
+  const subtotal = items.reduce((acc, it) => acc + Number(it.totalCost || 0), 0);
+  const total = subtotal + Number(impuestos || 0);
 
   const sumOfMultiplesCaja = useMemo(() => {
     if (paymentMethod !== 'MULTIPLES') return 0;
     return Object.entries(distribuidores).reduce((acc, [key, val]) => {
       if (key === 'CUENTA_CORRIENTE') return acc;
-      return acc + (val || 0);
+      return acc + Number(val || 0);
     }, 0);
   }, [distribuidores, paymentMethod]);
 
   const sumOfMultiplesTotal = useMemo(() => {
     if (paymentMethod !== 'MULTIPLES') return 0;
-    return Object.values(distribuidores).reduce((acc, val) => acc + (val || 0), 0);
+    return Object.values(distribuidores).reduce((acc, val) => acc + Number(val || 0), 0);
   }, [distribuidores, paymentMethod]);
 
   const isMultiplesValid = paymentMethod !== 'MULTIPLES' || Math.abs(sumOfMultiplesTotal - total) < 0.01;
 
   // Auto-calculate montos based on payment method
-  const calcMontoPagado = paymentMethod === 'CONTADO' ? total : (paymentMethod === 'CUENTA_CORRIENTE' ? 0 : (paymentMethod === 'MIXTA' ? montoPagado : sumOfMultiplesCaja));
-  const calcMontoCuentaCorriente = paymentMethod === 'MULTIPLES' ? (distribuidores['CUENTA_CORRIENTE'] || 0) : (total - calcMontoPagado);
+  const calcMontoPagado = paymentMethod === 'CONTADO' ? total : (paymentMethod === 'CUENTA_CORRIENTE' ? 0 : (paymentMethod === 'MIXTA' ? Number(montoPagado || 0) : sumOfMultiplesCaja));
+  const calcMontoCuentaCorriente = paymentMethod === 'MULTIPLES' ? Number(distribuidores['CUENTA_CORRIENTE'] || 0) : (total - calcMontoPagado);
 
   const [showHistorical, setShowHistorical] = useState(false);
 
@@ -148,7 +148,7 @@ export default function Compras() {
     }
     if (paymentMethod === 'MULTIPLES') {
       if (!isMultiplesValid) {
-        return alert(`La suma de los pagos ($${sumOfMultiplesTotal.toFixed(2)}) no coincide exactamente con el total de la compra ($${total.toFixed(2)}).`);
+        return alert(`La suma de los pagos ($${Number(sumOfMultiplesTotal).toFixed(2)}) no coincide exactamente con el total de la compra ($${Number(total).toFixed(2)}).`);
       }
     } else {
       if (calcMontoCuentaCorriente < 0) return alert("El monto pagado no puede superar el total.");
@@ -380,12 +380,12 @@ export default function Compras() {
 
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '4px', padding: '8px 12px', background: 'var(--bg-color)', borderRadius: '8px' }}>
                       <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
-                        {item.quantity > 0 && item.unitCost > 0
-                          ? `${item.quantity} ${unitLabel} × $${item.unitCost.toFixed(2)}`
+                        {Number(item.quantity) > 0 && Number(item.unitCost) > 0
+                          ? `${item.quantity} ${unitLabel} × $${Number(item.unitCost || 0).toFixed(2)}`
                           : 'Complete cantidad y costo'}
                       </span>
                       <span style={{ fontSize: '14px', fontWeight: 700, color: item.totalCost > 0 ? 'var(--text-primary)' : 'var(--text-secondary)' }}>
-                        ${item.totalCost.toFixed(2)}
+                        ${Number(item.totalCost || 0).toFixed(2)}
                       </span>
                     </div>
 
@@ -470,11 +470,11 @@ export default function Compras() {
 
                 <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid var(--border-color)', paddingTop: '10px', fontSize: '13px', fontWeight: 600, color: isMultiplesValid ? '#16a34a' : '#ef4444' }}>
                   <span>Suma de Pagos:</span>
-                  <span>${sumOfMultiplesTotal.toFixed(2)} / ${total.toFixed(2)}</span>
+                  <span>${Number(sumOfMultiplesTotal).toFixed(2)} / ${Number(total).toFixed(2)}</span>
                 </div>
                 {!isMultiplesValid && (
                   <span style={{ fontSize: '11px', color: '#ef4444', textAlign: 'right', display: 'block' }}>
-                    {sumOfMultiplesTotal > total ? `Sobra $${(sumOfMultiplesTotal - total).toFixed(2)}` : `Falta $${(total - sumOfMultiplesTotal).toFixed(2)}`}
+                    {sumOfMultiplesTotal > total ? `Sobra $${Number(sumOfMultiplesTotal - total).toFixed(2)}` : `Falta $${Number(total - sumOfMultiplesTotal).toFixed(2)}`}
                   </span>
                 )}
               </div>

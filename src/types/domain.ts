@@ -99,6 +99,12 @@ export type Product = {
   mermaPorDefecto?: number;
   utilidadObjetivo?: number;
   mermaObjetivo?: number;
+  precio150g?: number;
+  precio250g?: number;
+  precio500g?: number;
+  precio1kg?: number;
+  margenDeseado?: number;
+  pricingMode?: 'AUTO' | 'MANUAL';
 }
 
 export type Equivalencia = {
@@ -186,6 +192,7 @@ export type SaleItem = {
   cantidadPaquetes?: number;
   pesoTotal?: number;
   pesoPromedio?: number;
+  presentationType?: '150G' | '250G' | '500G' | '1KG';
 };
 
 export type RecipeSnapshotItem = {
@@ -228,6 +235,12 @@ export type SystemSettings = {
   companyCondicionIva?: string;
   companyIngresosBrutos?: string;
   companyObservacionesLegales?: string;
+  // Costos de embalaje globales
+  packagingSettings?: {
+    bolsaProductId?: string;
+    etiquetaProductId?: string;
+    folexProductId?: string;
+  };
 };
 
 

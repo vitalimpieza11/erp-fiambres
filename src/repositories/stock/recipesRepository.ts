@@ -26,7 +26,8 @@ export function calculateRecipeCost(
           '',
           equivalences
         );
-        totalCost += convertedQty * (ingredient.costoActual || 0);
+        const cost = Number(ingredient.costoActual || 0);
+        totalCost += convertedQty * cost;
       } catch (err) {
         console.error(`Error al convertir unidad en cálculo de costo para ${item.ingredientName}:`, err);
       }

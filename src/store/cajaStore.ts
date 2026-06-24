@@ -10,6 +10,8 @@ interface CajaState {
   subscribeMovements: () => () => void;
   addMovement: (mov: Omit<CajaMovement, 'id' | 'isDeleted' | 'date'> & { date?: string }) => Promise<void>;
   annulMovement: (originalId: string, reason: string) => Promise<void>;
+  updateMovement: (id: string, data: Partial<Omit<CajaMovement, 'id'>>) => Promise<void>;
+  deleteMovementFisico: (id: string) => Promise<void>;
 }
 
 export const useCajaStore = create<CajaState>((set, get) => ({
@@ -40,5 +42,11 @@ export const useCajaStore = create<CajaState>((set, get) => ({
     const original = get().movements.find(m => m.id === originalId);
     if (!original) throw new Error("Movimiento no encontrado");
     await cajaRepository.annulMovement(originalId, reason, original);
+  },
+  updateMovement: async (id, data) => {
+    await cajaRepository.updateMovement(id, data);
+  },
+  deleteMovementFisico: async (id) => {
+    await cajaRepository.deleteMovementFisico(id);
   }
 }));
