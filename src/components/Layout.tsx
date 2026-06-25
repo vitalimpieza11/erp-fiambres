@@ -16,7 +16,8 @@ import {
   Sparkles,
   Calendar,
   ShieldCheck,
-  Scale
+  Scale,
+  Database
 } from 'lucide-react';
 import TopLogo from './TopLogo';
 import { useAuthStore } from '../store/authStore';
@@ -28,22 +29,48 @@ export default function Layout() {
   const { user, logout } = useAuthStore();
   const { selectedPeriod, customRange, setPeriod, setCustomRange } = usePeriodFilterStore();
 
-  const navItems = [
-    { path: '/dashboard', label: 'Dashboard', icon: <LayoutDashboard size={22} /> },
-    { path: '/pedidos', label: 'Pedidos', icon: <ShoppingCart size={22} /> },
-    { path: '/produccion', label: 'Producción', icon: <Wrench size={22} /> },
-    { path: '/stock', label: 'Stock', icon: <Package size={22} /> },
-    { path: '/ventas', label: 'Ventas', icon: <TrendingUp size={22} /> },
-    { path: '/facturacion', label: 'Facturación', icon: <Receipt size={22} /> },
-    { path: '/clientes', label: 'Clientes', icon: <Users size={22} /> },
-    { path: '/proveedores', label: 'Proveedores', icon: <Truck size={22} /> },
-    { path: '/compras', label: 'Compras', icon: <CreditCard size={22} /> },
-    { path: '/caja', label: 'Caja', icon: <Wallet size={22} /> },
-    { path: '/auditoria', label: 'Auditoría', icon: <ShieldCheck size={22} /> },
-    { path: '/balanza', label: 'Códigos de Balanza', icon: <Scale size={22} /> },
-    { path: '/socios', label: 'Socios', icon: <Briefcase size={22} /> },
-    { path: '/asistente-inicio', label: 'Asistente de Inicio', icon: <Sparkles size={22} /> },
-    { path: '/configuracion', label: 'Configuración', icon: <Settings size={22} /> },
+  const navGroups = [
+    {
+      title: 'OPERACIÓN',
+      items: [
+        { path: '/dashboard', label: 'Dashboard', icon: <LayoutDashboard size={22} /> },
+        { path: '/ventas', label: 'Ventas', icon: <TrendingUp size={22} /> },
+        { path: '/pedidos', label: 'Pedidos', icon: <ShoppingCart size={22} /> },
+        { path: '/produccion', label: 'Producción', icon: <Wrench size={22} /> },
+        { path: '/compras', label: 'Compras', icon: <CreditCard size={22} /> },
+        { path: '/facturacion', label: 'Facturación', icon: <Receipt size={22} /> },
+      ]
+    },
+    {
+      title: 'INVENTARIO',
+      items: [
+        { path: '/stock', label: 'Stock', icon: <Package size={22} /> },
+        { path: '/balanza', label: 'Códigos de Balanza', icon: <Scale size={22} /> },
+        { path: '/diagnostico-stock', label: 'Diagnóstico Stock', icon: <Database size={22} /> },
+      ]
+    },
+    {
+      title: 'FINANZAS',
+      items: [
+        { path: '/caja', label: 'Caja', icon: <Wallet size={22} /> },
+        { path: '/socios', label: 'Socios', icon: <Briefcase size={22} /> },
+      ]
+    },
+    {
+      title: 'CRM',
+      items: [
+        { path: '/clientes', label: 'Clientes', icon: <Users size={22} /> },
+        { path: '/proveedores', label: 'Proveedores', icon: <Truck size={22} /> },
+      ]
+    },
+    {
+      title: 'SISTEMA',
+      items: [
+        { path: '/configuracion', label: 'Configuración', icon: <Settings size={22} /> },
+        { path: '/auditoria', label: 'Auditoría', icon: <ShieldCheck size={22} /> },
+        { path: '/asistente-inicio', label: 'Asistente de Inicio', icon: <Sparkles size={22} /> },
+      ]
+    }
   ];
 
   return (
@@ -54,16 +81,22 @@ export default function Layout() {
       {/* Sidebar Flotante */}
       <aside className="sidebar">
         <nav className="nav-menu">
-          {navItems.map((item) => (
-            <NavLink 
-              key={item.path} 
-              to={item.path} 
-              className={({ isActive }) => isActive ? 'nav-item active' : 'nav-item'}
-              title={item.label}
-            >
-              <div className="nav-icon">{item.icon}</div>
-              <span className="nav-text">{item.label}</span>
-            </NavLink>
+          {navGroups.map((group, groupIdx) => (
+            <div key={group.title} className="nav-group">
+              <div className="nav-group-title">{group.title}</div>
+              {group.items.map((item) => (
+                <NavLink 
+                  key={item.path} 
+                  to={item.path} 
+                  className={({ isActive }) => isActive ? 'nav-item active' : 'nav-item'}
+                  title={item.label}
+                >
+                  <div className="nav-icon">{item.icon}</div>
+                  <span className="nav-text">{item.label}</span>
+                </NavLink>
+              ))}
+              {groupIdx < navGroups.length - 1 && <div className="nav-group-divider" />}
+            </div>
           ))}
         </nav>
       </aside>

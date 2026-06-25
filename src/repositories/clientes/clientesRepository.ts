@@ -35,10 +35,14 @@ export const clientesRepository = {
       updatedAt: Date.now()
     };
 
+    const cleanData = Object.fromEntries(
+      Object.entries(dataToSave).filter(([_, value]) => value !== undefined)
+    );
+
     if (customer.id) {
-      await updateDoc(doc(db, 'customers', customer.id), dataToSave);
+      await updateDoc(doc(db, 'customers', customer.id), cleanData);
     } else {
-      await addDoc(COLLECTIONS.CUSTOMERS, { ...dataToSave, createdAt: Date.now() });
+      await addDoc(COLLECTIONS.CUSTOMERS, { ...cleanData, createdAt: Date.now() });
     }
   },
 

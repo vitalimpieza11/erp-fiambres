@@ -49,7 +49,10 @@ export const cajaRepository = {
 
   async updateMovement(id: string, data: Partial<Omit<CajaMovement, 'id'>>): Promise<void> {
     const docRef = doc(db, 'caja_movements', id);
-    await updateDoc(docRef, data);
+    const cleanData = Object.fromEntries(
+      Object.entries(data).filter(([_, value]) => value !== undefined)
+    );
+    await updateDoc(docRef, cleanData);
   },
 
   async deleteMovementFisico(id: string): Promise<void> {

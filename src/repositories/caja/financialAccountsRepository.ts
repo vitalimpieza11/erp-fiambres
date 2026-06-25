@@ -15,12 +15,16 @@ export const financialAccountsRepository = {
       updatedAt: Date.now()
     };
 
+    const cleanData = Object.fromEntries(
+      Object.entries(dataToSave).filter(([_, value]) => value !== undefined)
+    );
+
     if (account.id) {
-      await updateDoc(doc(db, 'financial_accounts', account.id), dataToSave);
+      await updateDoc(doc(db, 'financial_accounts', account.id), cleanData);
       return account.id;
     } else {
       const docRef = await addDoc(COLLECTIONS.FINANCIAL_ACCOUNTS, {
-        ...dataToSave,
+        ...cleanData,
         createdAt: Date.now()
       });
       return docRef.id;

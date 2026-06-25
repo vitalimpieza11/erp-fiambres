@@ -43,6 +43,7 @@ export default function Dashboard() {
   const [selectedOpAcumDetailOpen, setSelectedOpAcumDetailOpen] = useState(false);
   const [selectedPatrimonioOpen, setSelectedPatrimonioOpen] = useState(false);
   const [selectedStockValorizadoOpen, setSelectedStockValorizadoOpen] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
 
   const { accounts, fetchAccounts } = useFinancialAccountsStore();
   const { movements: prodMovements, fetchData: fetchProduction, loading: prodLoading } = useProductionStore();
@@ -382,42 +383,15 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* BLOQUE 1 - ESTADO ACTUAL DEL NEGOCIO */}
+      {/* MÉTRICAS PRINCIPALES (Fila 1 y 2) */}
       <div>
         <h2 style={{ fontSize: '20px', fontWeight: 700, marginBottom: '20px', color: 'var(--text-primary)', borderBottom: '1px solid var(--border-color)', paddingBottom: '10px' }}>
-          Estado Actual del Negocio
+          Resumen General
         </h2>
-        <div className="dashboard-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '20px', marginBottom: '32px' }}>
-          <div className="apple-card" style={{ padding: '20px', minHeight: '120px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-secondary)' }}>Caja Actual</span>
-              <div className="dash-icon" style={{ backgroundColor: '#f3f4f6', color: '#1f2937' }}><Wallet size={18} /></div>
-            </div>
-            <div className="dash-metric" style={{ marginTop: '12px' }}>
-              <span className="dash-metric-value">{formatCurrency(cajaActual)}</span>
-            </div>
-          </div>
-
-          <div className="apple-card" style={{ padding: '20px', minHeight: '120px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-secondary)' }}>Saldo Bancos</span>
-              <div className="dash-icon" style={{ backgroundColor: '#e0f2fe', color: '#0284c7' }}><PiggyBank size={18} /></div>
-            </div>
-            <div className="dash-metric" style={{ marginTop: '12px' }}>
-              <span className="dash-metric-value">{formatCurrency(saldoBancos)}</span>
-            </div>
-          </div>
-
-          <div className="apple-card" style={{ padding: '20px', minHeight: '120px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-secondary)' }}>Billeteras Virtuales</span>
-              <div className="dash-icon" style={{ backgroundColor: '#faf5ff', color: '#7c3aed' }}><Wallet size={18} /></div>
-            </div>
-            <div className="dash-metric" style={{ marginTop: '12px' }}>
-              <span className="dash-metric-value">{formatCurrency(billeterasActual)}</span>
-            </div>
-          </div>
-
+        
+        {/* FILA 1 */}
+        <div className="dashboard-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '20px', marginBottom: '20px' }}>
+          {/* Total Disponible */}
           <div className="apple-card" style={{ padding: '20px', minHeight: '120px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', border: '1px solid var(--alvacio-red-light)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span style={{ fontSize: '14px', fontWeight: 600, color: 'var(--alvacio-red)' }}>Total Disponible</span>
@@ -428,52 +402,29 @@ export default function Dashboard() {
             </div>
           </div>
 
+          {/* Caja Actual */}
           <div className="apple-card" style={{ padding: '20px', minHeight: '120px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-secondary)' }}>Cuentas por Cobrar</span>
-              <div className="dash-icon" style={{ backgroundColor: '#dcfce7', color: '#16a34a' }}><Users size={18} /></div>
+              <span style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-secondary)' }}>Caja Actual</span>
+              <div className="dash-icon" style={{ backgroundColor: '#f3f4f6', color: '#1f2937' }}><Wallet size={18} /></div>
             </div>
             <div className="dash-metric" style={{ marginTop: '12px' }}>
-              <span className="dash-metric-value">{formatCurrency(porCobrar)}</span>
+              <span className="dash-metric-value">{formatCurrency(cajaActual)}</span>
             </div>
           </div>
 
+          {/* Saldo Bancos */}
           <div className="apple-card" style={{ padding: '20px', minHeight: '120px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-secondary)' }}>Cuentas por Pagar</span>
-              <div className="dash-icon" style={{ backgroundColor: '#fee2e2', color: '#dc2626' }}><Truck size={18} /></div>
+              <span style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-secondary)' }}>Saldo Bancos</span>
+              <div className="dash-icon" style={{ backgroundColor: '#e0f2fe', color: '#0284c7' }}><PiggyBank size={18} /></div>
             </div>
             <div className="dash-metric" style={{ marginTop: '12px' }}>
-              <span className="dash-metric-value">{formatCurrency(porPagar)}</span>
+              <span className="dash-metric-value">{formatCurrency(saldoBancos)}</span>
             </div>
           </div>
 
-          <div className="apple-card" style={{ padding: '20px', minHeight: '120px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-secondary)' }}>Stock Valorizado</span>
-              <div className="dash-icon" style={{ backgroundColor: '#fef3c7', color: '#d97706' }}><PackageIcon size={18} /></div>
-            </div>
-            <div className="dash-metric" style={{ marginTop: '12px' }}>
-              <span className="dash-metric-value">{formatCurrency(stockValorizado)}</span>
-            </div>
-          </div>
-
-          <div 
-            className="apple-card" 
-            style={{ padding: '20px', minHeight: '120px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', backgroundColor: '#e2f9ec', border: '1px solid #a7f3d0', cursor: 'pointer', transition: 'all 0.2s ease' }}
-            onClick={() => setSelectedPatrimonioOpen(true)}
-            onMouseOver={(e) => e.currentTarget.style.transform = 'translateY(-2px)'}
-            onMouseOut={(e) => e.currentTarget.style.transform = 'none'}
-          >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontSize: '14px', fontWeight: 600, color: '#065f46' }}>Patrimonio Estimado</span>
-              <div className="dash-icon" style={{ backgroundColor: '#10b981', color: '#ffffff' }}><Briefcase size={18} /></div>
-            </div>
-            <div className="dash-metric" style={{ marginTop: '12px' }}>
-              <span className="dash-metric-value" style={{ color: '#047857' }}>{formatCurrency(patrimonioEstimado)}</span>
-            </div>
-          </div>
-
+          {/* Resultado Operativo Acumulado */}
           <div 
             className="apple-card" 
             style={{ padding: '20px', minHeight: '120px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', backgroundColor: '#eff6ff', border: '1px solid #bfdbfe', cursor: 'pointer', transition: 'all 0.2s ease' }}
@@ -482,7 +433,7 @@ export default function Dashboard() {
             onMouseOut={(e) => e.currentTarget.style.transform = 'none'}
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontSize: '14px', fontWeight: 600, color: '#1e40af' }}>Res. Operativo Acumulado</span>
+              <span style={{ fontSize: '14px', fontWeight: 600, color: '#1e40af' }}>Res. Operativo Acum.</span>
               <div className="dash-icon" style={{ backgroundColor: '#3b82f6', color: '#ffffff' }}><Calculator size={18} /></div>
             </div>
             <div className="dash-metric" style={{ marginTop: '12px' }}>
@@ -490,15 +441,10 @@ export default function Dashboard() {
             </div>
           </div>
         </div>
-      </div>
 
-      {/* BLOQUE 2 - RESULTADOS DEL PERÍODO */}
-      <div>
-        <h2 style={{ fontSize: '20px', fontWeight: 700, marginBottom: '20px', color: 'var(--text-primary)', borderBottom: '1px solid var(--border-color)', paddingBottom: '10px' }}>
-          Resultados del Período
-        </h2>
-        <div className="dashboard-grid">
-          {/* Card Ventas */}
+        {/* FILA 2 */}
+        <div className="dashboard-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '20px', marginBottom: '32px' }}>
+          {/* Ventas del Período */}
           <div className="apple-card" style={{ padding: '24px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
             <div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
@@ -510,19 +456,7 @@ export default function Dashboard() {
             {renderTrend(currentMetrics.totalVentas, comparisonMetrics.totalVentas, formatCurrency)}
           </div>
 
-          {/* Card Compras */}
-          <div className="apple-card" style={{ padding: '24px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-            <div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-                <span style={{ fontSize: '15px', fontWeight: 600, color: 'var(--text-secondary)' }}>Compras del Período</span>
-                <div className="dash-icon" style={{ backgroundColor: '#f3f4f6', color: '#4b5563' }}><ShoppingCart size={20} /></div>
-              </div>
-              <span className="dash-metric-value" style={{ fontSize: '32px' }}>{formatCurrency(currentMetrics.totalCompras)}</span>
-            </div>
-            {renderTrend(currentMetrics.totalCompras, comparisonMetrics.totalCompras, formatCurrency, true)}
-          </div>
-
-          {/* Card Ganancia Bruta */}
+          {/* Ganancia Bruta (del Período) */}
           <div 
             className="apple-card" 
             style={{ padding: '24px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', cursor: 'pointer', transition: 'all 0.2s ease' }}
@@ -542,128 +476,118 @@ export default function Dashboard() {
             {renderTrend(currentMetrics.gananciaBruta, comparisonMetrics.gananciaBruta, formatCurrency)}
           </div>
 
-          {/* Card Gastos Operativos */}
-          <div className="apple-card" style={{ padding: '24px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-            <div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-                <span style={{ fontSize: '15px', fontWeight: 600, color: 'var(--text-secondary)' }}>Gastos Operativos</span>
-                <div className="dash-icon" style={{ backgroundColor: '#fee2e2', color: '#dc2626' }}><TrendingUp size={20} /></div>
-              </div>
-              <span className="dash-metric-value" style={{ fontSize: '32px', color: '#dc2626' }}>{formatCurrency(currentMetrics.gastosOperativos)}</span>
+          {/* Stock Valorizado */}
+          <div className="apple-card" style={{ padding: '20px', minHeight: '120px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-secondary)' }}>Stock Valorizado</span>
+              <div className="dash-icon" style={{ backgroundColor: '#fef3c7', color: '#d97706' }}><PackageIcon size={18} /></div>
             </div>
-            {renderTrend(currentMetrics.gastosOperativos, comparisonMetrics.gastosOperativos, formatCurrency, true)}
-          </div>
-
-          {/* Card Resultado Operativo del Período */}
-          <div className="apple-card" style={{ padding: '24px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', backgroundColor: '#eff6ff', border: '1px solid #bfdbfe' }}>
-            <div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-                <span style={{ fontSize: '15px', fontWeight: 600, color: '#1e40af' }}>Resultado Operativo</span>
-                <div className="dash-icon" style={{ backgroundColor: '#3b82f6', color: '#ffffff' }}><Calculator size={20} /></div>
-              </div>
-              <span className="dash-metric-value" style={{ fontSize: '32px', color: currentMetrics.resultadoOperativo >= 0 ? '#1d4ed8' : '#dc2626' }}>
-                {formatCurrency(currentMetrics.resultadoOperativo)}
-              </span>
+            <div className="dash-metric" style={{ marginTop: '12px' }}>
+              <span className="dash-metric-value" style={{ fontSize: '32px' }}>{formatCurrency(stockValorizado)}</span>
             </div>
-            {renderTrend(currentMetrics.resultadoOperativo, comparisonMetrics.resultadoOperativo, formatCurrency)}
-          </div>
-
-          {/* Card Margen Bruto */}
-          <div className="apple-card" style={{ padding: '24px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-            <div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-                <span style={{ fontSize: '15px', fontWeight: 600, color: 'var(--text-secondary)' }}>Margen Comercial</span>
-                <div className="dash-icon" style={{ backgroundColor: '#f3e8ff', color: '#9333ea' }}><Percent size={20} /></div>
-              </div>
-              <span className="dash-metric-value" style={{ fontSize: '32px' }}>{currentMetrics.margenBruto.toFixed(1)}%</span>
-            </div>
-            {renderTrend(currentMetrics.margenBruto, comparisonMetrics.margenBruto, (v) => `${v.toFixed(1)}%`)}
-          </div>
-
-          {/* Card Pedidos */}
-          <div className="apple-card" style={{ padding: '24px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-            <div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-                <span style={{ fontSize: '15px', fontWeight: 600, color: 'var(--text-secondary)' }}>Cantidad de Pedidos</span>
-                <div className="dash-icon" style={{ backgroundColor: '#fef3c7', color: '#d97706' }}><ClipboardList size={20} /></div>
-              </div>
-              <span className="dash-metric-value" style={{ fontSize: '32px' }}>{formatNumber(currentMetrics.cantidadPedidos)}</span>
-            </div>
-            {renderTrend(currentMetrics.cantidadPedidos, comparisonMetrics.cantidadPedidos, formatNumber)}
-          </div>
-
-          {/* Card Remitos */}
-          <div className="apple-card" style={{ padding: '24px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-            <div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-                <span style={{ fontSize: '15px', fontWeight: 600, color: 'var(--text-secondary)' }}>Remitos Emitidos</span>
-                <div className="dash-icon" style={{ backgroundColor: '#e0f2fe', color: '#0369a1' }}><FileText size={20} /></div>
-              </div>
-              <span className="dash-metric-value" style={{ fontSize: '32px' }}>{formatNumber(currentMetrics.cantidadRemitos)}</span>
-            </div>
-            {renderTrend(currentMetrics.cantidadRemitos, comparisonMetrics.cantidadRemitos, formatNumber)}
-          </div>
-
-          {/* Card Clientes que compraron */}
-          <div className="apple-card" style={{ padding: '24px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-            <div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-                <span style={{ fontSize: '15px', fontWeight: 600, color: 'var(--text-secondary)' }}>Clientes que Compraron</span>
-                <div className="dash-icon" style={{ backgroundColor: '#ecfdf5', color: '#059669' }}><Users size={20} /></div>
-              </div>
-              <span className="dash-metric-value" style={{ fontSize: '32px' }}>{formatNumber(currentMetrics.clientesUnicos)}</span>
-            </div>
-            {renderTrend(currentMetrics.clientesUnicos, comparisonMetrics.clientesUnicos, formatNumber)}
-          </div>
-
-          {/* Card Proveedores utilizados */}
-          <div className="apple-card" style={{ padding: '24px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-            <div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-                <span style={{ fontSize: '15px', fontWeight: 600, color: 'var(--text-secondary)' }}>Proveedores Utilizados</span>
-                <div className="dash-icon" style={{ backgroundColor: '#fff7ed', color: '#ea580c' }}><Truck size={20} /></div>
-              </div>
-              <span className="dash-metric-value" style={{ fontSize: '32px' }}>{formatNumber(currentMetrics.proveedoresUtilizados)}</span>
-            </div>
-            {renderTrend(currentMetrics.proveedoresUtilizados, comparisonMetrics.proveedoresUtilizados, formatNumber)}
-          </div>
-
-          {/* Card Producciones */}
-          <div className="apple-card" style={{ padding: '24px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-            <div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-                <span style={{ fontSize: '15px', fontWeight: 600, color: 'var(--text-secondary)' }}>Producciones Realizadas</span>
-                <div className="dash-icon" style={{ backgroundColor: '#fdf2f8', color: '#db2777' }}><Activity size={20} /></div>
-              </div>
-              <span className="dash-metric-value" style={{ fontSize: '32px' }}>{formatNumber(currentMetrics.produccionesRealizadas)}</span>
-            </div>
-            {renderTrend(currentMetrics.produccionesRealizadas, comparisonMetrics.produccionesRealizadas, formatNumber)}
-          </div>
-
-          {/* Card Kg Producidos */}
-          <div className="apple-card" style={{ padding: '24px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-            <div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-                <span style={{ fontSize: '15px', fontWeight: 600, color: 'var(--text-secondary)' }}>Kg Producidos</span>
-                <div className="dash-icon" style={{ backgroundColor: '#f0fdf4', color: '#16a34a' }}><Scale size={20} /></div>
-              </div>
-              <span className="dash-metric-value" style={{ fontSize: '28px' }}>{formatKg(currentMetrics.kgProducidos)}</span>
-            </div>
-            {renderTrend(currentMetrics.kgProducidos, comparisonMetrics.kgProducidos, formatKg)}
-          </div>
-
-          {/* Card Paquetes Producidos */}
-          <div className="apple-card" style={{ padding: '24px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-            <div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-                <span style={{ fontSize: '15px', fontWeight: 600, color: 'var(--text-secondary)' }}>Paquetes Producidos</span>
-                <div className="dash-icon" style={{ backgroundColor: '#faf5ff', color: '#7c3aed' }}><Layers size={20} /></div>
-              </div>
-              <span className="dash-metric-value" style={{ fontSize: '32px' }}>{formatNumber(currentMetrics.paquetesProducidos)}</span>
-            </div>
-            {renderTrend(currentMetrics.paquetesProducidos, comparisonMetrics.paquetesProducidos, formatNumber)}
           </div>
         </div>
+      </div>
+
+      {/* MÉTRICAS AVANZADAS (Colapsables) */}
+      <div style={{ marginBottom: '40px' }}>
+        <button 
+          onClick={() => setShowAdvanced(!showAdvanced)}
+          className="btn-secondary"
+          style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 24px', borderRadius: 'var(--radius-lg)', backgroundColor: 'var(--surface-color)', border: '1px solid var(--border-color)' }}
+        >
+          <span style={{ fontSize: '16px', fontWeight: 600 }}>Ver métricas avanzadas</span>
+          <span style={{ color: 'var(--text-secondary)' }}>{showAdvanced ? '▲ Ocultar' : '▼ Mostrar'}</span>
+        </button>
+
+        {showAdvanced && (
+          <div style={{ marginTop: '24px', animation: 'fadeIn 0.3s ease' }}>
+            {/* ESTADO ACTUAL - SECUNDARIAS */}
+            <h3 style={{ fontSize: '16px', fontWeight: 600, marginBottom: '16px', color: 'var(--text-secondary)' }}>Estado Financiero y Patrimonio</h3>
+            <div className="dashboard-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px', marginBottom: '32px' }}>
+              <div className="apple-card" style={{ padding: '16px' }}>
+                <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Billeteras Virtuales</span>
+                <div style={{ fontSize: '20px', fontWeight: 700, marginTop: '8px' }}>{formatCurrency(billeterasActual)}</div>
+              </div>
+              <div className="apple-card" style={{ padding: '16px' }}>
+                <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Cuentas por Cobrar</span>
+                <div style={{ fontSize: '20px', fontWeight: 700, marginTop: '8px' }}>{formatCurrency(porCobrar)}</div>
+              </div>
+              <div className="apple-card" style={{ padding: '16px' }}>
+                <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Cuentas por Pagar</span>
+                <div style={{ fontSize: '20px', fontWeight: 700, marginTop: '8px' }}>{formatCurrency(porPagar)}</div>
+              </div>
+              <div className="apple-card" style={{ padding: '16px', backgroundColor: '#e2f9ec', border: '1px solid #a7f3d0' }}>
+                <span style={{ fontSize: '13px', color: '#065f46' }}>Patrimonio Estimado</span>
+                <div style={{ fontSize: '20px', fontWeight: 700, marginTop: '8px', color: '#047857' }}>{formatCurrency(patrimonioEstimado)}</div>
+              </div>
+            </div>
+
+            {/* PERÍODO - SECUNDARIAS */}
+            <h3 style={{ fontSize: '16px', fontWeight: 600, marginBottom: '16px', color: 'var(--text-secondary)' }}>Rendimiento del Período</h3>
+            <div className="dashboard-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px' }}>
+              <div className="apple-card" style={{ padding: '16px' }}>
+                <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Resultado Operativo</span>
+                <div style={{ fontSize: '20px', fontWeight: 700, marginTop: '8px', color: currentMetrics.resultadoOperativo >= 0 ? '#1d4ed8' : '#dc2626' }}>{formatCurrency(currentMetrics.resultadoOperativo)}</div>
+                {renderTrend(currentMetrics.resultadoOperativo, comparisonMetrics.resultadoOperativo, formatCurrency)}
+              </div>
+              <div className="apple-card" style={{ padding: '16px' }}>
+                <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Gastos Operativos</span>
+                <div style={{ fontSize: '20px', fontWeight: 700, marginTop: '8px', color: '#dc2626' }}>{formatCurrency(currentMetrics.gastosOperativos)}</div>
+                {renderTrend(currentMetrics.gastosOperativos, comparisonMetrics.gastosOperativos, formatCurrency, true)}
+              </div>
+              <div className="apple-card" style={{ padding: '16px' }}>
+                <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Compras del Período</span>
+                <div style={{ fontSize: '20px', fontWeight: 700, marginTop: '8px' }}>{formatCurrency(currentMetrics.totalCompras)}</div>
+                {renderTrend(currentMetrics.totalCompras, comparisonMetrics.totalCompras, formatCurrency, true)}
+              </div>
+              <div className="apple-card" style={{ padding: '16px' }}>
+                <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Margen Comercial</span>
+                <div style={{ fontSize: '20px', fontWeight: 700, marginTop: '8px' }}>{currentMetrics.margenBruto.toFixed(1)}%</div>
+                {renderTrend(currentMetrics.margenBruto, comparisonMetrics.margenBruto, (v) => `${v.toFixed(1)}%`)}
+              </div>
+              
+              {/* Actividad Operativa */}
+              <div className="apple-card" style={{ padding: '16px' }}>
+                <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Cantidad de Pedidos</span>
+                <div style={{ fontSize: '20px', fontWeight: 700, marginTop: '8px' }}>{formatNumber(currentMetrics.cantidadPedidos)}</div>
+                {renderTrend(currentMetrics.cantidadPedidos, comparisonMetrics.cantidadPedidos, formatNumber)}
+              </div>
+              <div className="apple-card" style={{ padding: '16px' }}>
+                <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Remitos Emitidos</span>
+                <div style={{ fontSize: '20px', fontWeight: 700, marginTop: '8px' }}>{formatNumber(currentMetrics.cantidadRemitos)}</div>
+                {renderTrend(currentMetrics.cantidadRemitos, comparisonMetrics.cantidadRemitos, formatNumber)}
+              </div>
+              <div className="apple-card" style={{ padding: '16px' }}>
+                <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Clientes Activos</span>
+                <div style={{ fontSize: '20px', fontWeight: 700, marginTop: '8px' }}>{formatNumber(currentMetrics.clientesUnicos)}</div>
+                {renderTrend(currentMetrics.clientesUnicos, comparisonMetrics.clientesUnicos, formatNumber)}
+              </div>
+              <div className="apple-card" style={{ padding: '16px' }}>
+                <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Proveedores Utilizados</span>
+                <div style={{ fontSize: '20px', fontWeight: 700, marginTop: '8px' }}>{formatNumber(currentMetrics.proveedoresUtilizados)}</div>
+                {renderTrend(currentMetrics.proveedoresUtilizados, comparisonMetrics.proveedoresUtilizados, formatNumber)}
+              </div>
+              
+              {/* Producción */}
+              <div className="apple-card" style={{ padding: '16px' }}>
+                <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Kg Producidos</span>
+                <div style={{ fontSize: '20px', fontWeight: 700, marginTop: '8px' }}>{formatKg(currentMetrics.kgProducidos)}</div>
+                {renderTrend(currentMetrics.kgProducidos, comparisonMetrics.kgProducidos, formatKg)}
+              </div>
+              <div className="apple-card" style={{ padding: '16px' }}>
+                <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Paquetes Producidos</span>
+                <div style={{ fontSize: '20px', fontWeight: 700, marginTop: '8px' }}>{formatNumber(currentMetrics.paquetesProducidos)}</div>
+                {renderTrend(currentMetrics.paquetesProducidos, comparisonMetrics.paquetesProducidos, formatNumber)}
+              </div>
+              <div className="apple-card" style={{ padding: '16px' }}>
+                <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Producciones Realizadas</span>
+                <div style={{ fontSize: '20px', fontWeight: 700, marginTop: '8px' }}>{formatNumber(currentMetrics.produccionesRealizadas)}</div>
+                {renderTrend(currentMetrics.produccionesRealizadas, comparisonMetrics.produccionesRealizadas, formatNumber)}
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* --- MODAL DETALLE DE GANANCIA BRUTA --- */}

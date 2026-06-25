@@ -101,11 +101,16 @@ export const productsRepository = {
     delete dataToSave.recipeId;
     delete dataToSave.recetaId;
 
+    const cleanData = Object.fromEntries(
+      Object.entries(dataToSave).filter(([_, value]) => value !== undefined)
+    );
+    console.log('PRODUCTO LIMPIO A GUARDAR', cleanData);
+
     if (product.id) {
-      await updateDoc(doc(db, 'products', product.id), dataToSave);
+      await updateDoc(doc(db, 'products', product.id), cleanData);
       return product.id;
     } else {
-      const docRef = await addDoc(COLLECTIONS.PRODUCTS, dataToSave);
+      const docRef = await addDoc(COLLECTIONS.PRODUCTS, cleanData);
       return docRef.id;
     }
   },

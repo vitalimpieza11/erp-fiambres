@@ -490,7 +490,10 @@ export const salesRepository = {
 
   async updateSale(saleId: string, updatedData: Partial<Sale>): Promise<void> {
     const saleRef = doc(db, 'sales', saleId);
-    await updateDoc(saleRef, updatedData);
+    const cleanData = Object.fromEntries(
+      Object.entries(updatedData).filter(([_, value]) => value !== undefined)
+    );
+    await updateDoc(saleRef, cleanData);
   },
 
   async deleteSale(sale: Sale): Promise<void> {

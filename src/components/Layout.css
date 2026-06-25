@@ -61,10 +61,10 @@ body {
 
 /* Sidebar Flotante */
 .sidebar {
-  position: absolute;
+  position: fixed;
   left: 24px;
-  top: 50%;
-  transform: translateY(-50%);
+  top: 120px;
+  bottom: 24px;
   width: 72px;
   background-color: var(--alvacio-red);
   border-radius: var(--radius-xl);
@@ -75,7 +75,6 @@ body {
   transition: width 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
   z-index: 90;
   overflow: hidden;
-  max-height: calc(100vh - 120px);
 }
 
 .sidebar:hover {
@@ -100,6 +99,35 @@ body {
   -ms-overflow-style: none;
   scrollbar-width: none;
 }
+
+.nav-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.nav-group-title {
+  color: rgba(255, 255, 255, 0.4);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  padding: 12px 12px 4px 12px;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  white-space: nowrap;
+}
+
+.sidebar:hover .nav-group-title {
+  opacity: 1;
+}
+
+.nav-group-divider {
+  height: 1px;
+  background-color: rgba(255, 255, 255, 0.1);
+  margin: 8px 12px;
+}
+
 
 .nav-item {
   text-decoration: none;
@@ -273,4 +301,46 @@ input:focus, select:focus, textarea:focus {
   letter-spacing: -1px;
   color: var(--text-primary);
   margin-bottom: 30px;
+}
+
+/* Tablas Modernas y Densidad Visual */
+.table-modern {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  text-align: left;
+}
+
+.table-modern th {
+  background-color: var(--bg-color);
+  color: var(--text-secondary);
+  font-weight: 600;
+  font-size: 13px;
+  padding: 12px 16px;
+  border-bottom: 2px solid var(--border-color);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.table-modern td {
+  padding: 12px 16px;
+  font-size: 14px;
+  color: var(--text-primary);
+  border-bottom: 1px solid var(--border-color);
+  vertical-align: middle;
+}
+
+.table-modern tbody tr {
+  transition: background-color 0.15s ease;
+}
+
+.table-modern tbody tr:hover {
+  background-color: rgba(0, 0, 0, 0.015);
+}
+
+/* Variante de tabla densa para mostrar más registros */
+.table-modern.table-dense td,
+.table-modern.table-dense th {
+  padding: 8px 12px;
+  font-size: 13px;
 }

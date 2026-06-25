@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useCaja } from './useCaja';
 import RightPanel from '../../components/RightPanel';
 import {
@@ -348,7 +348,7 @@ export default function Caja() {
       {activeView === 'MOVIMIENTOS' ? (
         <>
           {/* --- Tarjetas de Balance --- */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '20px', marginBottom: '24px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px', marginBottom: '24px' }}>
             {/* Caja Física */}
             <div
               onClick={() => handleSelectCategory(filterCategory === 'EFECTIVO' ? 'ALL' : 'EFECTIVO')}
@@ -362,38 +362,31 @@ export default function Caja() {
                 border: filterCategory === 'EFECTIVO' ? 'none' : '2px solid transparent',
                 transition: 'all 0.25s ease',
                 position: 'relative',
-                overflow: 'hidden'
+                overflow: 'hidden',
+                padding: '16px'
               }}
             >
-              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}>
                 <div style={{
-                  width: '44px', height: '44px', borderRadius: '12px',
+                  width: '36px', height: '36px', borderRadius: '10px',
                   background: filterCategory === 'EFECTIVO' ? 'rgba(255,255,255,0.2)' : '#dcfce7',
                   display: 'flex', alignItems: 'center', justifyContent: 'center'
                 }}>
-                  <Wallet size={22} color={filterCategory === 'EFECTIVO' ? 'white' : '#16a34a'} />
+                  <Wallet size={18} color={filterCategory === 'EFECTIVO' ? 'white' : '#16a34a'} />
                 </div>
                 <div>
-                  <div style={{ fontSize: '12px', fontWeight: 600, opacity: 0.75, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  <div style={{ fontSize: '11px', fontWeight: 600, opacity: 0.75, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                     Caja Física
                   </div>
-                  <div style={{ fontSize: '11px', opacity: 0.6 }}>Efectivo en mano</div>
+                  <div style={{ fontSize: '10px', opacity: 0.6 }}>Efectivo en mano</div>
                 </div>
               </div>
-              <div style={{ fontSize: '32px', fontWeight: 700, letterSpacing: '-0.02em' }}>
+              <div style={{ fontSize: '24px', fontWeight: 700, letterSpacing: '-0.02em' }}>
                 {formatMoney(totalEfectivo)}
               </div>
-              <div style={{ fontSize: '12px', opacity: 0.65, marginTop: '8px' }}>
+              <div style={{ fontSize: '11px', opacity: 0.65, marginTop: '4px' }}>
                 {efectivoAccounts.length} {efectivoAccounts.length === 1 ? 'cuenta' : 'cuentas'}
               </div>
-              {filterCategory === 'EFECTIVO' && (
-                <div style={{
-                  position: 'absolute', bottom: '16px', right: '16px',
-                  fontSize: '11px', opacity: 0.7, display: 'flex', alignItems: 'center', gap: '4px'
-                }}>
-                  Filtrando <ChevronRight size={12} />
-                </div>
-              )}
             </div>
 
             {/* Bancos y Billeteras */}
@@ -409,38 +402,31 @@ export default function Caja() {
                 border: filterCategory === 'BANCOS' ? 'none' : '2px solid transparent',
                 transition: 'all 0.25s ease',
                 position: 'relative',
-                overflow: 'hidden'
+                overflow: 'hidden',
+                padding: '16px'
               }}
             >
-              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}>
                 <div style={{
-                  width: '44px', height: '44px', borderRadius: '12px',
+                  width: '36px', height: '36px', borderRadius: '10px',
                   background: filterCategory === 'BANCOS' ? 'rgba(255,255,255,0.2)' : '#dbeafe',
                   display: 'flex', alignItems: 'center', justifyContent: 'center'
                 }}>
-                  <Landmark size={22} color={filterCategory === 'BANCOS' ? 'white' : '#1d4ed8'} />
+                  <Landmark size={18} color={filterCategory === 'BANCOS' ? 'white' : '#1d4ed8'} />
                 </div>
                 <div>
-                  <div style={{ fontSize: '12px', fontWeight: 600, opacity: 0.75, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  <div style={{ fontSize: '11px', fontWeight: 600, opacity: 0.75, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                     Bancos y Billeteras
                   </div>
-                  <div style={{ fontSize: '11px', opacity: 0.6 }}>Cuentas bancarias</div>
+                  <div style={{ fontSize: '10px', opacity: 0.6 }}>Cuentas bancarias</div>
                 </div>
               </div>
-              <div style={{ fontSize: '32px', fontWeight: 700, letterSpacing: '-0.02em' }}>
+              <div style={{ fontSize: '24px', fontWeight: 700, letterSpacing: '-0.02em' }}>
                 {formatMoney(totalBancos)}
               </div>
-              <div style={{ fontSize: '12px', opacity: 0.65, marginTop: '8px' }}>
+              <div style={{ fontSize: '11px', opacity: 0.65, marginTop: '4px' }}>
                 {bancosAccounts.length} {bancosAccounts.length === 1 ? 'cuenta' : 'cuentas'}
               </div>
-              {filterCategory === 'BANCOS' && (
-                <div style={{
-                  position: 'absolute', bottom: '16px', right: '16px',
-                  fontSize: '11px', opacity: 0.7, display: 'flex', alignItems: 'center', gap: '4px'
-                }}>
-                  Filtrando <ChevronRight size={12} />
-                </div>
-              )}
             </div>
 
             {/* Total Consolidado */}
@@ -456,28 +442,29 @@ export default function Caja() {
                 border: filterCategory === 'ALL' ? 'none' : '2px solid transparent',
                 transition: 'all 0.25s ease',
                 position: 'relative',
-                overflow: 'hidden'
+                overflow: 'hidden',
+                padding: '16px'
               }}
             >
-              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px' }}>
                 <div style={{
-                  width: '44px', height: '44px', borderRadius: '12px',
+                  width: '36px', height: '36px', borderRadius: '10px',
                   background: filterCategory === 'ALL' ? 'rgba(255,255,255,0.2)' : '#fee2e2',
                   display: 'flex', alignItems: 'center', justifyContent: 'center'
                 }}>
-                  <LayoutDashboard size={22} color={filterCategory === 'ALL' ? 'white' : 'var(--alvacio-red)'} />
+                  <LayoutDashboard size={18} color={filterCategory === 'ALL' ? 'white' : 'var(--alvacio-red)'} />
                 </div>
                 <div>
-                  <div style={{ fontSize: '12px', fontWeight: 600, opacity: 0.75, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  <div style={{ fontSize: '11px', fontWeight: 600, opacity: 0.75, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                     Total Consolidado
                   </div>
-                  <div style={{ fontSize: '11px', opacity: 0.6 }}>Todos los fondos</div>
+                  <div style={{ fontSize: '10px', opacity: 0.6 }}>Todos los fondos</div>
                 </div>
               </div>
-              <div style={{ fontSize: '32px', fontWeight: 700, letterSpacing: '-0.02em' }}>
+              <div style={{ fontSize: '24px', fontWeight: 700, letterSpacing: '-0.02em' }}>
                 {formatMoney(currentBalance)}
               </div>
-              <div style={{ fontSize: '12px', opacity: 0.65, marginTop: '8px' }}>
+              <div style={{ fontSize: '11px', opacity: 0.65, marginTop: '4px' }}>
                 {accounts.length} {accounts.length === 1 ? 'cuenta activa' : 'cuentas activas'}
               </div>
             </div>
@@ -544,35 +531,35 @@ export default function Caja() {
           )}
 
           {/* --- Estadísticas Hoy / Mes --- */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginBottom: '40px' }}>
-            <div className="apple-card">
-              <h3 style={{ fontSize: '13px', textTransform: 'uppercase', color: 'var(--text-secondary)', letterSpacing: '0.05em', marginBottom: '20px', fontWeight: 600 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '24px' }}>
+            <div className="apple-card" style={{ padding: '16px' }}>
+              <h3 style={{ fontSize: '12px', textTransform: 'uppercase', color: 'var(--text-secondary)', letterSpacing: '0.05em', marginBottom: '12px', fontWeight: 600 }}>
                 Hoy
               </h3>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>Ingresos</span>
-                  <strong style={{ fontSize: '20px', color: '#16a34a' }}>{formatMoney(ingresosHoy)}</strong>
+                  <span style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>Ingresos</span>
+                  <strong style={{ fontSize: '16px', color: '#16a34a' }}>{formatMoney(ingresosHoy)}</strong>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>Egresos</span>
-                  <strong style={{ fontSize: '20px', color: '#ef4444' }}>{formatMoney(egresosHoy)}</strong>
+                  <span style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>Egresos</span>
+                  <strong style={{ fontSize: '16px', color: '#ef4444' }}>{formatMoney(egresosHoy)}</strong>
                 </div>
               </div>
             </div>
 
-            <div className="apple-card">
-              <h3 style={{ fontSize: '13px', textTransform: 'uppercase', color: 'var(--text-secondary)', letterSpacing: '0.05em', marginBottom: '20px', fontWeight: 600 }}>
+            <div className="apple-card" style={{ padding: '16px' }}>
+              <h3 style={{ fontSize: '12px', textTransform: 'uppercase', color: 'var(--text-secondary)', letterSpacing: '0.05em', marginBottom: '12px', fontWeight: 600 }}>
                 Este Mes
               </h3>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>Ingresos</span>
-                  <strong style={{ fontSize: '20px', color: '#16a34a' }}>{formatMoney(ingresosMes)}</strong>
+                  <span style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>Ingresos</span>
+                  <strong style={{ fontSize: '16px', color: '#16a34a' }}>{formatMoney(ingresosMes)}</strong>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>Egresos</span>
-                  <strong style={{ fontSize: '20px', color: '#ef4444' }}>{formatMoney(egresosMes)}</strong>
+                  <span style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>Egresos</span>
+                  <strong style={{ fontSize: '16px', color: '#ef4444' }}>{formatMoney(egresosMes)}</strong>
                 </div>
               </div>
             </div>
@@ -620,112 +607,91 @@ export default function Caja() {
                 </p>
               </div>
             ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '32px' }}>
-                {Object.entries(groupedMovements).map(([dateStr, movs]) => (
-                  <div key={dateStr}>
-                    <h3 style={{
-                      fontSize: '14px', fontWeight: 600, color: 'var(--text-secondary)',
-                      marginBottom: '16px', borderBottom: '1px solid var(--border-color)',
-                      paddingBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.05em'
-                    }}>
-                      {dateStr}
-                    </h3>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                      {movs.map((mov) => {
-                        const accName = getAccountName(mov.resolvedAccountId);
-                        const accObj = accounts.find(a => a.id === mov.resolvedAccountId);
-                        const accColor = accObj?.tipo === 'EFECTIVO' ? '#16a34a'
-                          : accObj?.tipo === 'BANCO' ? '#1d4ed8' : '#7c3aed';
-                        const accBg = accObj?.tipo === 'EFECTIVO' ? '#dcfce7'
-                          : accObj?.tipo === 'BANCO' ? '#dbeafe' : '#ede9fe';
+              <div className="apple-card" style={{ padding: 0, overflow: 'hidden' }}>
+                <div style={{ overflowX: 'auto' }}>
+                  <table className="table-modern table-dense">
+                    <thead>
+                      <tr>
+                        <th>Hora</th>
+                        <th>Tipo/Categoría</th>
+                        <th>Descripción</th>
+                        <th>Cuenta</th>
+                        <th>Monto</th>
+                        <th>Acciones</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {Object.entries(groupedMovements).map(([dateStr, movs]) => (
+                        <React.Fragment key={dateStr}>
+                          <tr style={{ backgroundColor: 'var(--bg-color)' }}>
+                            <td colSpan={6} style={{ fontWeight: 600, fontSize: '12px', textTransform: 'uppercase', color: 'var(--text-secondary)', padding: '8px 16px' }}>
+                              {dateStr}
+                            </td>
+                          </tr>
+                          {movs.map((mov) => {
+                            const accName = getAccountName(mov.resolvedAccountId);
+                            const accObj = accounts.find(a => a.id === mov.resolvedAccountId);
+                            const accColor = accObj?.tipo === 'EFECTIVO' ? '#16a34a'
+                              : accObj?.tipo === 'BANCO' ? '#1d4ed8' : '#7c3aed';
+                            const accBg = accObj?.tipo === 'EFECTIVO' ? '#dcfce7'
+                              : accObj?.tipo === 'BANCO' ? '#dbeafe' : '#ede9fe';
 
-                        return (
-                          <div key={mov.id} className="apple-card" style={{
-                            display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '20px'
-                          }}>
-                            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '16px' }}>
-                              <div style={{
-                                width: '42px', height: '42px', borderRadius: '50%',
-                                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                backgroundColor: mov.type === 'INCOME' ? '#dcfce7' : '#fee2e2',
-                                color: mov.type === 'INCOME' ? '#16a34a' : '#ef4444',
-                                flexShrink: 0
-                              }}>
-                                {mov.type === 'INCOME' ? <TrendingUp size={20} /> : <TrendingDown size={20} />}
-                              </div>
-                              <div>
-                                <div style={{ fontWeight: 600, fontSize: '15px' }}>{mov.category}</div>
-                                {mov.description && (
-                                  <div style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: '2px' }}>
-                                    {mov.description}
+                            return (
+                              <tr key={mov.id}>
+                                <td style={{ whiteSpace: 'nowrap' }}>
+                                  {new Date(mov.date).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}
+                                </td>
+                                <td>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    <span style={{ color: mov.type === 'INCOME' ? '#16a34a' : '#ef4444' }}>
+                                      {mov.type === 'INCOME' ? <TrendingUp size={16} /> : <TrendingDown size={16} />}
+                                    </span>
+                                    <span style={{ fontWeight: 500 }}>{mov.category}</span>
                                   </div>
-                                )}
-                                <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '6px', display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
-                                  <span>{new Date(mov.date).toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })}</span>
-                                  <span>•</span>
+                                </td>
+                                <td>{mov.description || '-'}</td>
+                                <td>
                                   <span
                                     onClick={() => { handleSelectAccount(mov.resolvedAccountId); setFilterCategory(accObj?.tipo === 'EFECTIVO' ? 'EFECTIVO' : 'BANCOS'); }}
                                     style={{
                                       backgroundColor: accBg, padding: '2px 8px', borderRadius: '999px',
-                                      fontSize: '11px', fontWeight: 600, color: accColor, cursor: 'pointer'
+                                      fontSize: '11px', fontWeight: 600, color: accColor, cursor: 'pointer',
+                                      whiteSpace: 'nowrap'
                                     }}
                                   >
                                     {accName}
                                   </span>
-                                </div>
-                              </div>
-                            </div>
-                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '8px' }}>
-                              <span style={{
-                                fontSize: '20px', fontWeight: 700,
-                                color: mov.type === 'INCOME' ? '#16a34a' : '#ef4444'
-                              }}>
-                                {mov.type === 'INCOME' ? '+' : '−'}{formatMoney(mov.amount)}
-                              </span>
-                              <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-                                <button
-                                  onClick={() => handleEditMovement(mov)}
-                                  title="Editar movimiento"
-                                  style={{
-                                    background: 'transparent', border: 'none',
-                                    color: '#3b82f6', cursor: 'pointer', padding: 0,
-                                    display: 'flex', alignItems: 'center'
-                                  }}
-                                >
-                                  <Pen size={14} />
-                                </button>
-                                <button
-                                  onClick={() => handleDeleteDefinitivo(mov.id)}
-                                  title="Eliminar definitivamente"
-                                  style={{
-                                    background: 'transparent', border: 'none',
-                                    color: '#ef4444', cursor: 'pointer', padding: 0,
-                                    display: 'flex', alignItems: 'center'
-                                  }}
-                                >
-                                  <Trash2 size={14} />
-                                </button>
-                                {mov.category !== 'ANULACION' && (
-                                  <button
-                                    onClick={() => handleAnnul(mov.id)}
-                                    title="Anulación contable"
-                                    style={{
-                                      background: 'transparent', border: 'none',
-                                      color: 'var(--text-secondary)', textDecoration: 'underline',
-                                      fontSize: '12px', cursor: 'pointer', padding: 0
-                                    }}
-                                  >
-                                    Anular
-                                  </button>
-                                )}
-                              </div>
-                              </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                ))}
+                                </td>
+                                <td>
+                                  <span style={{
+                                    fontWeight: 600, color: mov.type === 'INCOME' ? '#16a34a' : '#ef4444'
+                                  }}>
+                                    {mov.type === 'INCOME' ? '+' : '−'}{formatMoney(mov.amount)}
+                                  </span>
+                                </td>
+                                <td>
+                                  <div style={{ display: 'flex', gap: '8px' }}>
+                                    <button onClick={() => handleEditMovement(mov)} style={{ background: 'none', border: 'none', color: '#3b82f6', cursor: 'pointer', padding: 0 }}>
+                                      <Pen size={14} />
+                                    </button>
+                                    <button onClick={() => handleDeleteDefinitivo(mov.id)} style={{ background: 'none', border: 'none', color: '#ef4444', cursor: 'pointer', padding: 0 }}>
+                                      <Trash2 size={14} />
+                                    </button>
+                                    {mov.category !== 'ANULACION' && (
+                                      <button onClick={() => handleAnnul(mov.id)} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', textDecoration: 'underline', fontSize: '11px', cursor: 'pointer', padding: 0 }}>
+                                        Anular
+                                      </button>
+                                    )}
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </React.Fragment>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             )}
           </div>

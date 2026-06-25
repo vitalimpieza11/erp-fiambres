@@ -154,6 +154,7 @@ export default function Ventas() {
   // Filters
   const [searchTerm, setSearchTerm] = useState('');
   const [showHistorical, setShowHistorical] = useState(false);
+  const [showAdvancedMetrics, setShowAdvancedMetrics] = useState(false);
 
 
 
@@ -197,16 +198,19 @@ export default function Ventas() {
     const item = { ...newItems[idx], [field]: parsedVal };
     const prod = products.find(p => p.id === item.productId);
 
-    if (field === 'presentationType' || field === 'productId') {
-      if (prod) {
-        let newPrice = prod.type === 'PRESENTACION' ? (prod.precio1kg || 0) : (prod.precioComercial || 0);
+    if (field === 'presentationType') {
+      if (prod && item.presentationType) {
+        let newPrice = item.precioUnitario;
         if (item.presentationType === '150G' && prod.precio150g !== undefined && prod.precio150g !== null) newPrice = prod.precio150g;
         if (item.presentationType === '250G' && prod.precio250g !== undefined && prod.precio250g !== null) newPrice = prod.precio250g;
         if (item.presentationType === '500G' && prod.precio500g !== undefined && prod.precio500g !== null) newPrice = prod.precio500g;
         if (item.presentationType === '1KG' && prod.precio1kg !== undefined && prod.precio1kg !== null) newPrice = prod.precio1kg;
+        if ((item.presentationType as string) === 'Comercial' && prod.precioComercial !== undefined && prod.precioComercial !== null) newPrice = prod.precioComercial;
         item.precioUnitario = newPrice;
       }
+      // If presentationType is empty, leave precioUnitario completely free as the user typed.
     }
+
 
     if (field === 'cantidad' && prod && prod.type === 'PRESENTACION') {
       parsedVal = Math.round(Number(val));
@@ -217,7 +221,8 @@ export default function Ventas() {
     let weightInKg = calculateWeightInKg(Number(item.cantidad), item.unidad, prod);
     weightInKg = truncateDecimals(weightInKg, 3);
 
-    item.cantidad = Number(parsedVal) || 0;
+    // BUG FIXED: Do not overwrite item.cantidad with parsedVal if field is 'precioUnitario'
+    item.cantidad = field === 'cantidad' ? (Number(parsedVal) || 0) : (Number(item.cantidad) || 0);
     item.precioUnitario = field === 'precioUnitario' ? Number(parsedVal) || 0 : Number(Number(item.precioUnitario).toFixed(2));
     item.subtotal = Number((weightInKg * Number(item.precioUnitario)).toFixed(2));
     newItems[idx] = item as SaleItem;
@@ -350,52 +355,60 @@ export default function Ventas() {
       </div>
 
       {/* Resumen del Período */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px', marginBottom: '24px' }}>
-        {/* Fila 1: Financiero */}
-        <div className="apple-card" style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', justifyContent: 'center', minHeight: '80px' }}>
-          <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)' }}>Facturación Total</span>
-          <strong style={{ fontSize: '18px', color: 'var(--text-primary)', marginTop: '4px' }}>{formatCurrency(summaryMetrics.facturacionTotal)}</strong>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px', marginBottom: '16px' }}>
+        {/* Fila 1: Principales */}
+        <div className="apple-card" style={{ padding: '16px', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+          <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)' }}>Facturación Total</span>
+          <strong style={{ fontSize: '20px', color: 'var(--text-primary)', marginTop: '4px' }}>{formatCurrency(summaryMetrics.facturacionTotal)}</strong>
         </div>
-        <div className="apple-card" style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', justifyContent: 'center', minHeight: '80px' }}>
-          <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)' }}>Ganancia Bruta</span>
-          <strong style={{ fontSize: '18px', color: summaryMetrics.gananciaBruta >= 0 ? '#16a34a' : '#dc2626', marginTop: '4px' }}>{formatCurrency(summaryMetrics.gananciaBruta)}</strong>
+        <div className="apple-card" style={{ padding: '16px', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+          <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)' }}>Ganancia Bruta</span>
+          <strong style={{ fontSize: '20px', color: summaryMetrics.gananciaBruta >= 0 ? '#16a34a' : '#dc2626', marginTop: '4px' }}>{formatCurrency(summaryMetrics.gananciaBruta)}</strong>
         </div>
-        <div className="apple-card" style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', justifyContent: 'center', minHeight: '80px' }}>
-          <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)' }}>Costo Total (CMV)</span>
-          <strong style={{ fontSize: '18px', color: 'var(--text-primary)', marginTop: '4px' }}>{formatCurrency(summaryMetrics.costoTotal)}</strong>
+        <div className="apple-card" style={{ padding: '16px', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+          <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)' }}>Margen</span>
+          <strong style={{ fontSize: '20px', color: 'var(--text-primary)', marginTop: '4px' }}>{summaryMetrics.margen.toFixed(1)}%</strong>
         </div>
-        <div className="apple-card" style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', justifyContent: 'center', minHeight: '80px' }}>
-          <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)' }}>Margen</span>
-          <strong style={{ fontSize: '18px', color: 'var(--text-primary)', marginTop: '4px' }}>{summaryMetrics.margen.toFixed(1)}%</strong>
-        </div>
-      </div>
-
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px', marginBottom: '24px' }}>
-        {/* Fila 2: Operativa */}
-        <div className="apple-card" style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', justifyContent: 'center', minHeight: '80px' }}>
-          <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)' }}>Ticket Promedio</span>
-          <strong style={{ fontSize: '18px', color: 'var(--text-primary)', marginTop: '4px' }}>{formatCurrency(summaryMetrics.ticketPromedio)}</strong>
-        </div>
-        <div className="apple-card" style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', justifyContent: 'center', minHeight: '80px' }}>
-          <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)' }}>Ventas Totales</span>
-          <strong style={{ fontSize: '18px', color: 'var(--text-primary)', marginTop: '4px' }}>{summaryMetrics.cantidadVentas}</strong>
-        </div>
-        <div className="apple-card" style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', justifyContent: 'center', minHeight: '80px' }}>
-          <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)' }}>Clientes Únicos</span>
-          <strong style={{ fontSize: '18px', color: 'var(--text-primary)', marginTop: '4px' }}>{summaryMetrics.clientesUnicos}</strong>
-        </div>
-        <div className="apple-card" style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', justifyContent: 'center', minHeight: '80px' }}>
-          <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)' }}>Kg Vendidos</span>
-          <strong style={{ fontSize: '16px', color: 'var(--text-primary)', marginTop: '4px' }}>{summaryMetrics.kgVendidos.toLocaleString('es-AR', { minimumFractionDigits: 1, maximumFractionDigits: 3 })} kg</strong>
+        <div className="apple-card" style={{ padding: '16px', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+          <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-secondary)' }}>Kg Vendidos</span>
+          <strong style={{ fontSize: '20px', color: 'var(--text-primary)', marginTop: '4px' }}>{summaryMetrics.kgVendidos.toLocaleString('es-AR', { minimumFractionDigits: 1, maximumFractionDigits: 3 })} kg</strong>
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px', marginBottom: '28px' }}>
-        {/* Fila 3: Restante */}
-        <div className="apple-card" style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', justifyContent: 'center', minHeight: '80px', maxWidth: '25%' }}>
-          <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)' }}>Paquetes Vendidos</span>
-          <strong style={{ fontSize: '18px', color: 'var(--text-primary)', marginTop: '4px' }}>{summaryMetrics.paquetesVendidos}</strong>
-        </div>
+      <div style={{ marginBottom: '24px' }}>
+        <button 
+          onClick={() => setShowAdvancedMetrics(!showAdvancedMetrics)}
+          className="btn-secondary"
+          style={{ width: '100%', display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 16px', borderRadius: 'var(--radius-md)', backgroundColor: 'var(--surface-color)', border: '1px solid var(--border-color)', fontSize: '14px' }}
+        >
+          <span style={{ fontWeight: 600 }}>Métricas Secundarias</span>
+          <span style={{ color: 'var(--text-secondary)' }}>{showAdvancedMetrics ? '▲ Ocultar' : '▼ Mostrar'}</span>
+        </button>
+
+        {showAdvancedMetrics && (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px', marginTop: '16px', animation: 'fadeIn 0.3s ease' }}>
+            <div className="apple-card" style={{ padding: '16px' }}>
+              <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)' }}>Ticket Promedio</span>
+              <strong style={{ display: 'block', fontSize: '16px', color: 'var(--text-primary)', marginTop: '4px' }}>{formatCurrency(summaryMetrics.ticketPromedio)}</strong>
+            </div>
+            <div className="apple-card" style={{ padding: '16px' }}>
+              <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)' }}>Ventas Totales</span>
+              <strong style={{ display: 'block', fontSize: '16px', color: 'var(--text-primary)', marginTop: '4px' }}>{summaryMetrics.cantidadVentas}</strong>
+            </div>
+            <div className="apple-card" style={{ padding: '16px' }}>
+              <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)' }}>Clientes Únicos</span>
+              <strong style={{ display: 'block', fontSize: '16px', color: 'var(--text-primary)', marginTop: '4px' }}>{summaryMetrics.clientesUnicos}</strong>
+            </div>
+            <div className="apple-card" style={{ padding: '16px' }}>
+              <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)' }}>Costo Total (CMV)</span>
+              <strong style={{ display: 'block', fontSize: '16px', color: 'var(--text-primary)', marginTop: '4px' }}>{formatCurrency(summaryMetrics.costoTotal)}</strong>
+            </div>
+            <div className="apple-card" style={{ padding: '16px' }}>
+              <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)' }}>Paquetes Vendidos</span>
+              <strong style={{ display: 'block', fontSize: '16px', color: 'var(--text-primary)', marginTop: '4px' }}>{summaryMetrics.paquetesVendidos}</strong>
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="search-bar" style={{ marginBottom: '24px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
@@ -432,119 +445,124 @@ export default function Ventas() {
                   {c?.nombre || 'Cliente Desconocido'}
                 </h2>
                 
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '20px' }}>
-                  {clientSales.sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime()).map(sale => (
-                    <ExpandableCard
-                      key={sale.id}
-                      title={new Date(sale.date).toLocaleDateString()}
-                      statusBadge={
-                        <div style={{ display: 'flex', gap: '8px' }}>
-                          <span style={{ 
-                            backgroundColor: STATUS_COLORS[sale.status] + '20',
-                            color: STATUS_COLORS[sale.status],
-                            fontSize: '11px',
-                            fontWeight: 600,
-                            padding: '2px 8px',
-                            borderRadius: '12px'
-                          }}>
-                            {sale.status} {sale.status === 'COBRADO' && `(${sale.paymentMethod})`}
-                          </span>
-                          {sale.isHistorical && (
-                            <span style={{
-                              backgroundColor: sale.deliveryStatus === 'PENDIENTE' ? '#feebc8' : sale.deliveryStatus === 'REGISTRADA' ? '#edf2f7' : '#c6f6d5',
-                              color: sale.deliveryStatus === 'PENDIENTE' ? '#c05621' : sale.deliveryStatus === 'REGISTRADA' ? '#4a5568' : '#22543d',
-                              fontSize: '11px',
-                              fontWeight: 600,
-                              padding: '2px 8px',
-                              borderRadius: '12px'
-                            }}>
-                              {sale.deliveryStatus === 'PENDIENTE' ? '🚚 Lista para preparar' : sale.deliveryStatus === 'REGISTRADA' ? '📁 Registrada' : '✅ Entregada'}
-                            </span>
-                          )}
-                        </div>
-                      }
-                      collapsedContent={
-                        <div style={{ fontSize: '24px', fontWeight: 'bold', marginTop: '12px', color: 'var(--text-primary)' }}>
-                          ${sale.totalAmount.toFixed(2)}
-                        </div>
-                      }
-                      expandedContent={
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                          <h4 style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>Ítems:</h4>
-                          {sale.items.map((it, idx) => {
-                            const prod = products.find(p => p.id === it.productId);
-                            return (
-                              <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '14px', borderBottom: '1px solid var(--border-color)', paddingBottom: '4px' }}>
-                                <span>{prod?.nombre} x {it.cantidad} {it.unidad}</span>
-                                <strong>${it.subtotal.toFixed(2)}</strong>
+                <div className="apple-card" style={{ padding: '0', overflow: 'hidden' }}>
+                  <div style={{ overflowX: 'auto' }}>
+                    <table className="table-modern table-dense">
+                      <thead>
+                        <tr>
+                          <th>Fecha</th>
+                          <th>Total</th>
+                          <th>Estado</th>
+                          <th>Acciones</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {clientSales.sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime()).map(sale => (
+                          <tr key={sale.id}>
+                            <td style={{ whiteSpace: 'nowrap' }}>
+                              <div style={{ fontWeight: 500 }}>{new Date(sale.date).toLocaleDateString()}</div>
+                              <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{sale.items.length} ítems</div>
+                            </td>
+                            <td>
+                              <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>${sale.totalAmount.toFixed(2)}</div>
+                            </td>
+                            <td>
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', alignItems: 'flex-start' }}>
+                                <span style={{ 
+                                  backgroundColor: STATUS_COLORS[sale.status] + '20',
+                                  color: STATUS_COLORS[sale.status],
+                                  fontSize: '11px',
+                                  fontWeight: 600,
+                                  padding: '2px 8px',
+                                  borderRadius: '12px',
+                                  whiteSpace: 'nowrap'
+                                }}>
+                                  {sale.status} {sale.status === 'COBRADO' && `(${sale.paymentMethod})`}
+                                </span>
+                                {sale.isHistorical && (
+                                  <span style={{
+                                    backgroundColor: sale.deliveryStatus === 'PENDIENTE' ? '#feebc8' : sale.deliveryStatus === 'REGISTRADA' ? '#edf2f7' : '#c6f6d5',
+                                    color: sale.deliveryStatus === 'PENDIENTE' ? '#c05621' : sale.deliveryStatus === 'REGISTRADA' ? '#4a5568' : '#22543d',
+                                    fontSize: '11px',
+                                    fontWeight: 600,
+                                    padding: '2px 8px',
+                                    borderRadius: '12px',
+                                    whiteSpace: 'nowrap'
+                                  }}>
+                                    {sale.deliveryStatus === 'PENDIENTE' ? '🚚 PENDIENTE' : sale.deliveryStatus === 'REGISTRADA' ? '📁 REGISTRADA' : '✅ ENTREGADA'}
+                                  </span>
+                                )}
                               </div>
-                            );
-                          })}
-                        </div>
-                      }
-                      actions={
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', width: '100%' }}>
-
-                          {sale.status === 'FACTURADO' && !sale.isHistorical && (
-                            <button className="btn-primary" style={{ flex: 1, padding: '8px', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '4px' }} onClick={(e) => { e.stopPropagation(); handleCobrar(sale); }}>
-                              <DollarSign size={16} /> Cobrar
-                            </button>
-                          )}
-                          {sale.status === 'COBRADO' && !sale.isHistorical && (
-                            <div style={{ flex: 1, padding: '8px', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '4px', backgroundColor: '#10b981', color: 'white', borderRadius: '6px', fontWeight: 'bold', fontSize: '13px' }}>
-                              ✅ COBRADA
-                            </div>
-                          )}
-                          {sale.isHistorical && sale.deliveryStatus === 'PENDIENTE' && sale.status !== 'ANULADO' && (
-                            <button 
-                              className="btn-primary" 
-                              style={{ flex: 1, padding: '8px', backgroundColor: '#e28743', color: '#fff', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '4px' }} 
-                              onClick={async (e) => { 
-                                e.stopPropagation();
-                                if (window.confirm(`¿Confirmar entrega física de mercaderías para la venta histórica ${sale.id.slice(-8).toUpperCase()}? Se descontará el stock físico.`)) {
-                                  try {
-                                    await deliverHistoricalSale(sale.id);
-                                    alert("Entrega física registrada con éxito. Se actualizó el inventario.");
-                                  } catch (err: any) {
-                                    alert(`Error al registrar entrega: ${err.message || err}`);
-                                  }
-                                }
-                              }}
-                            >
-                              🚚 Registrar Entrega
-                            </button>
-                          )}
-                          {sale.status === 'FACTURADO' && (
-                            <button className="btn-secondary" style={{ flex: 1, padding: '8px', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '4px' }} onClick={(e) => { 
-                              e.stopPropagation();
-                              const newTotal = prompt("Editar Total de Venta:", sale.totalAmount.toString());
-                              if (newTotal && !isNaN(Number(newTotal))) {
-                                updateSale(sale.id, { totalAmount: Number(newTotal) });
-                              }
-                            }}>
-                              <Edit3 size={16} /> Editar
-                            </button>
-                          )}
-                          {sale.status !== 'ANULADO' && (
-                            <button className="btn-secondary" style={{ flex: 1, padding: '8px', color: '#ef4444', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '4px' }} onClick={(e) => { 
-                              e.stopPropagation();
-                              if(confirm('¿Anular esta venta? Se generarán los movimientos compensatorios necesarios.')) anularSale(sale);
-                            }}>
-                              <XCircle size={16} /> Anular
-                            </button>
-                          )}
-                          {sale.status === 'ANULADO' && (
-                            <button className="btn-secondary" style={{ flex: 1, padding: '8px', color: '#ef4444', display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '4px' }} onClick={(e) => { 
-                              e.stopPropagation();
-                              if(confirm('¿Eliminar esta venta del sistema (Baja Lógica)?')) deleteSale(sale);
-                            }}>
-                              <XCircle size={16} /> Eliminar
-                            </button>
-                          )}
-                        </div>
-                      }
-                    />
-                  ))}
+                            </td>
+                            <td>
+                              <div style={{ display: 'flex', gap: '6px' }}>
+                                {sale.status === 'FACTURADO' && !sale.isHistorical && (
+                                  <button className="btn-primary" style={{ padding: '6px 12px', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '4px' }} onClick={(e) => { e.stopPropagation(); handleCobrar(sale); }}>
+                                    <DollarSign size={14} /> Cobrar
+                                  </button>
+                                )}
+                                {sale.isHistorical && sale.deliveryStatus === 'PENDIENTE' && sale.status !== 'ANULADO' && (
+                                  <button 
+                                    className="btn-primary" 
+                                    style={{ padding: '6px 12px', fontSize: '12px', backgroundColor: '#e28743', color: '#fff', display: 'flex', alignItems: 'center', gap: '4px' }} 
+                                    onClick={async (e) => { 
+                                      e.stopPropagation();
+                                      if (window.confirm(`¿Confirmar entrega física de mercaderías para la venta histórica ${sale.id.slice(-8).toUpperCase()}? Se descontará el stock físico.`)) {
+                                        try {
+                                          await deliverHistoricalSale(sale.id);
+                                          alert("Entrega física registrada con éxito. Se actualizó el inventario.");
+                                        } catch (err: any) {
+                                          alert(`Error al registrar entrega: ${err.message || err}`);
+                                        }
+                                      }
+                                    }}
+                                  >
+                                    🚚 Entrega
+                                  </button>
+                                )}
+                                <div style={{ position: 'relative', display: 'inline-block' }}>
+                                  <details className="dropdown-details" style={{ position: 'relative' }}>
+                                    <summary className="btn-secondary" style={{ padding: '6px 12px', fontSize: '12px', cursor: 'pointer', listStyle: 'none' }}>
+                                      ⋮ Acciones
+                                    </summary>
+                                    <div style={{ position: 'absolute', right: 0, top: '100%', zIndex: 10, backgroundColor: 'white', border: '1px solid var(--border-color)', borderRadius: '8px', boxShadow: 'var(--shadow-md)', minWidth: '120px', overflow: 'hidden' }}>
+                                      {sale.status === 'FACTURADO' && (
+                                        <div style={{ padding: '8px 12px', fontSize: '13px', cursor: 'pointer', borderBottom: '1px solid var(--border-color)' }} onClick={(e) => { 
+                                          e.stopPropagation();
+                                          const newTotal = prompt("Editar Total de Venta:", sale.totalAmount.toString());
+                                          if (newTotal && !isNaN(Number(newTotal))) {
+                                            updateSale(sale.id, { totalAmount: Number(newTotal) });
+                                          }
+                                        }}>
+                                          Editar
+                                        </div>
+                                      )}
+                                      {sale.status !== 'ANULADO' && (
+                                        <div style={{ padding: '8px 12px', fontSize: '13px', cursor: 'pointer', color: '#ef4444' }} onClick={(e) => { 
+                                          e.stopPropagation();
+                                          if(confirm('¿Anular esta venta?')) anularSale(sale);
+                                        }}>
+                                          Anular
+                                        </div>
+                                      )}
+                                      {sale.status === 'ANULADO' && (
+                                        <div style={{ padding: '8px 12px', fontSize: '13px', cursor: 'pointer', color: '#ef4444' }} onClick={(e) => { 
+                                          e.stopPropagation();
+                                          if(confirm('¿Eliminar esta venta?')) deleteSale(sale);
+                                        }}>
+                                          Eliminar
+                                        </div>
+                                      )}
+                                    </div>
+                                  </details>
+                                </div>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               </div>
             );

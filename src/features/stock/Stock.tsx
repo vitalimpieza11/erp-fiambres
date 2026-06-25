@@ -47,9 +47,9 @@ export default function Stock() {
   const [collapsedSections, setCollapsedSections] = useState<{ [key: string]: boolean }>(() => {
     try {
       const stored = localStorage.getItem('stock_collapsed_sections');
-      return stored ? JSON.parse(stored) : { MERCADERIA: false, INSUMO: false, PRESENTACION: false };
+      return stored ? JSON.parse(stored) : { MERCADERIA: true, INSUMO: true, PRESENTACION: true };
     } catch {
-      return { MERCADERIA: false, INSUMO: false, PRESENTACION: false };
+      return { MERCADERIA: true, INSUMO: true, PRESENTACION: true };
     }
   });
 

@@ -79,10 +79,14 @@ export const ordersRepository = {
       }))
     };
 
+    const cleanData = Object.fromEntries(
+      Object.entries(sanitizedPedido).filter(([_, value]) => value !== undefined)
+    );
+
     if (pedido.id) {
-      await updateDoc(doc(db, 'orders', pedido.id), sanitizedPedido);
+      await updateDoc(doc(db, 'orders', pedido.id), cleanData);
     } else {
-      await addDoc(COLLECTIONS.ORDERS, { ...sanitizedPedido, isDeleted: false });
+      await addDoc(COLLECTIONS.ORDERS, { ...cleanData, isDeleted: false });
     }
   },
 

@@ -79,14 +79,28 @@ export const purchasesRepository = {
 
         // Actualizar stockActual y costos del producto (Fijar consistencia)
         const prodRef = doc(db, 'products', item.productId);
-        const newStock = truncateDecimals(currentStocks[item.productId] + qty, 3);
+        const oldStock = currentStocks[item.productId];
+        const newStock = truncateDecimals(oldStock + qty, 3);
         
-        transaction.update(prodRef, {
-          stockActual: newStock,
-          costoActual: Number(item.unitCost) || 0,
-          costoUltimaCompra: Number(item.unitCost) || 0,
-          fechaUltimaCompra: newPurchase.date
-        });
+        console.log(`[DEBUG COMPRA] 1. Producto ID: ${item.productId}`);
+        console.log(`[DEBUG COMPRA] 2. stockActual leído antes: ${oldStock}`);
+        console.log(`[DEBUG COMPRA] 3. cantidad comprada: ${qty}`);
+        console.log(`[DEBUG COMPRA] 4. nuevo stock calculado: ${newStock}`);
+        console.log(`[DEBUG COMPRA] 5. Ejecutando transaction.update...`);
+        
+        try {
+          transaction.update(prodRef, {
+            stockActual: newStock,
+            costoActual: Number(item.unitCost) || 0,
+            costoUltimaCompra: Number(item.unitCost) || 0,
+            fechaUltimaCompra: newPurchase.date
+          });
+          console.log(`[DEBUG COMPRA] 5. transaction.update ejecutado SI`);
+          console.log(`[DEBUG COMPRA] 6. valor final guardado: ${newStock}`);
+        } catch (error) {
+          console.log(`[DEBUG COMPRA] 5. transaction.update falló. Error:`, error);
+          throw error;
+        }
       }
 
       // 4. IMPACTAR CAJA V2 SI HUBO PAGOS
