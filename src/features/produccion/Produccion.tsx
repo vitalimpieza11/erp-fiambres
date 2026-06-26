@@ -625,6 +625,8 @@ export default function Produccion() {
       <OrderProductionModal 
         isOpen={showOrderModal}
         onClose={() => {
+          console.trace("[MODAL] CLOSE - Produccion.tsx onClose callback called");
+          console.trace("[SHOW ORDER MODAL FALSE]");
           setShowOrderModal(false);
           setSelectedOrderId('');
           setTargetProductId('');

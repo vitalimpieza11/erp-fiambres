@@ -14,6 +14,18 @@ export default function Modal({ isOpen, onClose, title, children }: ModalProps) 
   const [shouldRender, setShouldRender] = useState(isOpen);
 
   useEffect(() => {
+    // Instrumentación de document.addEventListener
+    const originalAddEventListener = document.addEventListener;
+    document.addEventListener = function(type, listener, options) {
+      console.log(`[GLOBAL LISTENER ADDED] type: ${type}`);
+      return originalAddEventListener.call(this, type, listener, options);
+    };
+    return () => {
+      document.addEventListener = originalAddEventListener;
+    };
+  }, []);
+
+  useEffect(() => {
     if (isOpen) {
       setShouldRender(true);
       document.body.style.overflow = 'hidden';
@@ -30,7 +42,20 @@ export default function Modal({ isOpen, onClose, title, children }: ModalProps) 
   if (!shouldRender) return null;
 
   return (
-    <div className={`modal-overlay ${isOpen ? 'open' : 'closed'}`} onClick={onClose}>
+    <div className={`modal-overlay ${isOpen ? 'open' : 'closed'}`} onClick={(e) => {
+      console.log("========== CLICK INTERCEPTADO ==========");
+      console.log("TARGET", e.target);
+      console.log("CURRENT", e.currentTarget);
+      console.log("PATH", e.nativeEvent.composedPath());
+      console.log("ACTIVE ELEMENT", document.activeElement);
+      console.log("TARGET CLASSNAME", (e.target as Element).className);
+      console.log("TARGET TAGNAME", (e.target as Element).tagName);
+      console.log("CURRENT CLASSNAME", (e.currentTarget as Element).className);
+
+      if (e.target === e.currentTarget) {
+        onClose();
+      }
+    }}>
       <div className={`modal-container ${isOpen ? 'open' : 'closed'}`} onClick={e => e.stopPropagation()}>
         <div className="modal-header">
           <h2>{title}</h2>

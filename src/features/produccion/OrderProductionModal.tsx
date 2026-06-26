@@ -46,6 +46,15 @@ export default function OrderProductionModal({
   produceStep,
   updateOrderStatus
 }: OrderProductionModalProps) {
+  useEffect(() => {
+    console.log("[MODAL] mounted");
+    return () => console.log("[MODAL] unmounted");
+  }, []);
+
+  useEffect(() => {
+    console.log("[MODAL] open =", isOpen);
+  }, [isOpen]);
+
   const [selectedOrder, setSelectedOrder] = useState<string>('');
   const [activeStep, setActiveStep] = useState<number>(0);
   const [newStatus, setNewStatus] = useState<'EN_PRODUCCION' | 'PRODUCIDO'>('EN_PRODUCCION');
