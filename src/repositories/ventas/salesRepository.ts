@@ -16,8 +16,8 @@ export const salesRepository = {
     packages: any[];
   }> {
     const [salesSnap, ordersSnap, customersSnap, productsSnap, recipesSnap, equivSnap, packagesSnap] = await Promise.all([
-      getDocs(query(COLLECTIONS.SALES, where('isDeleted', '==', false), orderBy('date', 'desc'), limit(50))),
-      getDocs(query(COLLECTIONS.ORDERS, where('isDeleted', '==', false), orderBy('fecha', 'desc'), limit(50))),
+      getDocs(query(COLLECTIONS.SALES, where('isDeleted', '==', false), orderBy('date', 'desc'))),
+      getDocs(query(COLLECTIONS.ORDERS, where('isDeleted', '==', false), orderBy('fecha', 'desc'))),
       getDocs(query(COLLECTIONS.CUSTOMERS, where('activo', '==', true))),
       getDocs(query(COLLECTIONS.PRODUCTS, where('activo', '==', true))),
       getDocs(COLLECTIONS.RECIPES),

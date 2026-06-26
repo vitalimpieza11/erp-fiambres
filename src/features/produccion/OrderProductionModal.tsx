@@ -30,6 +30,7 @@ interface OrderProductionModalProps {
     isLastStep: boolean;
     newOrderStatus?: 'EN_PRODUCCION' | 'PRODUCIDO';
   }) => Promise<void>;
+  updateOrderStatus: (orderId: string, status: 'EN_PRODUCCION' | 'PRODUCIDO') => Promise<void>;
 }
 
 export default function OrderProductionModal({
@@ -42,7 +43,8 @@ export default function OrderProductionModal({
   recipes,
   equivalences,
   customers,
-  produceStep
+  produceStep,
+  updateOrderStatus
 }: OrderProductionModalProps) {
   const [selectedOrder, setSelectedOrder] = useState<string>('');
   const [activeStep, setActiveStep] = useState<number>(0);
@@ -148,6 +150,7 @@ export default function OrderProductionModal({
           if (qtyRemaining > 0) {
             const defaultWeight = p?.pesoObjetivoGramos ? Number((p.pesoObjetivoGramos / 1000).toFixed(3)) : 0.150;
             const initialPesos = Array(qtyRemaining).fill(defaultWeight);
+              
             steps.push({
               productId: item.productId,
               productName: p?.nombre || 'Producto Desconocido',
@@ -155,23 +158,22 @@ export default function OrderProductionModal({
               totalUnits: qtyTotal,
               cantidad: qtyRemaining,
               unidad: 'UNIDADES',
-              pesoReal: Number((qtyRemaining * defaultWeight).toFixed(3)),
+              pesoReal: undefined,
               pesosReales: initialPesos,
               merma: undefined,
-              observaciones: `Preparación de Pedido ${(orderId || '').slice(0, 6)}${clientSuffix} - ${p?.nombre || ''}`,
-              elaborado: true,
-              recipeItems: JSON.parse(JSON.stringify(defaultRecipeItems))
+              observaciones: item.observaciones || `Preparación de Pedido ${(orderId || '').slice(0, 6)}${clientSuffix} - ${p?.nombre || ''}`,
+              elaborado: false,
+              recipeItems: item.recipeItems && item.recipeItems.length > 0 ? item.recipeItems : JSON.parse(JSON.stringify(defaultRecipeItems))
             });
           }
         } else {
-          let initialPesoReal = item.pesoReal !== undefined ? Number(item.pesoReal) : undefined;
-          if (initialPesoReal === undefined && p) {
-            const baseQtyInKg = convertQuantityToBaseUnit(Number(item.cantidad || 0), item.unidad || p?.unitType || 'KG', { ...p, unitType: 'KG' });
-            initialPesoReal = Number(baseQtyInKg.toFixed(3));
-          }
-          
-          const isAlreadyDone = order.status === 'EN_PRODUCCION' && item.pesoReal !== undefined && item.pesoReal > 0;
-          if (!isAlreadyDone) {
+          if (!item.pesoReal) {
+            let initialPesoReal = undefined;
+            if (p) {
+              const baseQtyInKg = convertQuantityToBaseUnit(Number(item.cantidad || 0), item.unidad || p?.unitType || 'KG', { ...p, unitType: 'KG' });
+              initialPesoReal = Number(baseQtyInKg.toFixed(3));
+            }
+            
             steps.push({
               productId: item.productId,
               productName: p?.nombre || 'Producto Desconocido',
@@ -180,11 +182,11 @@ export default function OrderProductionModal({
               cantidad: Number(item.cantidad || 0),
               unidad: item.unidad || p?.unitType || 'KG',
               pesoReal: initialPesoReal,
-              pesosReales: item.pesosReales || (initialPesoReal ? [initialPesoReal] : []),
+              pesosReales: initialPesoReal ? [initialPesoReal] : [],
               merma: undefined,
-              observaciones: `Preparación de Pedido ${(orderId || '').slice(0, 6)}${clientSuffix} - ${p?.nombre || ''}`,
-              elaborado: true,
-              recipeItems: JSON.parse(JSON.stringify(defaultRecipeItems))
+              observaciones: item.observaciones || `Preparación de Pedido ${(orderId || '').slice(0, 6)}${clientSuffix} - ${p?.nombre || ''}`,
+              elaborado: false,
+              recipeItems: item.recipeItems && item.recipeItems.length > 0 ? item.recipeItems : JSON.parse(JSON.stringify(defaultRecipeItems))
             });
           }
         }
@@ -248,8 +250,8 @@ export default function OrderProductionModal({
         productId: currentItem.productId,
         cantidad: currentItem.cantidad,
         unidad: currentItem.unidad,
-        pesoReal: finalWeight > 0 ? finalWeight : undefined,
-        pesosReales: currentItem.pesosReales,
+        pesoReal: Number(finalWeight) > 0 ? Number(finalWeight) : undefined,
+        pesosReales: currentItem.pesosReales?.map(w => Number(w) || 0),
         merma: currentItem.merma,
         observaciones: currentItem.observaciones,
         recipeItemsOverride: currentItem.recipeItems,
@@ -367,12 +369,12 @@ export default function OrderProductionModal({
                               step="0.001"
                               min="0.001"
                               required
-                              value={w !== undefined && w !== 0 ? w : ''}
+                              value={w !== undefined ? w : ''}
                               style={{ padding: '6px', fontSize: '13px', border: '1px solid var(--border-color)', borderRadius: '6px' }}
                               onChange={e => {
                                   const newItems = [...orderProdItems];
                                   const updatedPesos = [...(newItems[activeStep].pesosReales || [])] as any[];
-                                  updatedPesos[pkgIdx] = e.target.value ? Number(e.target.value) : 0;
+                                  updatedPesos[pkgIdx] = e.target.value;
                                   
                                   const pesoRealTotal = Number(updatedPesos.reduce((a, b) => Number(a) + Number(b), 0).toFixed(3));
                                   
@@ -556,15 +558,19 @@ export default function OrderProductionModal({
                 </div>
               </div>
 
-              {activeStep === orderProdItems.length - 1 && (
-                <div className="form-group" style={{ padding: '16px', backgroundColor: '#fff', borderRadius: '12px', border: '1px solid var(--border-color)', margin: 0 }}>
-                  <label style={{ fontWeight: 600 }}>Cambiar Estado del Pedido a:</label>
-                  <select value={newStatus} onChange={e => setNewStatus(e.target.value as any)}>
-                    <option value="EN_PRODUCCION">EN_PRODUCCION</option>
-                    <option value="PRODUCIDO">PRODUCIDO</option>
-                  </select>
-                </div>
-              )}
+              {activeStep === orderProdItems.length - 1 && (() => {
+                const currentOrder = orders.find(o => o.id === selectedOrder);
+                if (currentOrder?.status === 'PRODUCIDO') return null;
+                return (
+                  <div className="form-group" style={{ padding: '16px', backgroundColor: '#fff', borderRadius: '12px', border: '1px solid var(--border-color)', margin: 0 }}>
+                    <label style={{ fontWeight: 600 }}>Cambiar Estado del Pedido a:</label>
+                    <select value={newStatus} onChange={e => setNewStatus(e.target.value as any)}>
+                      <option value="EN_PRODUCCION">EN_PRODUCCION</option>
+                      <option value="PRODUCIDO">PRODUCIDO</option>
+                    </select>
+                  </div>
+                );
+              })()}
             </div>
           );
         })()}
@@ -582,10 +588,22 @@ export default function OrderProductionModal({
             type="button" 
             className="btn-primary" 
             style={{ flex: 1 }} 
-            onClick={handleCompleteStep}
+            onClick={async () => {
+              const currentOrder = orders.find(o => o.id === selectedOrder);
+              if (currentOrder?.status === 'PRODUCIDO') {
+                await updateOrderStatus(currentOrder.id, 'EN_PRODUCCION');
+                onClose();
+              } else {
+                handleCompleteStep();
+              }
+            }}
             disabled={!selectedOrder}
           >
-            {activeStep === orderProdItems.length - 1 ? 'Finalizar Producción' : 'Completar Unidad'}
+            {(() => {
+              const currentOrder = orders.find(o => o.id === selectedOrder);
+              if (currentOrder?.status === 'PRODUCIDO') return 'Revertir a En Producción';
+              return activeStep === orderProdItems.length - 1 ? 'Finalizar Producción' : 'Completar Unidad';
+            })()}
           </button>
         </div>
       </div>

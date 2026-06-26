@@ -178,7 +178,7 @@ export default function Ventas() {
 
   // Filters
   const [searchTerm, setSearchTerm] = useState('');
-  const [showHistorical, setShowHistorical] = useState(false);
+  const [showHistorical, setShowHistorical] = useState(true);
   const [showAdvancedMetrics, setShowAdvancedMetrics] = useState(false);
 
 
@@ -338,7 +338,24 @@ export default function Ventas() {
 
   // Grouped Sales View
   const groupedSales = useMemo(() => {
-    const filtered = sales.filter(s => {
+    // Treat active orders as pending sales
+    const activeOrdersAsSales = orders
+      .filter(o => o.status !== 'FACTURADO' && (o.status !== 'ANULADO' || !sales.some(s => s.orderId === o.id)))
+      .map(o => ({
+        id: o.id,
+        customerId: o.customerId,
+        date: o.fecha,
+        status: o.status,
+        totalAmount: o.totalEstimado || 0,
+        items: o.items || [],
+        isOrder: true,
+        isHistorical: false,
+        deliveryStatus: o.status === 'ENTREGADO' ? 'ENTREGADO' : 'PENDIENTE'
+      } as unknown as Sale));
+
+    const allRecords = [...sales, ...activeOrdersAsSales];
+
+    const filtered = allRecords.filter(s => {
       if (!showHistorical && s.isHistorical) return false;
       const c = customers.find(x => x.id === s.customerId);
       return c?.nombre?.toLowerCase().includes(searchTerm.toLowerCase());

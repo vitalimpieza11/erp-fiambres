@@ -66,17 +66,45 @@ export const ordersRepository = {
     const sanitizedPedido = {
       ...pedido,
       totalEstimado: Number(pedido.totalEstimado || 0),
-      items: (pedido.items || []).map(item => ({
-        ...item,
-        cantidad: Number(item.cantidad) || 0,
-        precioEstimado: Number(item.precioEstimado) || 0,
-        subtotal: Number(item.subtotal) || 0,
-        pesoReal: item.pesoReal !== undefined ? Number(item.pesoReal) || 0 : undefined,
-        pesosReales: item.pesosReales ? item.pesosReales.map(w => Number(w) || 0) : undefined,
-        cantidadPaquetes: item.cantidadPaquetes !== undefined ? Number(item.cantidadPaquetes) || 0 : undefined,
-        pesoTotal: item.pesoTotal !== undefined ? Number(item.pesoTotal) || 0 : undefined,
-        pesoPromedio: item.pesoPromedio !== undefined ? Number(item.pesoPromedio) || 0 : undefined
-      }))
+      items: (pedido.items || []).map(item => {
+        const itemFirestore: any = { ...item };
+
+        itemFirestore.cantidad = Number(item.cantidad) || 0;
+        itemFirestore.precioEstimado = Number(item.precioEstimado) || 0;
+        itemFirestore.subtotal = Number(item.subtotal) || 0;
+
+        if (item.pesoReal !== undefined) {
+          itemFirestore.pesoReal = Number(item.pesoReal) || 0;
+        } else {
+          delete itemFirestore.pesoReal;
+        }
+        
+        if (item.pesosReales !== undefined && item.pesosReales !== null) {
+          itemFirestore.pesosReales = item.pesosReales.map((w: any) => Number(w) || 0);
+        } else {
+          delete itemFirestore.pesosReales;
+        }
+        
+        if (item.cantidadPaquetes !== undefined) {
+          itemFirestore.cantidadPaquetes = Number(item.cantidadPaquetes) || 0;
+        } else {
+          delete itemFirestore.cantidadPaquetes;
+        }
+        
+        if (item.pesoTotal !== undefined) {
+          itemFirestore.pesoTotal = Number(item.pesoTotal) || 0;
+        } else {
+          delete itemFirestore.pesoTotal;
+        }
+        
+        if (item.pesoPromedio !== undefined) {
+          itemFirestore.pesoPromedio = Number(item.pesoPromedio) || 0;
+        } else {
+          delete itemFirestore.pesoPromedio;
+        }
+
+        return itemFirestore;
+      })
     };
 
     const cleanData = Object.fromEntries(

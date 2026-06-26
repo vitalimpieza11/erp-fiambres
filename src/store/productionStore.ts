@@ -36,6 +36,7 @@ interface ProductionState {
     }[];
     newOrderStatus?: 'EN_PRODUCCION' | 'PRODUCIDO';
   }) => Promise<void>;
+  updateOrderStatus: (orderId: string, status: 'EN_PRODUCCION' | 'PRODUCIDO') => Promise<void>;
   revertMovement: (movementId: string) => Promise<void>;
   produceStep: (data: {
     orderId: string;
@@ -132,6 +133,27 @@ export const useProductionStore = create<ProductionState>((set, get) => ({
       });
     } catch (error) {
       console.error("Error performing produceMultiple in store:", error);
+      throw error;
+    } finally {
+      set({ loading: false });
+    }
+  },
+  updateOrderStatus: async (orderId, status) => {
+    set({ loading: true });
+    try {
+      await productionRepository.updateOrderStatus(orderId, status);
+      // Recargar datos para asegurar consistencia
+      const data = await productionRepository.fetchProductionData();
+      set({
+        orders: data.orders,
+        products: data.products,
+        recipes: data.recipes,
+        equivalences: data.equivalences,
+        movements: data.movements,
+        customers: data.customers
+      });
+    } catch (error) {
+      console.error("Error updating order status in store:", error);
       throw error;
     } finally {
       set({ loading: false });

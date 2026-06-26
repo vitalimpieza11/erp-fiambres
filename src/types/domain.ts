@@ -157,6 +157,7 @@ export type OrderItem = {
   cantidadPaquetes?: number;
   pesoTotal?: number;
   pesoPromedio?: number;
+  recipeItems?: any[];
 };
 
 

@@ -33,8 +33,10 @@ export default function Produccion() {
     getCapacity, 
     getCapacityDetails,
     produce, 
+    produceMultiple, 
     produceStep, 
-    revertMovement 
+    revertMovement,
+    updateOrderStatus 
   } = useProduccion();
 
   const { getRanges } = usePeriodFilterStore();
@@ -635,6 +637,7 @@ export default function Produccion() {
         equivalences={equivalences}
         customers={customers}
         produceStep={produceStep}
+        updateOrderStatus={updateOrderStatus}
       />
     </div>
   );

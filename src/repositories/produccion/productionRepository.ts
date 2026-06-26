@@ -237,6 +237,25 @@ export const productionRepository = {
       }
     });
   },
+  async updateOrderStatus(orderId: string, status: 'EN_PRODUCCION' | 'PRODUCIDO'): Promise<void> {
+    console.log("[STATUS] updateOrderStatus ejecutado", orderId, status);
+    const { doc, updateDoc, getDoc } = await import('firebase/firestore');
+    const orderRef = doc(db, 'orders', orderId);
+    try {
+      const beforeSnap = await getDoc(orderRef);
+      console.log(`[STATUS] ANTES status actual:`, beforeSnap.exists() ? beforeSnap.data()?.status : 'NOT_FOUND');
+      
+      await updateDoc(orderRef, { status });
+      console.log(`[STATUS] updateDoc finalizado correctamente para`, orderId);
+      
+      const afterSnap = await getDoc(orderRef);
+      console.log(`[STATUS] DESPUÉS status leído nuevamente desde Firestore:`, afterSnap.exists() ? afterSnap.data()?.status : 'NOT_FOUND');
+    } catch (e) {
+      console.error("[STATUS] Exception in updateDoc:", e);
+      throw e;
+    }
+  },
+
   async produceMultiple(
     data: {
       orderId?: string;
