@@ -79,19 +79,48 @@ export function getOperationalCost(params: GetOperationalCostParams): Operationa
   if (!etiquetaProductId) console.warn("getOperationalCost: Falta configuración de etiquetaProductId en los ajustes de embalaje.");
   if (!folexProductId) console.warn("getOperationalCost: Falta configuración de folexProductId en los ajustes de embalaje.");
 
-  // Calculate nominal weight for proportional scaling of KGs
-  let nominalWeightKg = 0;
+  // Calculate nominal weight FROM RECIPE (sum of all non-packaging ingredients converted to KG per unit × unitsProduced).
+  // IMPORTANT: pesoObjetivoGramos is intentionally NOT used here — it represents the commercial presentation
+  // weight of the finished product and must NOT drive raw material consumption calculations.
+  let nominalWeightKgPerUnit = 0;
   if (realWeightKg && realWeightKg > 0) {
-    if (targetProduct && targetProduct.pesoObjetivoGramos) {
-      nominalWeightKg = (targetProduct.pesoObjetivoGramos / 1000) * unitsProduced;
-    } else if (targetProduct && targetProduct.unitType === 'KG') {
-      nominalWeightKg = unitsProduced; // Assuming 1 unit produced = 1 kg nominal if it's sold by KG without pesoObjetivo
+    for (const item of recipeItems) {
+      const ingForNominal = allProducts.find(p => p.id === item.ingredientProductId);
+      if (!ingForNominal) continue;
+      const isPackItem = ingForNominal.id === bolsaProductId ||
+                         ingForNominal.id === etiquetaProductId ||
+                         ingForNominal.id === folexProductId;
+      if (isPackItem) continue;
+      try {
+        const qtyInKg = convertUnit(
+          item.quantity,
+          mapRecipeUnitToUnitType(item.unit),
+          'KG',
+          ingForNominal.nombre || '',
+          '',
+          equivalences
+        );
+        nominalWeightKgPerUnit += qtyInKg;
+      } catch (_e) {
+        // ignore conversion errors during nominal weight pre-calculation
+      }
     }
   }
 
-  const proportionFactorKg = (nominalWeightKg > 0 && realWeightKg && realWeightKg > 0) 
-    ? (realWeightKg / nominalWeightKg) 
+  const nominalWeightKg = nominalWeightKgPerUnit * unitsProduced;
+
+  const proportionFactorKg = (nominalWeightKg > 0 && realWeightKg && realWeightKg > 0)
+    ? (realWeightKg / nominalWeightKg)
     : 1;
+
+  if (realWeightKg && realWeightKg > 0) {
+    console.log('[MP Debug] ── Inicio cálculo proporcionalidad ──────────────────');
+    console.log('[MP Debug] pesoNominalReceta por unidad :', nominalWeightKgPerUnit.toFixed(4), 'kg');
+    console.log('[MP Debug] pesoNominalReceta total (×'   , unitsProduced, 'uds):', nominalWeightKg.toFixed(4), 'kg');
+    console.log('[MP Debug] pesoReal                     :', realWeightKg.toFixed(4), 'kg');
+    console.log('[MP Debug] factorProporcionalidad        :', proportionFactorKg.toFixed(4));
+    console.log('[MP Debug] ────────────────────────────────────────────────────');
+  }
 
   for (const item of recipeItems) {
     const ing = allProducts.find(p => p.id === item.ingredientProductId);
@@ -126,13 +155,17 @@ export function getOperationalCost(params: GetOperationalCostParams): Operationa
       }
       
       let finalQty = baseConvertedQty * unitsProduced;
-      
-      // Override if the ingredient is used in KG and realWeightKg is provided
-      if (ing.unitType === 'KG') {
-         finalQty = finalQty * proportionFactorKg;
+
+      // Scale KG-tracked ingredients proportionally using the recipe-derived factor
+      if (ing.unitType === 'KG' && realWeightKg && realWeightKg > 0) {
+        finalQty = finalQty * proportionFactorKg;
       }
 
       const ingredientCost = finalQty * cost;
+
+      if (realWeightKg && realWeightKg > 0) {
+        console.log(`[MP Debug] Ingrediente: "${ing.nombre}" | baseConvertedQty: ${baseConvertedQty.toFixed(4)} kg | finalQty: ${finalQty.toFixed(4)} kg | costoUnitario: ${cost} | subtotal: ${ingredientCost.toFixed(4)}`);
+      }
 
       if (ing.type === 'INSUMO') {
         costoInsumosReceta += ingredientCost;
