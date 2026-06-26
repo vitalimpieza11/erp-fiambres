@@ -20,40 +20,100 @@ export interface CalculatedPrices {
   margenReal1kg?: number;
 }
 
-export function calculatePresentationPrices(
-  product: Partial<Product>,
-  recipeItems: RecipeItem[],
-  settings: SystemSettings,
-  equivalences: Equivalencia[],
-  allProducts: Product[]
-): CalculatedPrices {
-  let costoMercaderia = 0;
+export interface CostBreakdownItem {
+  nombre: string;
+  cantidad: number;
+  unidad: string;
+  costoUnitario: number;
+  subtotal: number;
+  origen: 'materia_prima' | 'insumo' | 'embalaje';
+}
+
+export interface OperationalCost {
+  costoMateriaPrima: number;
+  costoInsumosReceta: number;
+  costoMercaderia: number; // Suma de materia prima e insumos de receta
+  costoBolsa: number;
+  costoEtiqueta: number;
+  costoFolexAutomatico: number;
+  costoEmbalajeTotal: number;
+  costoOperativoTotal: number;
+  folexQuantity: number;
+  desgloseMateriaPrima: CostBreakdownItem[];
+  desgloseInsumos: CostBreakdownItem[];
+  desgloseEmbalaje: CostBreakdownItem[];
+}
+
+export interface GetOperationalCostParams {
+  recipeItems: RecipeItem[];
+  settings: SystemSettings;
+  equivalences: Equivalencia[];
+  allProducts: Product[];
+  targetProduct?: Partial<Product>;
+  unitsProduced?: number; // Default 1
+  realWeightKg?: number;  // Optional real weight produced
+}
+
+export function getOperationalCost(params: GetOperationalCostParams): OperationalCost {
+  const {
+    recipeItems,
+    settings,
+    equivalences,
+    allProducts,
+    targetProduct,
+    unitsProduced = 1,
+    realWeightKg
+  } = params;
+
+  let costoMateriaPrima = 0;
+  let costoInsumosReceta = 0;
   let folexQuantity = 0;
 
+  const desgloseMateriaPrima: CostBreakdownItem[] = [];
+  const desgloseInsumos: CostBreakdownItem[] = [];
+  const desgloseEmbalaje: CostBreakdownItem[] = [];
+
   const { bolsaProductId, etiquetaProductId, folexProductId } = settings.packagingSettings || {};
+
+  if (!bolsaProductId) console.warn("getOperationalCost: Falta configuración de bolsaProductId en los ajustes de embalaje.");
+  if (!etiquetaProductId) console.warn("getOperationalCost: Falta configuración de etiquetaProductId en los ajustes de embalaje.");
+  if (!folexProductId) console.warn("getOperationalCost: Falta configuración de folexProductId en los ajustes de embalaje.");
+
+  // Calculate nominal weight for proportional scaling of KGs
+  let nominalWeightKg = 0;
+  if (realWeightKg && realWeightKg > 0) {
+    if (targetProduct && targetProduct.pesoObjetivoGramos) {
+      nominalWeightKg = (targetProduct.pesoObjetivoGramos / 1000) * unitsProduced;
+    } else if (targetProduct && targetProduct.unitType === 'KG') {
+      nominalWeightKg = unitsProduced; // Assuming 1 unit produced = 1 kg nominal if it's sold by KG without pesoObjetivo
+    }
+  }
+
+  const proportionFactorKg = (nominalWeightKg > 0 && realWeightKg && realWeightKg > 0) 
+    ? (realWeightKg / nominalWeightKg) 
+    : 1;
 
   for (const item of recipeItems) {
     const ing = allProducts.find(p => p.id === item.ingredientProductId);
     if (!ing) continue;
 
-    // Check if ingredient is Folex
+    // Folex is a special case handled below if it's automatic.
     if (ing.id === folexProductId) {
-      // Assuming folex unit is handled as units/fetas directly
-      folexQuantity += item.quantity;
+      folexQuantity += (item.quantity * unitsProduced);
       continue;
     }
 
-    // Check if it's packaging (we skip other packaging for the mercaderia cost)
     const isPack = ing.id === bolsaProductId || 
                    ing.id === etiquetaProductId || 
                    ing.id === folexProductId;
                    
     if (!isPack) {
-      // It's a comestible ingredient, calculate its cost
       const cost = Number(ing.costoActual || 0);
-      let convertedQty = 0;
+      if (cost < 0) console.warn(`getOperationalCost: El costo actual del ingrediente ${ing.nombre} es negativo (${cost}).`);
+
+      let baseConvertedQty = 0; 
       try {
-        convertedQty = convertUnit(
+        baseConvertedQty = convertUnit(
           item.quantity,
           mapRecipeUnitToUnitType(item.unit),
           ing.unitType || 'KG',
@@ -64,20 +124,147 @@ export function calculatePresentationPrices(
       } catch (err) {
         console.error("Error al convertir unidad en pricingHelpers", err);
       }
-      costoMercaderia += convertedQty * cost;
+      
+      let finalQty = baseConvertedQty * unitsProduced;
+      
+      // Override if the ingredient is used in KG and realWeightKg is provided
+      if (ing.unitType === 'KG') {
+         finalQty = finalQty * proportionFactorKg;
+      }
+
+      const ingredientCost = finalQty * cost;
+
+      if (ing.type === 'INSUMO') {
+        costoInsumosReceta += ingredientCost;
+        desgloseInsumos.push({
+          nombre: ing.nombre || 'Insumo desconocido',
+          cantidad: finalQty,
+          unidad: ing.unitType || 'U',
+          costoUnitario: cost,
+          subtotal: ingredientCost,
+          origen: 'insumo'
+        });
+      } else {
+        costoMateriaPrima += ingredientCost;
+        desgloseMateriaPrima.push({
+          nombre: ing.nombre || 'Materia prima desconocida',
+          cantidad: finalQty,
+          unidad: ing.unitType || 'KG',
+          costoUnitario: cost,
+          subtotal: ingredientCost,
+          origen: 'materia_prima'
+        });
+      }
     }
   }
 
-  const bolsaProd = allProducts.find(p => p.id === bolsaProductId);
-  const etiquetaProd = allProducts.find(p => p.id === etiquetaProductId);
-  const folexProd = allProducts.find(p => p.id === folexProductId);
+  const costoMercaderia = costoMateriaPrima + costoInsumosReceta;
 
-  const costoBolsa = Number(bolsaProd?.costoActual || 0);
-  const costoEtiqueta = Number(etiquetaProd?.costoActual || 0);
-  const costoGlobalFolex = Number(folexProd?.costoActual || 0);
+  const bolsaProd = bolsaProductId ? allProducts.find(p => p.id === bolsaProductId) : null;
+  const etiquetaProd = etiquetaProductId ? allProducts.find(p => p.id === etiquetaProductId) : null;
+  const folexProd = folexProductId ? allProducts.find(p => p.id === folexProductId) : null;
 
-  const costoFolexTotal = folexQuantity * costoGlobalFolex;
-  const costoEmbalajePorPaquete = costoBolsa + costoEtiqueta + costoFolexTotal;
+  const costoBolsaBase = Number(bolsaProd?.costoActual || 0);
+  const costoEtiquetaBase = Number(etiquetaProd?.costoActual || 0);
+  const costoFolexUnidadBase = Number(folexProd?.costoActual || 0);
+
+  if (costoBolsaBase < 0) console.warn(`getOperationalCost: El costo de la bolsa es negativo (${costoBolsaBase}).`);
+  if (costoEtiquetaBase < 0) console.warn(`getOperationalCost: El costo de la etiqueta es negativo (${costoEtiquetaBase}).`);
+  if (costoFolexUnidadBase < 0) console.warn(`getOperationalCost: El costo unitario del folex es negativo (${costoFolexUnidadBase}).`);
+  if (costoMercaderia < 0) console.warn(`getOperationalCost: El costo de mercadería calculado es negativo (${costoMercaderia}).`);
+
+  const totalBolsasQty = unitsProduced; 
+  const totalEtiquetasQty = unitsProduced; 
+  
+  const costoFolexAutomatico = folexQuantity * costoFolexUnidadBase;
+  const costoBolsa = totalBolsasQty * costoBolsaBase;
+  const costoEtiqueta = totalEtiquetasQty * costoEtiquetaBase;
+
+  const costoEmbalajeTotal = costoBolsa + costoEtiqueta + costoFolexAutomatico;
+  
+  if (bolsaProd) {
+    desgloseEmbalaje.push({
+      nombre: bolsaProd.nombre || 'Bolsa',
+      cantidad: totalBolsasQty,
+      unidad: bolsaProd.unitType || 'U',
+      costoUnitario: costoBolsaBase,
+      subtotal: costoBolsa,
+      origen: 'embalaje'
+    });
+  }
+  
+  if (etiquetaProd) {
+    desgloseEmbalaje.push({
+      nombre: etiquetaProd.nombre || 'Etiqueta',
+      cantidad: totalEtiquetasQty,
+      unidad: etiquetaProd.unitType || 'U',
+      costoUnitario: costoEtiquetaBase,
+      subtotal: costoEtiqueta,
+      origen: 'embalaje'
+    });
+  }
+
+  if (folexQuantity > 0 && folexProd) {
+    desgloseEmbalaje.push({
+      nombre: folexProd.nombre || 'Folex',
+      cantidad: folexQuantity,
+      unidad: folexProd.unitType || 'U',
+      costoUnitario: costoFolexUnidadBase,
+      subtotal: costoFolexAutomatico,
+      origen: 'embalaje'
+    });
+  }
+
+  const costoOperativoTotal = costoMercaderia + costoEmbalajeTotal;
+
+  // VERIFICACIÓN IMPORTANTE
+  const sumaDesgloses = 
+    desgloseMateriaPrima.reduce((acc, curr) => acc + curr.subtotal, 0) +
+    desgloseInsumos.reduce((acc, curr) => acc + curr.subtotal, 0) +
+    desgloseEmbalaje.reduce((acc, curr) => acc + curr.subtotal, 0);
+
+  if (Math.abs(sumaDesgloses - costoOperativoTotal) > 0.01) {
+    console.warn(`getOperationalCost: Inconsistencia detectada. Suma desgloses: ${sumaDesgloses}, Costo Operativo Total: ${costoOperativoTotal}`);
+  }
+
+  return {
+    costoMateriaPrima,
+    costoInsumosReceta,
+    costoMercaderia,
+    costoBolsa,
+    costoEtiqueta,
+    costoFolexAutomatico,
+    costoEmbalajeTotal,
+    costoOperativoTotal,
+    folexQuantity,
+    desgloseMateriaPrima,
+    desgloseInsumos,
+    desgloseEmbalaje
+  };
+}
+
+export function calculatePresentationPrices(
+  product: Partial<Product>,
+  recipeItems: RecipeItem[],
+  settings: SystemSettings,
+  equivalences: Equivalencia[],
+  allProducts: Product[]
+): CalculatedPrices {
+  const {
+    costoMercaderia,
+    costoBolsa: costoBolsaTotal,
+    costoEtiqueta: costoEtiquetaTotal,
+    costoFolexAutomatico: costoFolexTotal,
+    costoEmbalajeTotal: costoEmbalajePorPaquete,
+    folexQuantity
+  } = getOperationalCost({
+    recipeItems,
+    settings,
+    equivalences,
+    allProducts,
+    targetProduct: product,
+    unitsProduced: 1 // For presentation pricing, we calculate for 1 unit
+  });
 
   // AUTO mode: Calculate Prices based on desired margin
   if (!product.pricingMode || product.pricingMode === 'AUTO') {
@@ -95,8 +282,8 @@ export function calculatePresentationPrices(
       costoMercaderia,
       folexQuantity,
       costoFolexTotal,
-      costoBolsaTotal: costoBolsa,
-      costoEtiquetaTotal: costoEtiqueta,
+      costoBolsaTotal,
+      costoEtiquetaTotal,
       costoEmbalaje: costoEmbalajePorPaquete,
       precioMercaderia,
       precio150g,
@@ -127,8 +314,8 @@ export function calculatePresentationPrices(
       costoMercaderia,
       folexQuantity,
       costoFolexTotal,
-      costoBolsaTotal: costoBolsa,
-      costoEtiquetaTotal: costoEtiqueta,
+      costoBolsaTotal,
+      costoEtiquetaTotal,
       costoEmbalaje: costoEmbalajePorPaquete,
       precioMercaderia: costoMercaderia, // En manual no hay precio base con margen general
       precio150g: p150,
@@ -142,4 +329,3 @@ export function calculatePresentationPrices(
     };
   }
 }
-

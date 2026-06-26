@@ -4,6 +4,8 @@ import { usePeriodFilterStore } from '../../store/periodFilterStore';
 import { useSalesStore } from '../../store/salesStore';
 import { convertUnit } from '../../lib/unitConverter';
 import { mapRecipeUnitToUnitType } from '../../types/domain';
+import { useSettingsStore } from '../../store/settingsStore';
+import { getOperationalCost } from '../../utils/pricingHelpers';
 import ExpandableCard from '../../components/ExpandableCard';
 import FreeProductionPanel from './FreeProductionPanel';
 import OrderProductionModal from './OrderProductionModal';
@@ -64,22 +66,21 @@ export default function Produccion() {
     });
   }, [movements, currentRange]);
 
+  const { settings } = useSettingsStore();
+
   const getProductRecipeCost = (productId: string) => {
     const recipe = recipes.find(r => r.productId === productId);
     if (!recipe || !recipe.items) return 0;
-    return recipe.items.reduce((acc: number, ing: any) => {
-      const ingProd = products.find(p => p.id === ing.ingredientProductId);
-      if (!ingProd) return acc;
-      const convertedQty = convertUnit(
-        ing.quantity,
-        mapRecipeUnitToUnitType(ing.unit),
-        ingProd.unitType,
-        ingProd.nombre || '',
-        '',
-        equivalences
-      );
-      return acc + (convertedQty * (ingProd.costoActual || 0));
-    }, 0);
+    const prodObj = products.find(p => p.id === productId);
+    const { costoOperativoTotal } = getOperationalCost({
+      recipeItems: recipe.items,
+      settings,
+      equivalences,
+      allProducts: products,
+      targetProduct: prodObj,
+      unitsProduced: 1
+    });
+    return costoOperativoTotal;
   };
 
   // Summary Metrics

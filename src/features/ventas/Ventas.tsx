@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from 'react';
 import { useVentas } from './useVentas';
-import type { Sale, Order, SaleItem } from '../../types/domain';
+import type { Sale, Order, SaleItem, Product } from '../../types/domain';
 import { useFinancialAccountsStore } from '../../store/financialAccountsStore';
 import { usePeriodFilterStore } from '../../store/periodFilterStore';
 import ExpandableCard from '../../components/ExpandableCard';
@@ -21,6 +21,35 @@ const STATUS_COLORS: Record<string, string> = {
   ANULADO: '#ef4444'
 };
 
+export const calcularMetricasVenta = (sale: Sale, products: Product[]) => {
+  const totalVendido = sale.totalAmount;
+  let costoTotal = 0;
+
+  if (sale.isHistorical && sale.costoTotal !== undefined) {
+    costoTotal = sale.costoTotal;
+  } else {
+    costoTotal = (sale.items || []).reduce((acc, item) => {
+      // Prioridad 1: Costo histórico total
+      if (item.costoTotalHistorico !== undefined) return acc + item.costoTotalHistorico;
+      if (item.costoTotal !== undefined) return acc + item.costoTotal;
+      
+      // Prioridad 2: Costo histórico unitario * cantidad
+      if (item.costoUnitarioHistorico !== undefined) return acc + (item.cantidad * item.costoUnitarioHistorico);
+      if (item.costoUnitario !== undefined && item.costoUnitario > 0) return acc + (item.cantidad * item.costoUnitario);
+      
+      // Prioridad 3: Fallback al costo operativo vigente
+      const prod = products.find(p => p.id === item.productId);
+      const costoActual = prod?.costoActual || 0;
+      return acc + (item.cantidad * costoActual);
+    }, 0);
+  }
+
+  const ganancia = totalVendido - costoTotal;
+  const margen = totalVendido > 0 ? (ganancia / totalVendido) * 100 : 0;
+
+  return { totalVendido, costoTotal, ganancia, margen };
+};
+
 export default function Ventas() {
   const { sales, orders, customers, products, loading, createSaleFromOrder, createQuickSale, createHistoricalSale, updateSale, cobrarSale, anularSale, deleteSale, markOrderAsDelivered, deliverHistoricalSale } = useVentas();
   const { getRanges } = usePeriodFilterStore();
@@ -37,22 +66,18 @@ export default function Ventas() {
   // Period Summary Metrics
   const summaryMetrics = useMemo(() => {
     const activeSales = periodSales.filter(s => s.status !== 'ANULADO');
-    const facturacionTotal = activeSales.reduce((acc, s) => acc + s.totalAmount, 0);
-    const costoTotal = activeSales.reduce((acc, s) => {
-      if (s.isHistorical && s.costoTotal !== undefined) {
-        return acc + s.costoTotal;
-      }
-      const saleCost = (s.items || []).reduce((itemAcc, item) => {
-        const prod = products.find(p => p.id === item.productId);
-        if (prod && prod.type === 'PRESENTACION') {
-          return itemAcc + (item.costoTotalHistorico || item.costoTotal || 0);
-        }
-        return itemAcc + (item.cantidad * (prod?.costoActual || 0));
-      }, 0);
-      return acc + saleCost;
-    }, 0);
+    
+    let facturacionTotal = 0;
+    let costoTotal = 0;
+    let gananciaBruta = 0;
 
-    const gananciaBruta = facturacionTotal - costoTotal;
+    activeSales.forEach(s => {
+      const metricas = calcularMetricasVenta(s, products);
+      facturacionTotal += metricas.totalVendido;
+      costoTotal += metricas.costoTotal;
+      gananciaBruta += metricas.ganancia;
+    });
+
     const margen = facturacionTotal > 0 ? (gananciaBruta / facturacionTotal) * 100 : 0;
     const cantidadVentas = activeSales.length;
     const ticketPromedio = cantidadVentas > 0 ? facturacionTotal / cantidadVentas : 0;
@@ -464,7 +489,34 @@ export default function Ventas() {
                               <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{sale.items.length} ítems</div>
                             </td>
                             <td>
-                              <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>${sale.totalAmount.toFixed(2)}</div>
+                              {(() => {
+                                const metricas = calcularMetricasVenta(sale, products);
+                                const isPositive = metricas.ganancia >= 0;
+                                return (
+                                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '13px', minWidth: '160px' }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '16px' }}>
+                                      <span style={{ color: 'var(--text-secondary)' }}>Total vendido:</span>
+                                      <span style={{ fontWeight: 600, color: '#3b82f6' }}>{formatCurrency(metricas.totalVendido)}</span>
+                                    </div>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '16px' }}>
+                                      <span style={{ color: 'var(--text-secondary)' }}>Costo total:</span>
+                                      <span style={{ fontWeight: 500, color: '#64748b' }}>{formatCurrency(metricas.costoTotal)}</span>
+                                    </div>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '16px' }}>
+                                      <span style={{ color: 'var(--text-secondary)' }}>Ganancia:</span>
+                                      <span style={{ fontWeight: 600, color: isPositive ? '#16a34a' : '#ef4444' }}>
+                                        {formatCurrency(metricas.ganancia)}
+                                      </span>
+                                    </div>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '16px' }}>
+                                      <span style={{ color: 'var(--text-secondary)' }}>Margen:</span>
+                                      <span style={{ fontWeight: 600, color: isPositive ? '#16a34a' : '#ef4444' }}>
+                                        {metricas.margen.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%
+                                      </span>
+                                    </div>
+                                  </div>
+                                );
+                              })()}
                             </td>
                             <td>
                               <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', alignItems: 'flex-start' }}>

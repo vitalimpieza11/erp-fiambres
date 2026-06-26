@@ -4,7 +4,8 @@ import RecipeEditor from './RecipeEditor';
 import { convertQuantityToBaseUnit } from '../../lib/unitConverter';
 import type { Order, Product, RecipeItem, Equivalencia, Customer } from '../../types/domain';
 import { mapRecipeUnitToUnitType } from '../../types/domain';
-import { calculateProductionCostDetails } from '../../utils/costHelpers';
+import { useSettingsStore } from '../../store/settingsStore';
+import { getOperationalCost } from '../../utils/pricingHelpers';
 
 interface OrderProductionModalProps {
   isOpen: boolean;
@@ -67,21 +68,39 @@ export default function OrderProductionModal({
     return products.find(p => p.id === currentItem.productId);
   }, [currentItem, products]);
 
+  const { settings } = useSettingsStore();
+
   const costDetails = useMemo(() => {
-    if (!currentItem) return null;
+    if (!currentItem || !currentItem.recipeItems || currentItem.cantidad <= 0) return null;
     console.log('RECALCULANDO_COSTOS', {
       pesoReal: currentItem?.pesoReal,
       pesosReales: currentItem?.pesosReales
     });
-    return calculateProductionCostDetails(
-      currentItem.recipeItems || [],
-      currentItem.cantidad,
-      currentItem.pesoReal,
-      currentProdObj,
-      products,
-      equivalences
-    );
-  }, [currentItem, currentProdObj, products, equivalences]);
+    const prodQty = currentItem.cantidad;
+    const prodWeight = currentItem.pesoReal || 0;
+    
+    let realWeightKg = prodWeight > 0 ? prodWeight : undefined;
+
+    const opCost = getOperationalCost({
+      recipeItems: currentItem.recipeItems,
+      settings,
+      equivalences,
+      allProducts: products,
+      targetProduct: currentProdObj,
+      unitsProduced: prodQty,
+      realWeightKg
+    });
+
+    const totalWeightKg = (realWeightKg && realWeightKg > 0) ? realWeightKg : (prodQty > 0 ? prodQty : 0);
+    const costPerUnit = prodQty > 0 ? opCost.costoOperativoTotal / prodQty : 0;
+    const costPerKg = totalWeightKg > 0 ? opCost.costoOperativoTotal / totalWeightKg : 0;
+
+    return {
+      ...opCost,
+      costPerUnit,
+      costPerKg
+    };
+  }, [currentItem, currentProdObj, products, equivalences, settings]);
 
   const pendingOrders = useMemo(() => {
     return (orders || []).filter(o => o && (o.status === 'PENDIENTE' || o.status === 'EN_PRODUCCION'));
@@ -446,20 +465,81 @@ export default function OrderProductionModal({
                         <span>📊</span> Análisis de Costos (Paso Actual)
                       </h4>
                       
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px' }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
                         <div style={{ background: '#fff', padding: '6px 10px', borderRadius: '8px', border: '1px solid #f1f5f9' }}>
-                          <span style={{ fontSize: '10px', color: 'var(--text-secondary)', display: 'block' }}>Mat. Prima</span>
-                          <strong style={{ fontSize: '13px', color: 'var(--text-primary)' }}>${costDetails.rawMaterialCost.toFixed(2)}</strong>
+                          <span style={{ fontSize: '10px', color: 'var(--text-secondary)', display: 'block' }}>Materia Prima</span>
+                          <strong style={{ fontSize: '13px', color: 'var(--text-primary)' }}>${costDetails.costoMateriaPrima.toFixed(2)}</strong>
                         </div>
                         <div style={{ background: '#fff', padding: '6px 10px', borderRadius: '8px', border: '1px solid #f1f5f9' }}>
-                          <span style={{ fontSize: '10px', color: 'var(--text-secondary)', display: 'block' }}>Insumos/Emb.</span>
-                          <strong style={{ fontSize: '13px', color: 'var(--text-primary)' }}>${costDetails.packagingCost.toFixed(2)}</strong>
+                          <span style={{ fontSize: '10px', color: 'var(--text-secondary)', display: 'block' }}>Insumos de Receta</span>
+                          <strong style={{ fontSize: '13px', color: 'var(--text-primary)' }}>${costDetails.costoInsumosReceta.toFixed(2)}</strong>
+                        </div>
+                        <div style={{ background: '#fff', padding: '6px 10px', borderRadius: '8px', border: '1px solid #f1f5f9' }}>
+                          <span style={{ fontSize: '10px', color: 'var(--text-secondary)', display: 'block' }}>Embalaje Automático</span>
+                          <strong style={{ fontSize: '13px', color: 'var(--text-primary)' }}>${costDetails.costoEmbalajeTotal.toFixed(2)}</strong>
                         </div>
                         <div style={{ background: '#fffbeb', padding: '6px 10px', borderRadius: '8px', border: '1px solid #fef3c7' }}>
-                          <span style={{ fontSize: '10px', color: '#b45309', display: 'block' }}>Costo Total</span>
-                          <strong style={{ fontSize: '13px', color: '#b45309' }}>${costDetails.totalCost.toFixed(2)}</strong>
+                          <span style={{ fontSize: '10px', color: '#b45309', display: 'block' }}>Total Operativo</span>
+                          <strong style={{ fontSize: '13px', color: '#b45309' }}>${costDetails.costoOperativoTotal.toFixed(2)}</strong>
                         </div>
                       </div>
+
+                      {costDetails.desgloseMateriaPrima.length > 0 && (
+                        <div style={{ marginTop: '4px' }}>
+                          <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: '6px', textTransform: 'uppercase' }}>
+                            Materia Prima
+                          </span>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                            {costDetails.desgloseMateriaPrima.map((ing, i) => (
+                              <div key={i} style={{ display: 'flex', flexDirection: 'column', fontSize: '11px', padding: '4px 8px', background: '#fff', borderRadius: '6px', border: '1px solid #f1f5f9' }}>
+                                <span style={{ color: 'var(--text-primary)', fontWeight: 500 }}>• {ing.nombre}</span>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '2px' }}>
+                                  <span style={{ color: 'var(--text-secondary)' }}>{ing.cantidad.toFixed(3)} {ing.unidad} × ${ing.costoUnitario.toFixed(2)}</span>
+                                  <strong style={{ color: 'var(--text-primary)' }}>${ing.subtotal.toFixed(2)}</strong>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {costDetails.desgloseInsumos.length > 0 && (
+                        <div style={{ marginTop: '4px' }}>
+                          <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: '6px', textTransform: 'uppercase' }}>
+                            Insumos
+                          </span>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                            {costDetails.desgloseInsumos.map((ing, i) => (
+                              <div key={i} style={{ display: 'flex', flexDirection: 'column', fontSize: '11px', padding: '4px 8px', background: '#fff', borderRadius: '6px', border: '1px solid #f1f5f9' }}>
+                                <span style={{ color: 'var(--text-primary)', fontWeight: 500 }}>• {ing.nombre}</span>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '2px' }}>
+                                  <span style={{ color: 'var(--text-secondary)' }}>{ing.cantidad.toFixed(3)} {ing.unidad} × ${ing.costoUnitario.toFixed(2)}</span>
+                                  <strong style={{ color: 'var(--text-primary)' }}>${ing.subtotal.toFixed(2)}</strong>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {costDetails.desgloseEmbalaje.length > 0 && (
+                        <div style={{ marginTop: '4px' }}>
+                          <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: '6px', textTransform: 'uppercase' }}>
+                            Embalaje
+                          </span>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                            {costDetails.desgloseEmbalaje.map((ing, i) => (
+                              <div key={i} style={{ display: 'flex', flexDirection: 'column', fontSize: '11px', padding: '4px 8px', background: '#fff', borderRadius: '6px', border: '1px solid #f1f5f9' }}>
+                                <span style={{ color: 'var(--text-primary)', fontWeight: 500 }}>• {ing.nombre}</span>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '2px' }}>
+                                  <span style={{ color: 'var(--text-secondary)' }}>{ing.cantidad.toFixed(3)} {ing.unidad} × ${ing.costoUnitario.toFixed(2)}</span>
+                                  <strong style={{ color: 'var(--text-primary)' }}>${ing.subtotal.toFixed(2)}</strong>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
 
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
                         <div style={{ background: '#fff', padding: '6px 10px', borderRadius: '8px', border: '1px solid #f1f5f9' }}>
@@ -469,25 +549,6 @@ export default function OrderProductionModal({
                         <div style={{ background: '#fff', padding: '6px 10px', borderRadius: '8px', border: '1px solid #f1f5f9' }}>
                           <span style={{ fontSize: '10px', color: 'var(--text-secondary)', display: 'block' }}>Costo por Kg</span>
                           <strong style={{ fontSize: '12px', color: 'var(--text-primary)' }}>${costDetails.costPerKg.toFixed(2)} / kg</strong>
-                        </div>
-                      </div>
-
-                      <div style={{ marginTop: '2px' }}>
-                        <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>
-                          Desglose de Ingredientes:
-                        </span>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '5px', maxHeight: '120px', overflowY: 'auto', paddingRight: '4px' }}>
-                          {costDetails.ingredients.map((ing, i) => (
-                            <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', padding: '3px 0', borderBottom: '1px dashed #f1f5f9' }}>
-                              <span style={{ color: 'var(--text-primary)' }}>
-                                • {ing.ingredientName} ({ing.quantityUsed} {ing.unit})
-                                <span style={{ fontSize: '9px', color: 'var(--text-secondary)', marginLeft: '4px' }}>
-                                  [${ing.unitCost.toFixed(2)}/{ing.unit}]
-                                </span>
-                              </span>
-                              <strong style={{ color: 'var(--text-primary)' }}>${ing.totalCost.toFixed(2)}</strong>
-                            </div>
-                          ))}
                         </div>
                       </div>
                     </div>

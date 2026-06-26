@@ -7,6 +7,8 @@ import type { Product, RecipeItem, Equivalencia } from '../../types/domain';
 import { mapRecipeUnitToUnitType } from '../../types/domain';
 import { truncateDecimals } from '../../lib/formatters';
 import { calculateProductionCostDetails } from '../../utils/costHelpers';
+import { useSettingsStore } from '../../store/settingsStore';
+import { getOperationalCost } from '../../utils/pricingHelpers';
 
 interface FreeProductionPanelProps {
   isOpen: boolean;
@@ -36,6 +38,7 @@ export default function FreeProductionPanel({
   initialProductId,
   pendingTotals
 }: FreeProductionPanelProps) {
+  const { settings } = useSettingsStore();
   const [selectedProduct, setSelectedProduct] = useState<string>('');
   const [prodQty, setProdQty] = useState<number>(0);
   const [prodWeight, setProdWeight] = useState<number>(0);
@@ -107,15 +110,30 @@ export default function FreeProductionPanel({
   }, [customIngredients, prodQty, selectedProduct, products]);
 
   const costDetails = useMemo(() => {
-    return calculateProductionCostDetails(
-      customIngredients,
-      prodQty,
-      prodWeight > 0 ? prodWeight : undefined,
-      selectedProdObj,
-      products,
-      equivalences
-    );
-  }, [customIngredients, prodQty, prodWeight, selectedProdObj, products, equivalences]);
+    if (!customIngredients || customIngredients.length === 0 || prodQty <= 0) return null;
+    
+    let realWeightKg = prodWeight > 0 ? prodWeight : undefined;
+
+    const opCost = getOperationalCost({
+      recipeItems: customIngredients,
+      settings,
+      equivalences,
+      allProducts: products,
+      targetProduct: selectedProdObj,
+      unitsProduced: prodQty,
+      realWeightKg
+    });
+
+    const totalWeightKg = (realWeightKg && realWeightKg > 0) ? realWeightKg : (prodQty > 0 ? prodQty : 0);
+    const costPerUnit = prodQty > 0 ? opCost.costoOperativoTotal / prodQty : 0;
+    const costPerKg = totalWeightKg > 0 ? opCost.costoOperativoTotal / totalWeightKg : 0;
+
+    return {
+      ...opCost,
+      costPerUnit,
+      costPerKg
+    };
+  }, [customIngredients, prodQty, prodWeight, selectedProdObj, products, equivalences, settings]);
 
   const handleProduce = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -194,7 +212,7 @@ export default function FreeProductionPanel({
             />
 
             {/* Panel de Costos de Producción Libre */}
-            {prodQty > 0 && (
+            {prodQty > 0 && costDetails && (
               <div style={{ 
                 background: '#f8fafc', 
                 border: '1px solid #e2e8f0', 
@@ -208,19 +226,68 @@ export default function FreeProductionPanel({
                 <h4 style={{ margin: 0, fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)', borderBottom: '1px solid #e2e8f0', paddingBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
                   <span>📊</span> Análisis de Costos de Producción
                 </h4>
-                
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px' }}>
-                  <div style={{ background: '#fff', padding: '6px 10px', borderRadius: '8px', border: '1px solid #f1f5f9' }}>
-                    <span style={{ fontSize: '10px', color: 'var(--text-secondary)', display: 'block' }}>Mat. Prima</span>
-                    <strong style={{ fontSize: '13px', color: 'var(--text-primary)' }}>${costDetails.rawMaterialCost.toFixed(2)}</strong>
+
+                {costDetails.desgloseMateriaPrima.length > 0 && (
+                  <div style={{ marginTop: '4px' }}>
+                    <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: '6px', textTransform: 'uppercase' }}>
+                      Materia Prima
+                    </span>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                      {costDetails.desgloseMateriaPrima.map((ing, i) => (
+                        <div key={i} style={{ display: 'flex', flexDirection: 'column', fontSize: '11px', padding: '4px 8px', background: '#fff', borderRadius: '6px', border: '1px solid #f1f5f9' }}>
+                          <span style={{ color: 'var(--text-primary)', fontWeight: 500 }}>• {ing.nombre}</span>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '2px' }}>
+                            <span style={{ color: 'var(--text-secondary)' }}>{ing.cantidad.toFixed(3)} {ing.unidad} × ${ing.costoUnitario.toFixed(2)}</span>
+                            <strong style={{ color: 'var(--text-primary)' }}>${ing.subtotal.toFixed(2)}</strong>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
                   </div>
-                  <div style={{ background: '#fff', padding: '6px 10px', borderRadius: '8px', border: '1px solid #f1f5f9' }}>
-                    <span style={{ fontSize: '10px', color: 'var(--text-secondary)', display: 'block' }}>Insumos/Emb.</span>
-                    <strong style={{ fontSize: '13px', color: 'var(--text-primary)' }}>${costDetails.packagingCost.toFixed(2)}</strong>
+                )}
+
+                {costDetails.desgloseInsumos.length > 0 && (
+                  <div style={{ marginTop: '4px' }}>
+                    <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: '6px', textTransform: 'uppercase' }}>
+                      Insumos
+                    </span>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                      {costDetails.desgloseInsumos.map((ing, i) => (
+                        <div key={i} style={{ display: 'flex', flexDirection: 'column', fontSize: '11px', padding: '4px 8px', background: '#fff', borderRadius: '6px', border: '1px solid #f1f5f9' }}>
+                          <span style={{ color: 'var(--text-primary)', fontWeight: 500 }}>• {ing.nombre}</span>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '2px' }}>
+                            <span style={{ color: 'var(--text-secondary)' }}>{ing.cantidad.toFixed(3)} {ing.unidad} × ${ing.costoUnitario.toFixed(2)}</span>
+                            <strong style={{ color: 'var(--text-primary)' }}>${ing.subtotal.toFixed(2)}</strong>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
                   </div>
-                  <div style={{ background: '#fffbeb', padding: '6px 10px', borderRadius: '8px', border: '1px solid #fef3c7' }}>
-                    <span style={{ fontSize: '10px', color: '#b45309', display: 'block' }}>Costo Total</span>
-                    <strong style={{ fontSize: '13px', color: '#b45309' }}>${costDetails.totalCost.toFixed(2)}</strong>
+                )}
+
+                {costDetails.desgloseEmbalaje.length > 0 && (
+                  <div style={{ marginTop: '4px' }}>
+                    <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: '6px', textTransform: 'uppercase' }}>
+                      Embalaje
+                    </span>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                      {costDetails.desgloseEmbalaje.map((ing, i) => (
+                        <div key={i} style={{ display: 'flex', flexDirection: 'column', fontSize: '11px', padding: '4px 8px', background: '#fff', borderRadius: '6px', border: '1px solid #f1f5f9' }}>
+                          <span style={{ color: 'var(--text-primary)', fontWeight: 500 }}>• {ing.nombre}</span>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '2px' }}>
+                            <span style={{ color: 'var(--text-secondary)' }}>{ing.cantidad.toFixed(3)} {ing.unidad} × ${ing.costoUnitario.toFixed(2)}</span>
+                            <strong style={{ color: 'var(--text-primary)' }}>${ing.subtotal.toFixed(2)}</strong>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div style={{ background: '#fffbeb', padding: '10px', borderRadius: '8px', border: '1px solid #fef3c7', marginTop: '4px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontSize: '11px', color: '#b45309', fontWeight: 600, textTransform: 'uppercase' }}>TOTAL OPERATIVO</span>
+                    <strong style={{ fontSize: '14px', color: '#b45309' }}>${costDetails.costoOperativoTotal.toFixed(2)}</strong>
                   </div>
                 </div>
 
@@ -232,25 +299,6 @@ export default function FreeProductionPanel({
                   <div style={{ background: '#fff', padding: '6px 10px', borderRadius: '8px', border: '1px solid #f1f5f9' }}>
                     <span style={{ fontSize: '10px', color: 'var(--text-secondary)', display: 'block' }}>Costo por Kg</span>
                     <strong style={{ fontSize: '12px', color: 'var(--text-primary)' }}>${costDetails.costPerKg.toFixed(2)} / kg</strong>
-                  </div>
-                </div>
-
-                <div style={{ marginTop: '2px' }}>
-                  <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>
-                    Desglose de Ingredientes:
-                  </span>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '5px', maxHeight: '150px', overflowY: 'auto', paddingRight: '4px' }}>
-                    {costDetails.ingredients.map((ing, i) => (
-                      <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', padding: '3px 0', borderBottom: '1px dashed #f1f5f9' }}>
-                        <span style={{ color: 'var(--text-primary)' }}>
-                          • {ing.ingredientName} ({ing.quantityUsed} {ing.unit})
-                          <span style={{ fontSize: '9px', color: 'var(--text-secondary)', marginLeft: '4px' }}>
-                            [${ing.unitCost.toFixed(2)}/{ing.unit}]
-                          </span>
-                        </span>
-                        <strong style={{ color: 'var(--text-primary)' }}>${ing.totalCost.toFixed(2)}</strong>
-                      </div>
-                    ))}
                   </div>
                 </div>
               </div>
