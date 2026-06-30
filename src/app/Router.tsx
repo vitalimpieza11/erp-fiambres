@@ -22,6 +22,8 @@ const AsistenteInicio = lazy(() => import('../features/asistente-inicio/Asistent
 const CodigosBalanza = lazy(() => import('../features/balanza/CodigosBalanza'));
 const RegularizacionStockDiagnostico = lazy(() => import('../features/regularizacion/RegularizacionStockDiagnostico'));
 
+import MobileRouter from '../mobile/router/MobileRouter';
+
 // Guard for authenticated users
 function AuthGuard({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuthStore();
@@ -64,6 +66,8 @@ export default function Router() {
       <Suspense fallback={<LoadingSpinner message="Cargando módulo..." />}>
         <Routes>
           <Route path="/login" element={<GuestGuard><Login /></GuestGuard>} />
+          
+          <Route path="/mobile/*" element={<AuthGuard><MobileRouter /></AuthGuard>} />
           
           <Route path="/" element={<AuthGuard><Layout /></AuthGuard>}>
             <Route index element={<Navigate to="/dashboard" replace />} />

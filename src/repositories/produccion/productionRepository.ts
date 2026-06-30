@@ -1,7 +1,7 @@
 import { getDocs, query, where, doc, runTransaction, collection } from 'firebase/firestore';
 import { db, COLLECTIONS } from '../../lib/firebase';
 import type { Order, Product, Equivalencia, StockMovement, RecipeItem, Customer } from '../../types/domain';
-import { mapRecipeUnitToUnitType } from '../../types/domain';
+import { mapRecipeUnitToUnitType, mapUnitTypeToRecipeUnit } from '../../types/domain';
 import { convertUnit, convertQuantityToBaseUnit, calculateWeightInKg } from '../../lib/unitConverter';
 import { truncateDecimals } from '../../lib/formatters';
 import { normalizeOrder } from '../pedidos/ordersRepository';
@@ -640,12 +640,33 @@ export const productionRepository = {
       merma?: number;
       observaciones: string;
       recipeItemsOverride?: RecipeItem[];
+      productionStepId?: string;
       isLastStep: boolean;
       newOrderStatus?: 'EN_PRODUCCION' | 'PRODUCIDO';
     },
     equivalences: Equivalencia[]
   ): Promise<void> {
-    console.log('PRODUCCION_GUARDAR', { productId: data.productId, pesoReal: data.pesoReal, pesosReales: data.pesosReales });
+    console.log('PRODUCCION_GUARDAR', { productId: data.productId, pesoReal: data.pesoReal, pesosReales: data.pesosReales, productionStepId: data.productionStepId });
+    
+    // 0. PRE-TRANSACTION READS for Reversion
+    let prevMovs: any[] = [];
+    let prevPkgs: any[] = [];
+    let prevProdItems: any[] = [];
+
+    if (data.productionStepId) {
+      const movsQuery = query(collection(db, 'stock_movements'), where('productionStepId', '==', data.productionStepId), where('isReverted', '==', false));
+      const movsSnap = await getDocs(movsQuery);
+      prevMovs = movsSnap.docs.map(d => ({ ref: d.ref, data: d.data() }));
+
+      const pkgsQuery = query(collection(db, 'packages'), where('productionStepId', '==', data.productionStepId), where('isReverted', '==', false));
+      const pkgsSnap = await getDocs(pkgsQuery);
+      prevPkgs = pkgsSnap.docs.map(d => ({ ref: d.ref, data: d.data() }));
+
+      const prodItemsQuery = query(collection(db, 'production_items'), where('productionStepId', '==', data.productionStepId), where('isReverted', '==', false));
+      const prodItemsSnap = await getDocs(prodItemsQuery);
+      prevProdItems = prodItemsSnap.docs.map(d => ({ ref: d.ref, data: d.data() }));
+    }
+
     await runTransaction(db, async (transaction) => {
       // 1. READ PHASE
       const settingsRef = doc(db, 'settings', 'global');
@@ -683,27 +704,93 @@ export const productionRepository = {
         }
       }
 
+      // Collect all product IDs we need to read/write for stock updates
+      const productRefsToUpdate = new Map<string, { ref: any; currentStock: number; isMain: boolean }>();
+      productRefsToUpdate.set(data.productId, { ref: productRef, currentStock: productData.stockActual || 0, isMain: true });
+
       const ingredientDocs: Record<string, { ref: any, data: Product }> = {};
       for (const ing of recipeItems) {
         if (!ingredientDocs[ing.productId]) {
           const ingRef = doc(db, 'products', ing.productId);
           const ingDoc = await transaction.get(ingRef);
           if (ingDoc.exists()) {
-            ingredientDocs[ing.productId] = {
-              ref: ingRef,
-              data: { id: ingDoc.id, ...(ingDoc.data() || {}) } as any as Product
-            };
+            const ingData = { id: ingDoc.id, ...(ingDoc.data() || {}) } as any as Product;
+            ingredientDocs[ing.productId] = { ref: ingRef, data: ingData };
+            if (!productRefsToUpdate.has(ing.productId)) {
+              productRefsToUpdate.set(ing.productId, { ref: ingRef, currentStock: ingData.stockActual || 0, isMain: false });
+            }
           }
         }
+      }
+
+      // Ensure all products referenced by prevMovs are read
+      for (const mov of prevMovs) {
+        if (!productRefsToUpdate.has(mov.data.productId)) {
+          const mRef = doc(db, 'products', mov.data.productId);
+          const mDoc = await transaction.get(mRef);
+          if (mDoc.exists()) {
+            productRefsToUpdate.set(mov.data.productId, { ref: mRef, currentStock: mDoc.data().stockActual || 0, isMain: false });
+          }
+        }
+      }
+
+      // REVERT PREVIOUS MOVEMENTS
+      const stockDeltas = new Map<string, number>();
+
+      for (const mov of prevMovs) {
+        const pId = mov.data.productId;
+        const qty = mov.data.qty || 0;
+        const currentDelta = stockDeltas.get(pId) || 0;
+        // Compensating movement logic: subtract the original qty
+        stockDeltas.set(pId, currentDelta - qty);
+
+        // Mark old movement as reverted
+        transaction.update(mov.ref, {
+          isReverted: true,
+          revertedAt: new Date().toISOString(),
+          revertedBy: 'system',
+          revertedReason: 'production_edit'
+        });
+
+        // Create compensatory movement
+        const compRef = doc(collection(db, 'stock_movements'));
+        transaction.set(compRef, {
+          productId: pId,
+          qty: -qty,
+          type: mov.data.type, // Same type to cancel out correctly in analytics
+          date: new Date().toISOString(),
+          referenceId: mov.data.referenceId,
+          productionStepId: mov.data.productionStepId,
+          observaciones: `Reversión compensatoria por edición de producción`,
+          isDeleted: false,
+          isReverted: false
+        });
+      }
+
+      for (const pkg of prevPkgs) {
+        transaction.update(pkg.ref, {
+          isReverted: true,
+          revertedAt: new Date().toISOString(),
+          revertedBy: 'system',
+          revertedReason: 'production_edit'
+        });
+      }
+
+      for (const pItem of prevProdItems) {
+        transaction.update(pItem.ref, {
+          isReverted: true,
+          revertedAt: new Date().toISOString(),
+          revertedBy: 'system',
+          revertedReason: 'production_edit'
+        });
       }
 
       // 2. CALCULATIONS & WRITE PHASE
       let baseQty = convertQuantityToBaseUnit(data.cantidad, data.unidad, productData);
       baseQty = truncateDecimals(baseQty, 3);
 
-      const currentStock = productData.stockActual || 0;
-      // Increase finished stock (behavior for sales orders)
-      transaction.update(productRef, { stockActual: truncateDecimals(currentStock + baseQty, 3) });
+      const currentMainDelta = stockDeltas.get(data.productId) || 0;
+      stockDeltas.set(data.productId, currentMainDelta + baseQty);
 
       const movRef = doc(collection(db, 'stock_movements'));
       transaction.set(movRef, {
@@ -712,8 +799,10 @@ export const productionRepository = {
         type: 'PRODUCCION_PEDIDO',
         date: new Date().toISOString(),
         referenceId: data.orderId,
+        productionStepId: data.productionStepId || null,
         observaciones: `Preparación de Pedido: ${data.observaciones}` + (data.merma ? ` | Merma: ${data.merma}` : '') + (data.pesoReal ? ` | Peso Real: ${data.pesoReal}` : ''),
-        isDeleted: false
+        isDeleted: false,
+        isReverted: false
       });
 
       let stepCost = 0;
@@ -722,8 +811,6 @@ export const productionRepository = {
         const ingEntry = ingredientDocs[ing.productId];
         if (ingEntry) {
           const ingData = ingEntry.data;
-          const currentIngStock = ingData.stockActual || 0;
-
           let stockToDeduct = 0;
           if (ing.pesoNeto !== undefined && ing.pesoNeto > 0) {
             stockToDeduct = convertQuantityToBaseUnit(ing.pesoNeto, 'KG', ingData);
@@ -761,10 +848,10 @@ export const productionRepository = {
           }
 
           const totalDeduct = truncateDecimals(stockToDeduct + mermaQty, 3);
-          const newIngStock = truncateDecimals(currentIngStock - totalDeduct, 3);
-          transaction.update(ingEntry.ref, { stockActual: newIngStock });
+          
+          const currentIngDelta = stockDeltas.get(ing.productId) || 0;
+          stockDeltas.set(ing.productId, currentIngDelta - totalDeduct);
 
-          // Accumulate ingredient cost
           const ingCost = truncateDecimals(totalDeduct * (ingData.costoActual || 0), 2);
           stepCost += ingCost;
 
@@ -784,11 +871,12 @@ export const productionRepository = {
             type: 'PRODUCCION',
             date: new Date().toISOString(),
             referenceId: data.orderId,
+            productionStepId: data.productionStepId || null,
             observaciones: `Consumo para producción de ${productData.nombre} (Pedido)` + (ing.pesoNeto ? ` | Peso Neto: ${ing.pesoNeto} KG` : ''),
-            isDeleted: false
+            isDeleted: false,
+            isReverted: false
           });
 
-          // Movement for merma if mermaQty > 0
           if (mermaQty > 0) {
             const mermaMovRef = doc(collection(db, 'stock_movements'));
             transaction.set(mermaMovRef, {
@@ -797,16 +885,26 @@ export const productionRepository = {
               type: 'MERMA_PRODUCCION',
               date: new Date().toISOString(),
               referenceId: data.orderId,
+              productionStepId: data.productionStepId || null,
               observaciones: `Merma estándar en producción de ${productData.nombre} (Pedido)`,
-              isDeleted: false
+              isDeleted: false,
+              isReverted: false
             });
           }
         }
       }
 
+      // Apply net stock updates
+      for (const [pId, delta] of stockDeltas.entries()) {
+        const pInfo = productRefsToUpdate.get(pId);
+        if (pInfo && delta !== 0) {
+          const newStock = truncateDecimals(pInfo.currentStock + delta, 3);
+          transaction.update(pInfo.ref, { stockActual: newStock });
+        }
+      }
+
       const addedPesosReales = data.pesosReales || (data.pesoReal ? [data.pesoReal] : []);
 
-      // Create Package document if usePackages = true
       if (usePackages) {
         if (addedPesosReales.length > 0) {
           const totalWeight = addedPesosReales.reduce((a, b) => a + b, 0);
@@ -823,7 +921,10 @@ export const productionRepository = {
               status: 'STOCK',
               orderId: data.orderId || '',
               producedAt: new Date().toISOString(),
-              recipeSnapshot
+              productionStepId: data.productionStepId || null,
+              recipeSnapshot,
+              isDeleted: false,
+              isReverted: false
             });
           });
         } else {
@@ -839,12 +940,14 @@ export const productionRepository = {
             status: 'STOCK',
             orderId: data.orderId || '',
             producedAt: new Date().toISOString(),
-            recipeSnapshot
+            productionStepId: data.productionStepId || null,
+            recipeSnapshot,
+            isDeleted: false,
+            isReverted: false
           });
         }
       }
 
-      // Register individual ProductionItem records for each package produced
       if (addedPesosReales.length > 0) {
         addedPesosReales.forEach(w => {
           const prodItemRef = doc(collection(db, 'production_items'));
@@ -854,7 +957,9 @@ export const productionRepository = {
             productId: data.productId,
             pesoReal: w,
             fecha: new Date().toISOString(),
-            operario: 'Sistema'
+            operario: 'Sistema',
+            productionStepId: data.productionStepId || null,
+            isReverted: false
           });
         });
       } else {
@@ -865,18 +970,17 @@ export const productionRepository = {
           productId: data.productId,
           pesoReal: data.pesoReal || 0,
           fecha: new Date().toISOString(),
-          operario: 'Sistema'
+          operario: 'Sistema',
+          productionStepId: data.productionStepId || null,
+          isReverted: false
         });
       }
 
       const updatedItems = [];
       for (const item of orderData.items || []) {
-        if (item.productId === data.productId) {
-          let currentPesosReales = item.pesosReales || [];
-          if (currentPesosReales.length === 0 && item.pesoReal !== undefined && item.pesoReal > 0) {
-            currentPesosReales = [item.pesoReal];
-          }
-          const newPesosReales = [...currentPesosReales, ...addedPesosReales];
+        if (item.productId === data.productId && item.productionStepId === data.productionStepId) {
+          // Replace weights fully because we reverted previous state completely
+          const newPesosReales = [...addedPesosReales];
           const newPesoReal = truncateDecimals(newPesosReales.reduce((acc, w) => acc + w, 0), 3);
 
           let newObs = item.observaciones || '';
@@ -898,6 +1002,13 @@ export const productionRepository = {
           const pesoTotal = Number(newPesoReal || 0);
           const pesoPromedio = cantidadPaquetes > 0 ? Number(truncateDecimals(pesoTotal / cantidadPaquetes, 3) || 0) : 0;
 
+          const mappedRecipeItems = recipeSnapshot.map(r => ({
+            ingredientProductId: r.ingredientId,
+            ingredientName: r.ingredientName,
+            quantity: r.quantity,
+            unit: mapUnitTypeToRecipeUnit(r.unit)
+          }));
+
           updatedItems.push({
             ...item,
             pesoReal: Number(newPesoReal || 0),
@@ -906,7 +1017,8 @@ export const productionRepository = {
             pesoTotal,
             pesoPromedio,
             subtotal: Number(newSubtotal.toFixed(2)),
-            observaciones: newObs
+            observaciones: newObs,
+            recipeItems: mappedRecipeItems
           });
         } else {
           updatedItems.push(item);

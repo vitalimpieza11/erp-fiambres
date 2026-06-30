@@ -159,9 +159,13 @@ export default function Facturacion() {
           costPerKg = pkgWeightSum > 0 ? pkgCostSum / pkgWeightSum : 0;
         } else {
           const recipe = recipes.find(r => r.productId === it.productId);
-          if (recipe && prod) {
+          const recipeItemsToUse = it.recipeItems && it.recipeItems.length > 0 
+            ? it.recipeItems 
+            : (recipe ? recipe.items : []);
+
+          if (recipeItemsToUse.length > 0 && prod) {
             const details = calculateProductionCostDetails(
-              recipe.items || [],
+              recipeItemsToUse,
               it.cantidad,
               finalPesoReal,
               prod,

@@ -134,6 +134,11 @@ export type StockMovement = {
   observaciones?: string;
   isDeleted: boolean;
   deletedAt?: number;
+  productionStepId?: string;
+  isReverted?: boolean;
+  revertedAt?: string;
+  revertedBy?: string;
+  revertedReason?: string;
 }
 
 // Flujo Operativo
@@ -158,6 +163,7 @@ export type OrderItem = {
   pesoTotal?: number;
   pesoPromedio?: number;
   recipeItems?: any[];
+  productionStepId?: string;
 };
 
 
@@ -220,6 +226,11 @@ export type Package = {
   saleId?: string;         // venta asociada si aplica
   producedAt: string;      // fecha de producción (ISO String)
   recipeSnapshot?: RecipeSnapshotItem[];
+  productionStepId?: string;
+  isReverted?: boolean;
+  revertedAt?: string;
+  revertedBy?: string;
+  revertedReason?: string;
 };
 
 export type SystemSettings = {

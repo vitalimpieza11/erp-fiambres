@@ -13,17 +13,6 @@ interface ModalProps {
 export default function Modal({ isOpen, onClose, title, children }: ModalProps) {
   const [shouldRender, setShouldRender] = useState(isOpen);
 
-  useEffect(() => {
-    // Instrumentación de document.addEventListener
-    const originalAddEventListener = document.addEventListener;
-    document.addEventListener = function(type, listener, options) {
-      console.log(`[GLOBAL LISTENER ADDED] type: ${type}`);
-      return originalAddEventListener.call(this, type, listener, options);
-    };
-    return () => {
-      document.addEventListener = originalAddEventListener;
-    };
-  }, []);
 
   useEffect(() => {
     if (isOpen) {

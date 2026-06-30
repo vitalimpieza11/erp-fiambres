@@ -147,57 +147,54 @@ export default function OrderProductionModal({
 
         if (isUnitBased) {
           const qtyTotal = Math.max(1, Math.round(Number(item.cantidad || 0)));
+          const defaultWeight = p?.pesoObjetivoGramos ? Number((p.pesoObjetivoGramos / 1000).toFixed(3)) : 0.150;
           
-          let unitsElaboradas = item.pesosReales ? item.pesosReales.length : 0;
-          if (unitsElaboradas === 0 && item.pesoReal && p?.pesoObjetivoGramos) {
-            const targetWeightKg = p.pesoObjetivoGramos / 1000;
-            unitsElaboradas = Math.min(qtyTotal - 1, Math.round(item.pesoReal / targetWeightKg));
+          let initialPesos = item.pesosReales && item.pesosReales.length > 0 
+            ? [...item.pesosReales] 
+            : Array(qtyTotal).fill(defaultWeight);
+
+          // Pad array if it has less than qtyTotal
+          if (initialPesos.length < qtyTotal) {
+            initialPesos = [...initialPesos, ...Array(qtyTotal - initialPesos.length).fill(defaultWeight)];
           }
 
-          const qtyRemaining = qtyTotal - unitsElaboradas;
-
-          if (qtyRemaining > 0) {
-            const defaultWeight = p?.pesoObjetivoGramos ? Number((p.pesoObjetivoGramos / 1000).toFixed(3)) : 0.150;
-            const initialPesos = Array(qtyRemaining).fill(defaultWeight);
-              
-            steps.push({
-              productId: item.productId,
-              productName: p?.nombre || 'Producto Desconocido',
-              unitIndex: 0,
-              totalUnits: qtyTotal,
-              cantidad: qtyRemaining,
-              unidad: 'UNIDADES',
-              pesoReal: undefined,
-              pesosReales: initialPesos,
-              merma: undefined,
-              observaciones: item.observaciones || `Preparación de Pedido ${(orderId || '').slice(0, 6)}${clientSuffix} - ${p?.nombre || ''}`,
-              elaborado: false,
-              recipeItems: item.recipeItems && item.recipeItems.length > 0 ? item.recipeItems : JSON.parse(JSON.stringify(defaultRecipeItems))
-            });
-          }
+          steps.push({
+            productId: item.productId,
+            productName: p?.nombre || 'Producto Desconocido',
+            unitIndex: 0,
+            totalUnits: qtyTotal,
+            cantidad: qtyTotal,
+            unidad: 'UNIDADES',
+            pesoReal: undefined,
+            pesosReales: initialPesos,
+            merma: undefined,
+            observaciones: item.observaciones || `Preparación de Pedido ${(orderId || '').slice(0, 6)}${clientSuffix} - ${p?.nombre || ''}`,
+            elaborado: item.pesosReales ? item.pesosReales.length >= qtyTotal : false,
+            recipeItems: item.recipeItems && item.recipeItems.length > 0 ? item.recipeItems : JSON.parse(JSON.stringify(defaultRecipeItems)),
+            productionStepId: item.productionStepId
+          });
         } else {
-          if (!item.pesoReal) {
-            let initialPesoReal = undefined;
-            if (p) {
-              const baseQtyInKg = convertQuantityToBaseUnit(Number(item.cantidad || 0), item.unidad || p?.unitType || 'KG', { ...p, unitType: 'KG' });
-              initialPesoReal = Number(baseQtyInKg.toFixed(3));
-            }
-            
-            steps.push({
-              productId: item.productId,
-              productName: p?.nombre || 'Producto Desconocido',
-              unitIndex: 0,
-              totalUnits: 1,
-              cantidad: Number(item.cantidad || 0),
-              unidad: item.unidad || p?.unitType || 'KG',
-              pesoReal: initialPesoReal,
-              pesosReales: initialPesoReal ? [initialPesoReal] : [],
-              merma: undefined,
-              observaciones: item.observaciones || `Preparación de Pedido ${(orderId || '').slice(0, 6)}${clientSuffix} - ${p?.nombre || ''}`,
-              elaborado: false,
-              recipeItems: item.recipeItems && item.recipeItems.length > 0 ? item.recipeItems : JSON.parse(JSON.stringify(defaultRecipeItems))
-            });
+          let initialPesoReal = item.pesoReal;
+          if (!initialPesoReal && p) {
+            const baseQtyInKg = convertQuantityToBaseUnit(Number(item.cantidad || 0), item.unidad || p?.unitType || 'KG', { ...p, unitType: 'KG' });
+            initialPesoReal = Number(baseQtyInKg.toFixed(3));
           }
+          
+          steps.push({
+            productId: item.productId,
+            productName: p?.nombre || 'Producto Desconocido',
+            unitIndex: 0,
+            totalUnits: 1,
+            cantidad: Number(item.cantidad || 0),
+            unidad: item.unidad || p?.unitType || 'KG',
+            pesoReal: initialPesoReal,
+            pesosReales: initialPesoReal ? [initialPesoReal] : [],
+            merma: undefined,
+            observaciones: item.observaciones || `Preparación de Pedido ${(orderId || '').slice(0, 6)}${clientSuffix} - ${p?.nombre || ''}`,
+            elaborado: !!item.pesoReal && item.pesoReal > 0,
+            recipeItems: item.recipeItems && item.recipeItems.length > 0 ? item.recipeItems : JSON.parse(JSON.stringify(defaultRecipeItems)),
+            productionStepId: item.productionStepId
+          });
         }
       });
 
@@ -264,6 +261,7 @@ export default function OrderProductionModal({
         merma: currentItem.merma,
         observaciones: currentItem.observaciones,
         recipeItemsOverride: currentItem.recipeItems,
+        productionStepId: currentItem.productionStepId,
         isLastStep: isLast,
         newOrderStatus: isLast ? newStatus : 'EN_PRODUCCION'
       });

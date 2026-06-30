@@ -16,7 +16,8 @@ export function normalizeOrder(order: any): Order {
       pesosReales: item.pesosReales ? item.pesosReales.map((w: any) => Number(w) || 0) : undefined,
       cantidadPaquetes: item.cantidadPaquetes !== undefined ? (Number(item.cantidadPaquetes) || 0) : undefined,
       pesoTotal: item.pesoTotal !== undefined ? (Number(item.pesoTotal) || 0) : undefined,
-      pesoPromedio: item.pesoPromedio !== undefined ? (Number(item.pesoPromedio) || 0) : undefined
+      pesoPromedio: item.pesoPromedio !== undefined ? (Number(item.pesoPromedio) || 0) : undefined,
+      productionStepId: item.productionStepId || undefined
     }))
   };
   
@@ -72,6 +73,10 @@ export const ordersRepository = {
         itemFirestore.cantidad = Number(item.cantidad) || 0;
         itemFirestore.precioEstimado = Number(item.precioEstimado) || 0;
         itemFirestore.subtotal = Number(item.subtotal) || 0;
+        
+        if (!itemFirestore.productionStepId) {
+          itemFirestore.productionStepId = Date.now().toString(36) + Math.random().toString(36).substring(2, 9);
+        }
 
         if (item.pesoReal !== undefined) {
           itemFirestore.pesoReal = Number(item.pesoReal) || 0;
