@@ -65,7 +65,7 @@ export const productionRepository = {
 
       if (data.recipeItemsOverride !== undefined) {
         recipeItems = data.recipeItemsOverride.map((ing: any) => ({
-          productId: ing.productId || ing.productId,
+          productId: ing.ingredientProductId || ing.productId,
           quantity: ing.quantity,
           unit: ing.unit
         }));
@@ -312,7 +312,7 @@ export const productionRepository = {
         let recipeItems: any[] = [];
         if (item.recipeItemsOverride !== undefined) {
           recipeItems = item.recipeItemsOverride.map((ing: any) => ({
-            productId: ing.productId || ing.productId,
+            productId: ing.ingredientProductId || ing.productId,
             quantity: ing.quantity,
             unit: ing.unit
           }));
@@ -648,6 +648,13 @@ export const productionRepository = {
   ): Promise<void> {
     console.log('PRODUCCION_GUARDAR', { productId: data.productId, pesoReal: data.pesoReal, pesosReales: data.pesosReales, productionStepId: data.productionStepId });
     
+    if (!data.orderId) {
+      throw new Error("No se pudo completar la unidad porque falta el ID del pedido asociado.");
+    }
+    if (!data.productId) {
+      throw new Error("No se pudo completar la unidad porque falta el ID del producto/presentación.");
+    }
+
     // 0. PRE-TRANSACTION READS for Reversion
     let prevMovs: any[] = [];
     let prevPkgs: any[] = [];
@@ -686,7 +693,7 @@ export const productionRepository = {
       let recipeItems: any[] = [];
       if (data.recipeItemsOverride !== undefined) {
         recipeItems = data.recipeItemsOverride.map((ing: any) => ({
-          productId: ing.productId || ing.productId,
+          productId: ing.ingredientProductId || ing.productId,
           quantity: ing.quantity,
           unit: ing.unit
         }));
