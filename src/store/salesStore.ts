@@ -20,7 +20,7 @@ interface SalesState {
     finalTotal: number, 
     tipoComprobante?: 'FACTURA_A' | 'FACTURA_B' | 'FACTURA_C' | 'PRESUPUESTO' | 'REMITO'
   ) => Promise<void>;
-  createQuickSale: (data: { customerId: string; date: string; items: SaleItem[]; totalAmount: number; observaciones?: string }) => Promise<void>;
+  createQuickSale: (data: { customerId: string; date: string; items: SaleItem[]; totalAmount: number; observaciones?: string; paymentMethod: 'EFECTIVO_TRANSFERENCIA' | 'CUENTA_CORRIENTE' | 'PENDIENTE'; accountId?: string }) => Promise<void>;
   createHistoricalSale: (data: {
     customerId: string;
     date: string;

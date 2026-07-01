@@ -23,12 +23,46 @@ export const purchasesRepository = {
 
   async addPurchase(purchaseData: Omit<Purchase, 'id' | 'isDeleted'> & { accountId?: string }): Promise<void> {
     const purchaseRef = doc(COLLECTIONS.PURCHASES);
-    const sanitizedItems = purchaseData.items.map(item => ({
-      ...item,
-      quantity: Number(item.quantity) || 0,
-      unitCost: Number(item.unitCost) || 0,
-      totalCost: Number(item.totalCost) || 0,
-    }));
+
+    const subtotal = Number(purchaseData.subtotal);
+    const total = Number(purchaseData.total);
+    const montoPagado = Number(purchaseData.montoPagado);
+    const montoCuentaCorriente = Number(purchaseData.montoCuentaCorriente);
+
+    if (isNaN(subtotal) || subtotal <= 0) throw new Error("Subtotal de compra inválido.");
+    if (isNaN(total) || total <= 0) throw new Error("Total de compra inválido.");
+    
+    if (montoPagado > 0 && !purchaseData.accountId && purchaseData.paymentMethod !== 'MULTIPLES') {
+      throw new Error("Debe seleccionar una cuenta para registrar el pago.");
+    }
+
+    if (purchaseData.paymentMethod === 'MULTIPLES' && purchaseData.payments) {
+      const sum = purchaseData.payments.reduce((acc, p) => acc + Number(p.amount), 0);
+      if (Math.abs(sum - montoPagado) > 0.01) {
+        throw new Error("La suma de los pagos múltiples no coincide con el monto pagado.");
+      }
+      for (const p of purchaseData.payments) {
+        if (!p.accountId) throw new Error("Todos los pagos múltiples deben tener una cuenta seleccionada.");
+        if (Number(p.amount) <= 0) throw new Error("Los montos de los pagos deben ser mayores a cero.");
+      }
+    }
+
+    const sanitizedItems = purchaseData.items.map(item => {
+      const quantity = Number(item.quantity);
+      const unitCost = Number(item.unitCost);
+      const totalCost = Number(item.totalCost);
+
+      if (isNaN(quantity) || quantity <= 0) throw new Error(`Cantidad inválida para el producto ${item.productId}`);
+      if (isNaN(unitCost) || unitCost <= 0) throw new Error(`Costo unitario inválido para el producto ${item.productId}`);
+      if (isNaN(totalCost) || totalCost <= 0) throw new Error(`Costo total inválido para el producto ${item.productId}`);
+
+      return {
+        ...item,
+        quantity,
+        unitCost,
+        totalCost,
+      };
+    });
 
     const newPurchase: Purchase & { accountId?: string } = {
       ...purchaseData,
@@ -37,11 +71,11 @@ export const purchasesRepository = {
       status: 'ACTIVE',
       isDeleted: false,
       items: sanitizedItems,
-      subtotal: Number(purchaseData.subtotal) || 0,
-      impuestos: purchaseData.impuestos !== null && purchaseData.impuestos !== undefined ? Number(purchaseData.impuestos) || 0 : null,
-      total: Number(purchaseData.total) || 0,
-      montoPagado: Number(purchaseData.montoPagado) || 0,
-      montoCuentaCorriente: Number(purchaseData.montoCuentaCorriente) || 0,
+      subtotal,
+      impuestos: purchaseData.impuestos !== null && purchaseData.impuestos !== undefined && !isNaN(Number(purchaseData.impuestos)) ? Number(purchaseData.impuestos) : null,
+      total,
+      montoPagado,
+      montoCuentaCorriente,
     };
 
     await runTransaction(db, async (transaction) => {

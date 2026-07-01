@@ -56,8 +56,7 @@ export const cajaRepository = {
   },
 
   async deleteMovementFisico(id: string): Promise<void> {
-    const docRef = doc(db, 'caja_movements', id);
-    await deleteDoc(docRef);
+    throw new Error("El borrado físico de movimientos de caja está deshabilitado por razones de auditoría. Utilice la anulación compensatoria (annulMovement).");
   },
 
   subscribeArqueos(onData: (arqueos: Arqueo[]) => void): () => void {

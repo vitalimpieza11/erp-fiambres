@@ -153,8 +153,8 @@ export default function Ventas() {
   }, [accounts, saleToCobrar]);
   
   // Quick Sale State
-  const [quickSale, setQuickSale] = useState<{ customerId: string; items: SaleItem[]; totalAmount: number; observaciones: string }>({
-    customerId: '', items: [], totalAmount: 0, observaciones: ''
+  const [quickSale, setQuickSale] = useState<{ customerId: string; items: SaleItem[]; totalAmount: number; observaciones: string; paymentMethod: 'EFECTIVO_TRANSFERENCIA' | 'CUENTA_CORRIENTE' | 'PENDIENTE'; accountId: string }>({
+    customerId: '', items: [], totalAmount: 0, observaciones: '', paymentMethod: 'PENDIENTE', accountId: ''
   });
 
   // Historical Sale State
@@ -187,6 +187,7 @@ export default function Ventas() {
     e.preventDefault();
     if (!quickSale.customerId) return alert("Seleccione cliente");
     if (quickSale.items.length === 0) return alert("Agregue al menos un ítem");
+    if (quickSale.paymentMethod === 'EFECTIVO_TRANSFERENCIA' && !quickSale.accountId) return alert("Seleccione una cuenta para el cobro");
     
     await createQuickSale({
       customerId: quickSale.customerId,
@@ -194,10 +195,12 @@ export default function Ventas() {
       items: quickSale.items,
       totalAmount: quickSale.totalAmount,
       observaciones: quickSale.observaciones,
+      paymentMethod: quickSale.paymentMethod,
+      accountId: quickSale.paymentMethod === 'EFECTIVO_TRANSFERENCIA' ? quickSale.accountId : undefined
     });
     
     setShowQuickSale(false);
-    setQuickSale({ customerId: '', items: [], totalAmount: 0, observaciones: '' });
+    setQuickSale({ customerId: '', items: [], totalAmount: 0, observaciones: '', paymentMethod: 'PENDIENTE', accountId: '' });
   };
 
   const addQuickSaleItem = () => {
@@ -640,7 +643,7 @@ export default function Ventas() {
       </div>
 
       {/* Right Panels */}
-      <RightPanel isOpen={showQuickSale} onClose={() => setShowQuickSale(false)} title="Nueva Venta Rápida (Pedido)">
+      <RightPanel isOpen={showQuickSale} onClose={() => setShowQuickSale(false)} title="Nueva Venta Rápida">
         <form onSubmit={handleCreateQuickSale} style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
           <div className="form-group">
             <label>Cliente</label>
@@ -742,11 +745,43 @@ export default function Ventas() {
             <div style={{ textAlign: 'right', marginTop: '24px', fontSize: '18px', borderTop: '1px solid var(--border-color)', paddingTop: '16px' }}>
               <strong>Total Venta: <span style={{ color: 'var(--alvacio-red)' }}>${quickSale.totalAmount.toFixed(2)}</span></strong>
             </div>
+
+            <div style={{ marginTop: '24px', padding: '16px', background: '#f8fafc', borderRadius: '12px', border: '1px solid var(--border-color)' }}>
+              <h3 style={{ fontSize: '15px', marginBottom: '12px', color: 'var(--text-primary)' }}>Cobro</h3>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <label>Método de Pago</label>
+                  <select 
+                    value={quickSale.paymentMethod} 
+                    onChange={e => setQuickSale({...quickSale, paymentMethod: e.target.value as any})}
+                  >
+                    <option value="PENDIENTE">PENDIENTE (A cuenta)</option>
+                    <option value="CUENTA_CORRIENTE">CUENTA CORRIENTE (Genera Deuda)</option>
+                    <option value="EFECTIVO_TRANSFERENCIA">CONTADO (Efectivo / Transferencia)</option>
+                  </select>
+                </div>
+                {quickSale.paymentMethod === 'EFECTIVO_TRANSFERENCIA' && (
+                  <div className="form-group" style={{ marginBottom: 0 }}>
+                    <label>Cuenta de Destino</label>
+                    <select 
+                      required
+                      value={quickSale.accountId} 
+                      onChange={e => setQuickSale({...quickSale, accountId: e.target.value})}
+                    >
+                      <option value="">Seleccione cuenta...</option>
+                      {accounts.filter(a => a.activa).map(a => (
+                        <option key={a.id} value={a.id}>{a.nombre}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
 
           <div style={{ display: 'flex', gap: '12px', marginTop: '32px' }}>
             <button type="button" className="btn-secondary" style={{ flex: 1 }} onClick={() => setShowQuickSale(false)}>Cancelar</button>
-            <button type="submit" className="btn-primary" style={{ flex: 1 }}>Generar Pedido</button>
+            <button type="submit" className="btn-primary" style={{ flex: 1 }}>Generar Venta</button>
           </div>
         </form>
       </RightPanel>

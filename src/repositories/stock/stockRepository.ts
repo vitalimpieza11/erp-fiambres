@@ -12,7 +12,7 @@ export const stockRepository = {
   }> {
     const [productsSnap, movesSnap, equivSnap] = await Promise.all([
       getDocs(query(COLLECTIONS.PRODUCTS, where('activo', '==', true))),
-      getDocs(query(COLLECTIONS.STOCK_MOVEMENTS, where('isDeleted', '==', false), orderBy('date', 'desc'), limit(50))),
+      getDocs(query(COLLECTIONS.STOCK_MOVEMENTS, where('isDeleted', '==', false), orderBy('date', 'desc'), limit(200))),
       getDocs(COLLECTIONS.EQUIVALENCES)
     ]);
 
@@ -44,6 +44,43 @@ export const stockRepository = {
       movements: movesSnap.docs.map(d => ({ id: d.id, ...d.data() } as StockMovement)),
       equivalences: equivSnap.docs.map(d => ({ id: d.id, ...d.data() } as Equivalencia))
     };
+  },
+
+  async fetchStockMovements(filters?: {
+    productId?: string;
+    dateFrom?: string;
+    dateTo?: string;
+    type?: string;
+  }): Promise<StockMovement[]> {
+    let q = query(COLLECTIONS.STOCK_MOVEMENTS, where('isDeleted', '==', false));
+
+    if (filters?.productId) {
+      q = query(q, where('productId', '==', filters.productId));
+    }
+    if (filters?.type) {
+      q = query(q, where('type', '==', filters.type));
+    }
+
+    // Firestore requires inequality filters (>=, <=) to be on the same field as the first orderBy
+    // Since we order by date, we can safely filter by date.
+    if (filters?.dateFrom) {
+      q = query(q, where('date', '>=', filters.dateFrom));
+    }
+    if (filters?.dateTo) {
+      q = query(q, where('date', '<=', filters.dateTo + 'T23:59:59.999Z'));
+    }
+
+    q = query(q, orderBy('date', 'desc'));
+
+    // If no filters are provided, apply a limit to avoid massive reads, otherwise return filtered set.
+    if (!filters?.productId && !filters?.dateFrom && !filters?.dateTo && !filters?.type) {
+      q = query(q, limit(200));
+    } else {
+      q = query(q, limit(1000));
+    }
+
+    const snap = await getDocs(q);
+    return snap.docs.map(d => ({ id: d.id, ...d.data() } as StockMovement));
   },
 
   async registerAdjustment(data: {

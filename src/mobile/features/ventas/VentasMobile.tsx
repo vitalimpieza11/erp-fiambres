@@ -9,6 +9,7 @@ import MobileSearchBar from '../../components/MobileSearchBar';
 import { useSalesStore } from '../../../store/salesStore';
 import { useClientesStore } from '../../../store/clientesStore';
 import { useProductsStore } from '../../../store/productsStore';
+import { useFinancialAccountsStore } from '../../../store/financialAccountsStore';
 import { User, Package, Trash2, Plus, CreditCard, Banknote } from 'lucide-react';
 
 export default function VentasMobile() {
@@ -18,10 +19,12 @@ export default function VentasMobile() {
   const { createQuickSale } = useSalesStore();
   const { customers: clientes, fetchClientesData } = useClientesStore();
   const { productos, fetchProductos } = useProductsStore();
+  const { accounts, fetchAccounts } = useFinancialAccountsStore();
 
   // State
   const [selectedClient, setSelectedClient] = useState<any>(null);
   const [cart, setCart] = useState<any[]>([]);
+  const [selectedAccountId, setSelectedAccountId] = useState('');
   
   // UI State
   const [isClientSheetOpen, setIsClientSheetOpen] = useState(false);
@@ -32,7 +35,16 @@ export default function VentasMobile() {
   useEffect(() => {
     fetchClientesData();
     fetchProductos();
-  }, [fetchClientesData, fetchProductos]);
+    fetchAccounts();
+  }, [fetchClientesData, fetchProductos, fetchAccounts]);
+
+  useEffect(() => {
+    if (accounts.length > 0) {
+      const activeCash = accounts.find(a => a.activa && a.tipo === 'EFECTIVO');
+      const activeAny = accounts.find(a => a.activa);
+      setSelectedAccountId(activeCash?.id || activeAny?.id || '');
+    }
+  }, [accounts, isPaymentSheetOpen]);
 
   const total = cart.reduce((acc, item) => acc + (item.subtotal), 0);
 
@@ -57,6 +69,7 @@ export default function VentasMobile() {
   const handleCharge = async (method: 'CONTADO' | 'CUENTA_CORRIENTE') => {
     if (!selectedClient) return alert("Seleccione un cliente");
     if (cart.length === 0) return alert("Agregue productos");
+    if (method === 'CONTADO' && !selectedAccountId) return alert("Seleccione una cuenta para el cobro");
 
     try {
       await createQuickSale({
@@ -64,6 +77,8 @@ export default function VentasMobile() {
         date: new Date().toISOString().split('T')[0],
         items: cart,
         totalAmount: total,
+        paymentMethod: method === 'CONTADO' ? 'EFECTIVO_TRANSFERENCIA' : 'CUENTA_CORRIENTE',
+        accountId: method === 'CONTADO' ? selectedAccountId : undefined
       });
       // Venta exitosa -> Compartir -> Limpiar
       setIsPaymentSheetOpen(false);
@@ -192,13 +207,30 @@ export default function VentasMobile() {
       <MobileBottomSheet isOpen={isPaymentSheetOpen} onClose={() => setIsPaymentSheetOpen(false)} title="Método de Pago" height="50vh">
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
           <MobileCard 
-            onClick={() => handleCharge('CONTADO')}
-            style={{ display: 'flex', alignItems: 'center', gap: '16px', padding: '24px', backgroundColor: '#f0fdf4', borderColor: '#bbf7d0' }}
+            style={{ display: 'flex', flexDirection: 'column', gap: '12px', padding: '16px', backgroundColor: '#f0fdf4', borderColor: '#bbf7d0' }}
           >
-            <Banknote size={32} color="#16a34a" />
-            <div>
-              <strong style={{ fontSize: '20px', color: '#166534', display: 'block' }}>Efectivo / Transf.</strong>
-              <span style={{ color: '#15803d' }}>Ingresa a caja instantáneamente</span>
+            <div 
+              onClick={() => handleCharge('CONTADO')}
+              style={{ display: 'flex', alignItems: 'center', gap: '16px', cursor: 'pointer' }}
+            >
+              <Banknote size={32} color="#16a34a" />
+              <div>
+                <strong style={{ fontSize: '20px', color: '#166534', display: 'block' }}>Efectivo / Transf.</strong>
+                <span style={{ color: '#15803d', fontSize: '13px' }}>Ingresa a caja instantáneamente</span>
+              </div>
+            </div>
+            <div style={{ marginTop: '8px', borderTop: '1px solid #bbf7d0', paddingTop: '12px' }}>
+              <label style={{ fontSize: '12px', color: '#166534', fontWeight: 600 }}>Cuenta destino</label>
+              <select 
+                value={selectedAccountId} 
+                onChange={(e) => setSelectedAccountId(e.target.value)}
+                style={{ width: '100%', padding: '8px', borderRadius: '8px', border: '1px solid #bbf7d0', marginTop: '4px', backgroundColor: '#fff' }}
+              >
+                <option value="">Seleccione cuenta...</option>
+                {accounts.filter(a => a.activa).map(a => (
+                  <option key={a.id} value={a.id}>{a.nombre}</option>
+                ))}
+              </select>
             </div>
           </MobileCard>
 

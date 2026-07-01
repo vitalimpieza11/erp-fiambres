@@ -216,25 +216,168 @@ export const salesRepository = {
     });
   },
 
-  async createQuickSale(data: { customerId: string; date: string; items: SaleItem[]; totalAmount: number; observaciones?: string }): Promise<void> {
-    const orderData = {
-      customerId: data.customerId,
-      fecha: data.date.split('T')[0], // YYYY-MM-DD
-      observaciones: data.observaciones || 'Venta rápida (Pedido)',
-      status: 'PENDIENTE' as const,
-      items: data.items.map(item => ({
-        productId: item.productId,
-        cantidad: truncateDecimals(item.cantidad, 3),
-        unidad: item.unidad,
-        precioEstimado: Number(item.precioUnitario.toFixed(2)),
-        subtotal: Number(item.subtotal.toFixed(2)),
-        pesosReales: []
-      })),
-      totalEstimado: Number(data.totalAmount.toFixed(2)),
-      isDeleted: false
-    };
+  async createQuickSale(data: { customerId: string; date: string; items: SaleItem[]; totalAmount: number; observaciones?: string; paymentMethod: 'EFECTIVO_TRANSFERENCIA' | 'CUENTA_CORRIENTE' | 'PENDIENTE'; accountId?: string }): Promise<void> {
+    if (data.paymentMethod === 'EFECTIVO_TRANSFERENCIA' && !data.accountId) {
+      throw new Error("Debe seleccionar una cuenta de caja/banco para registrar el cobro.");
+    }
 
-    await addDoc(COLLECTIONS.ORDERS, orderData);
+    // Query all packages in STOCK before transaction
+    const packagesSnap = await getDocs(query(COLLECTIONS.PACKAGES, where('status', '==', 'STOCK')));
+    const allStockPackages = packagesSnap.docs.map(d => ({ id: d.id, ...d.data() } as any));
+
+    await runTransaction(db, async (transaction) => {
+      // 1. READ product docs inside transaction
+      const productDocs: Record<string, { ref: any, data: Product }> = {};
+      for (const item of data.items) {
+        if (!productDocs[item.productId]) {
+          const prodRef = doc(db, 'products', item.productId);
+          const prodSnap = await transaction.get(prodRef);
+          if (!prodSnap.exists()) {
+            throw new Error(`Producto ${item.productId} no encontrado.`);
+          }
+          productDocs[item.productId] = {
+            ref: prodRef,
+            data: { id: prodSnap.id, ...prodSnap.data() } as Product
+          };
+        }
+      }
+
+      // 1b. READ settings inside transaction
+      const settingsRef = doc(db, 'settings', 'global');
+      const settingsSnap = await transaction.get(settingsRef);
+      const usePackages = settingsSnap.exists() ? (settingsSnap.data()?.usePackages ?? false) : false;
+      const allowNegativeStock = settingsSnap.exists() ? (settingsSnap.data()?.allowNegativeStock ?? true) : true;
+
+      const newSaleRef = doc(collection(db, 'sales'));
+      const saleId = newSaleRef.id;
+
+      // 2. STOCK DEDUCTION & VALIDATION
+      for (const item of data.items) {
+        const pData = productDocs[item.productId].data;
+        const pRef = productDocs[item.productId].ref;
+
+        if (pData.type !== 'PRESENTACION') {
+          throw new Error(`El producto ${pData.nombre} no es de tipo PRESENTACION.`);
+        }
+
+        const currentStock = pData.stockActual || 0;
+        const stockToDeduct = pData.unitType === 'KG' ? (item.pesoReal || item.cantidad) : item.cantidad;
+
+        if (!allowNegativeStock && stockToDeduct > currentStock) {
+          throw new Error(`Venta superior al stock disponible de ${pData.nombre}.`);
+        }
+
+        if (item.pesoReal !== undefined && item.pesoReal < 0) throw new Error("Los pesos no pueden ser negativos.");
+        if (item.subtotal < 0) throw new Error("Los importes no pueden ser negativos.");
+
+        // Deduct finished stock Actual
+        const newStock = truncateDecimals(currentStock - stockToDeduct, 3);
+        transaction.update(pRef, { stockActual: newStock });
+
+        // Generate VENTA stock movement
+        const movRef = doc(collection(db, 'stock_movements'));
+        transaction.set(movRef, {
+          productId: item.productId,
+          qty: -stockToDeduct,
+          type: 'VENTA',
+          date: data.date,
+          referenceId: saleId,
+          observaciones: `Venta Rápida: ${saleId.slice(-8).toUpperCase()}`,
+          isDeleted: false
+        });
+      }
+
+      // Update package status to SOLD if usePackages = true
+      if (usePackages) {
+        const packageDocsToUpdate: any[] = [];
+        for (const item of data.items) {
+          const prodPkgs = allStockPackages.filter(pkg => pkg.productId === item.productId);
+          prodPkgs.sort((a, b) => {
+            const aNoOrder = !a.orderId ? 1 : 0;
+            const bNoOrder = !b.orderId ? 1 : 0;
+            if (aNoOrder !== bNoOrder) return aNoOrder - bNoOrder;
+            return new Date(a.producedAt).getTime() - new Date(b.producedAt).getTime();
+          });
+          const selectedForThisItem = prodPkgs.slice(0, Math.ceil(item.cantidad));
+          packageDocsToUpdate.push(...selectedForThisItem);
+        }
+
+        packageDocsToUpdate.forEach(pkg => {
+          const pkgRef = doc(db, 'packages', pkg.id);
+          transaction.update(pkgRef, {
+            status: 'SOLD',
+            saleId: saleId
+          });
+        });
+      }
+
+      // Construct Sale items
+      const mappedItems = data.items.map(i => {
+        const pData = productDocs[i.productId].data;
+        const isPres = pData.type === 'PRESENTACION';
+        
+        return {
+          productId: i.productId,
+          cantidad: truncateDecimals(i.cantidad, 3),
+          unidad: i.unidad,
+          precioUnitario: Number(i.precioUnitario.toFixed(2)),
+          subtotal: Number(i.subtotal.toFixed(2)),
+          costoUnitario: i.costoUnitario !== undefined ? Number(i.costoUnitario.toFixed(2)) : undefined,
+          costoTotal: i.costoTotal !== undefined ? Number(i.costoTotal.toFixed(2)) : undefined,
+          rentabilidadBruta: isPres && i.rentabilidadBruta !== undefined ? Number(i.rentabilidadBruta.toFixed(2)) : undefined,
+          pesoReal: isPres && i.pesoReal !== undefined ? truncateDecimals(i.pesoReal, 3) : undefined,
+          precioRealKg: isPres && i.precioRealKg !== undefined ? Number(i.precioRealKg.toFixed(2)) : undefined,
+          importeReal: isPres && i.importeReal !== undefined ? Number(i.importeReal.toFixed(2)) : undefined,
+          costoUnitarioHistorico: isPres && i.costoUnitarioHistorico !== undefined ? Number(i.costoUnitarioHistorico.toFixed(2)) : undefined,
+          costoTotalHistorico: isPres && i.costoTotalHistorico !== undefined ? Number(i.costoTotalHistorico.toFixed(2)) : undefined,
+          pesosReales: i.pesosReales,
+          cantidadPaquetes: i.cantidadPaquetes,
+          pesoPromedio: i.pesoPromedio,
+          pesoTotal: i.pesoTotal
+        };
+      });
+
+      const isPaid = data.paymentMethod !== 'PENDIENTE';
+
+      const saleData: Omit<Sale, 'id'> = {
+        customerId: data.customerId,
+        date: data.date,
+        items: mappedItems,
+        totalAmount: Number(data.totalAmount.toFixed(2)),
+        status: isPaid ? 'COBRADO' : 'FACTURADO',
+        paymentMethod: data.paymentMethod,
+        isDeleted: false,
+        tipoComprobante: 'REMITO',
+        observaciones: data.observaciones
+      };
+
+      transaction.set(newSaleRef, removeUndefinedFields(saleData));
+
+      // 4. CAJA / CC movements if paid
+      if (data.paymentMethod === 'CUENTA_CORRIENTE') {
+        const movRef = doc(collection(db, 'customer_movements'));
+        transaction.set(movRef, {
+          customerId: data.customerId,
+          date: data.date,
+          type: 'DEUDA',
+          amount: data.totalAmount,
+          referenceId: saleId,
+          observaciones: 'Venta rápida a cuenta corriente',
+          isDeleted: false
+        });
+      } else if (data.paymentMethod === 'EFECTIVO_TRANSFERENCIA') {
+        const cajaMovRef = doc(collection(db, 'caja_movements'));
+        transaction.set(cajaMovRef, {
+          type: 'INCOME',
+          amount: data.totalAmount,
+          date: data.date,
+          category: 'VENTA',
+          referenceId: saleId,
+          accountId: data.accountId,
+          isDeleted: false
+        });
+      }
+    });
   },
 
   async cobrarSale(sale: Sale, method: 'EFECTIVO_TRANSFERENCIA' | 'CUENTA_CORRIENTE', accountId?: string): Promise<void> {
@@ -327,7 +470,7 @@ export const salesRepository = {
       // Update Order if applicable
       if (sale.orderId) {
         const orderRef = doc(db, 'orders', sale.orderId);
-        transaction.update(orderRef, { status: 'ENTREGADO' });
+        transaction.update(orderRef, { status: 'PRODUCIDO' });
       }
 
       // Revert finished product stock for ALL items in the sale

@@ -29,6 +29,7 @@ interface OrderProductionModalProps {
     recipeItemsOverride?: RecipeItem[];
     isLastStep: boolean;
     newOrderStatus?: 'EN_PRODUCCION' | 'PRODUCIDO';
+    productionStepId?: string;
   }) => Promise<void>;
   updateOrderStatus: (orderId: string, status: 'EN_PRODUCCION' | 'PRODUCIDO') => Promise<void>;
 }
@@ -71,6 +72,7 @@ export default function OrderProductionModal({
     observaciones: string;
     elaborado: boolean;
     recipeItems?: RecipeItem[];
+    productionStepId?: string;
   }[]>([]);
 
   const currentItem = orderProdItems[activeStep];

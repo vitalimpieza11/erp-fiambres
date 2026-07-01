@@ -274,6 +274,7 @@ export type Sale = {
   tipoComprobante?: 'FACTURA_A' | 'FACTURA_B' | 'FACTURA_C' | 'PRESUPUESTO' | 'REMITO';
   isHistorical?: boolean;
   deliveryStatus?: 'REGISTRADA' | 'PENDIENTE' | 'ENTREGADO';
+  observaciones?: string;
 }
 
 export type PurchaseItem = {

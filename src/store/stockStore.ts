@@ -10,6 +10,7 @@ interface StockState {
   recipes: Recipe[];
   loading: boolean;
   fetchData: () => Promise<void>;
+  fetchMovements: (filters?: { productId?: string; dateFrom?: string; dateTo?: string; type?: string; }) => Promise<void>;
   registerAdjustment: (data: {
     productId: string;
     qty: number;
@@ -54,6 +55,17 @@ export const useStockStore = create<StockState>((set, get) => ({
       });
     } catch (error) {
       console.error("Error fetching stock/recipes data in store:", error);
+    } finally {
+      set({ loading: false });
+    }
+  },
+  fetchMovements: async (filters) => {
+    set({ loading: true });
+    try {
+      const movements = await stockRepository.fetchStockMovements(filters);
+      set({ movements });
+    } catch (error) {
+      console.error("Error fetching filtered stock movements in store:", error);
     } finally {
       set({ loading: false });
     }
