@@ -6,112 +6,63 @@ service cloud.firestore {
       return request.auth != null && request.auth.token.email != null;
     }
 
-    function getUserRole() {
-      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
+    // Reglas específicas por colección para cerrar el acceso global del comodín
+    match /customers/{id} {
+      allow read, write: if signedIn();
     }
-
-    function isAdmin() {
-      return signedIn() && getUserRole() == 'admin';
+    match /suppliers/{id} {
+      allow read, write: if signedIn();
     }
-
-    function isProduccion() {
-      return signedIn() && (getUserRole() == 'admin' || getUserRole() == 'operario' || getUserRole() == 'produccion');
-    }
-
-    function isVentas() {
-      return signedIn() && (getUserRole() == 'admin' || getUserRole() == 'ventas');
-    }
-
-    function isReadOnly() {
-      return signedIn() && (getUserRole() == 'admin' || getUserRole() == 'operario' || getUserRole() == 'produccion' || getUserRole() == 'ventas' || getUserRole() == 'soloLectura');
-    }
-
-    // Reglas por colección
-    
-    // Configuración y Usuarios (Solo Admin)
-    match /users/{id} {
-      allow read: if signedIn();
-      allow write: if isAdmin();
-    }
-    match /settings/{id} {
-      allow read: if isReadOnly();
-      allow write: if isAdmin();
-    }
-    match /financial_accounts/{id} {
-      allow read: if isReadOnly();
-      allow write: if isAdmin();
-    }
-    match /equivalences/{id} {
-      allow read: if isReadOnly();
-      allow write: if isAdmin();
-    }
-
-    // Producción y Stock
     match /products/{id} {
-      allow read: if isReadOnly();
-      allow write: if isProduccion();
+      allow read, write: if signedIn();
     }
     match /recipes/{id} {
-      allow read: if isReadOnly();
-      allow write: if isProduccion();
+      allow read, write: if signedIn();
     }
-    match /packages/{id} {
-      allow read: if isReadOnly();
-      allow write: if isProduccion() || isVentas(); // Ventas modifica paquetes al vender
-    }
-    match /stock_movements/{id} {
-      allow read: if isReadOnly();
-      allow write: if isProduccion() || isVentas(); // Ventas deduce stock
-    }
-
-    // Ventas y Clientes
-    match /customers/{id} {
-      allow read: if isReadOnly();
-      allow write: if isVentas();
+    match /shareholders/{id} {
+      allow read, write: if signedIn();
     }
     match /orders/{id} {
-      allow read: if isReadOnly();
-      allow write: if isVentas() || isProduccion(); // Producción actualiza estado a PRODUCIDO
+      allow read, write: if signedIn();
+    }
+    match /stock_movements/{id} {
+      allow read, write: if signedIn();
     }
     match /sales/{id} {
-      allow read: if isReadOnly();
-      allow write: if isVentas();
-    }
-    match /customer_movements/{id} {
-      allow read: if isReadOnly();
-      allow write: if isVentas();
+      allow read, write: if signedIn();
     }
     match /caja_movements/{id} {
-      allow read: if isReadOnly();
-      allow write: if isVentas();
-    }
-    match /price_lists/{id} {
-      allow read: if isReadOnly();
-      allow write: if isVentas();
-    }
-
-    // Compras y Proveedores
-    match /suppliers/{id} {
-      allow read: if isReadOnly();
-      allow write: if isAdmin();
-    }
-    match /purchases/{id} {
-      allow read: if isReadOnly();
-      allow write: if isAdmin();
-    }
-    match /supplier_movements/{id} {
-      allow read: if isReadOnly();
-      allow write: if isAdmin();
-    }
-
-    // Accionistas
-    match /shareholders/{id} {
-      allow read: if isReadOnly();
-      allow write: if isAdmin();
+      allow read, write: if signedIn();
     }
     match /shareholder_movements/{id} {
-      allow read: if isReadOnly();
-      allow write: if isAdmin();
+      allow read, write: if signedIn();
+    }
+    match /users/{id} {
+      allow read, write: if signedIn();
+    }
+    match /customer_movements/{id} {
+      allow read, write: if signedIn();
+    }
+    match /settings/{id} {
+      allow read, write: if signedIn();
+    }
+    match /price_lists/{id} {
+      allow read, write: if signedIn();
+    }
+    match /equivalences/{id} {
+      allow read, write: if signedIn();
+    }
+    match /supplier_movements/{id} {
+      allow read, write: if signedIn();
+    }
+    match /purchases/{id} {
+      allow read, write: if signedIn();
+    }
+    match /packages/{id} {
+      allow read, write: if signedIn();
+    }
+    match /financial_accounts/{id} {
+      allow read, write: if signedIn();
     }
   }
 }
