@@ -29,8 +29,10 @@ export const purchasesRepository = {
     const montoPagado = Number(purchaseData.montoPagado);
     const montoCuentaCorriente = Number(purchaseData.montoCuentaCorriente);
 
-    if (isNaN(subtotal) || subtotal <= 0) throw new Error("Subtotal de compra inválido.");
-    if (isNaN(total) || total <= 0) throw new Error("Total de compra inválido.");
+    if (!Number.isFinite(subtotal) || subtotal <= 0) throw new Error("Subtotal de compra inválido.");
+    if (!Number.isFinite(total) || total <= 0) throw new Error("Total de compra inválido.");
+    if (!Number.isFinite(montoPagado) || montoPagado < 0) throw new Error("Monto pagado inválido.");
+    if (!Number.isFinite(montoCuentaCorriente) || montoCuentaCorriente < 0) throw new Error("Monto de cuenta corriente inválido.");
     
     if (montoPagado > 0 && !purchaseData.accountId && purchaseData.paymentMethod !== 'MULTIPLES') {
       throw new Error("Debe seleccionar una cuenta para registrar el pago.");
@@ -43,7 +45,8 @@ export const purchasesRepository = {
       }
       for (const p of purchaseData.payments) {
         if (!p.accountId) throw new Error("Todos los pagos múltiples deben tener una cuenta seleccionada.");
-        if (Number(p.amount) <= 0) throw new Error("Los montos de los pagos deben ser mayores a cero.");
+        const pAmount = Number(p.amount);
+        if (!Number.isFinite(pAmount) || pAmount <= 0) throw new Error("Los montos de los pagos deben ser mayores a cero.");
       }
     }
 
@@ -52,9 +55,9 @@ export const purchasesRepository = {
       const unitCost = Number(item.unitCost);
       const totalCost = Number(item.totalCost);
 
-      if (isNaN(quantity) || quantity <= 0) throw new Error(`Cantidad inválida para el producto ${item.productId}`);
-      if (isNaN(unitCost) || unitCost <= 0) throw new Error(`Costo unitario inválido para el producto ${item.productId}`);
-      if (isNaN(totalCost) || totalCost <= 0) throw new Error(`Costo total inválido para el producto ${item.productId}`);
+      if (!Number.isFinite(quantity) || quantity <= 0) throw new Error(`Cantidad inválida para el producto ${item.productId}`);
+      if (!Number.isFinite(unitCost) || unitCost <= 0) throw new Error(`Costo unitario inválido para el producto ${item.productId}`);
+      if (!Number.isFinite(totalCost) || totalCost <= 0) throw new Error(`Costo total inválido para el producto ${item.productId}`);
 
       return {
         ...item,

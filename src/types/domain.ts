@@ -203,6 +203,7 @@ export type SaleItem = {
   pesoTotal?: number;
   pesoPromedio?: number;
   presentationType?: '150G' | '250G' | '500G' | '1KG';
+  packageIds?: string[];
 };
 
 export type RecipeSnapshotItem = {

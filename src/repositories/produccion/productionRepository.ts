@@ -65,7 +65,7 @@ export const productionRepository = {
 
       if (data.recipeItemsOverride !== undefined) {
         recipeItems = data.recipeItemsOverride.map((ing: any) => ({
-          productId: ing.ingredientProductId || ing.productId,
+          productId: ing.productId || ing.productId,
           quantity: ing.quantity,
           unit: ing.unit
         }));
@@ -76,7 +76,7 @@ export const productionRepository = {
           const recipeData = recipeDoc.data();
           const items = recipeData.items || [];
           recipeItems = items.map((ing: any) => ({
-            productId: ing.ingredientProductId,
+            productId: ing.productId,
             quantity: ing.quantity,
             unit: mapRecipeUnitToUnitType(ing.unit)
           }));
@@ -301,7 +301,7 @@ export const productionRepository = {
       }
 
       // Resolve recipes for each item and load ingredient documents in read phase
-      const itemsRecipes: { itemId: string; recipeItems: RecipeItem[] }[] = [];
+      const itemsRecipes: { itemId: string; recipeItems: any[] }[] = [];
       const ingredientDocs: Record<string, { ref: any, data: Product }> = {};
 
       for (let idx = 0; idx < data.items.length; idx++) {
@@ -312,7 +312,7 @@ export const productionRepository = {
         let recipeItems: any[] = [];
         if (item.recipeItemsOverride !== undefined) {
           recipeItems = item.recipeItemsOverride.map((ing: any) => ({
-            productId: ing.ingredientProductId || ing.productId,
+            productId: ing.productId || ing.productId,
             quantity: ing.quantity,
             unit: ing.unit
           }));
@@ -323,7 +323,7 @@ export const productionRepository = {
             const recipeData = recipeDoc.data();
             const items = recipeData.items || [];
             recipeItems = items.map((ing: any) => ({
-              productId: ing.ingredientProductId,
+              productId: ing.productId,
               quantity: ing.quantity,
               unit: mapRecipeUnitToUnitType(ing.unit)
             }));
@@ -388,7 +388,7 @@ export const productionRepository = {
         const recipeInfo = itemsRecipes.find(r => r.itemId === `${item.productId}_${idx}`);
         if (recipeInfo) {
           for (const ing of recipeInfo.recipeItems) {
-            const ingEntry = ingredientDocs[ing.ingredientProductId];
+            const ingEntry = ingredientDocs[ing.productId];
             if (ingEntry) {
               const ingData = ingEntry.data;
               let stockToDeduct = 0;
@@ -431,7 +431,7 @@ export const productionRepository = {
               stepCost += ingCost;
 
               recipeSnapshot.push({
-                ingredientId: ing.ingredientProductId,
+                ingredientId: ing.productId,
                 ingredientName: ingData.nombre || 'Ingrediente',
                 quantity: truncateDecimals(totalDeduct, 3),
                 unit: ingData.unitType || 'KG',
@@ -466,11 +466,11 @@ export const productionRepository = {
         const recipeInfoForIng = itemsRecipes.find(r => r.itemId === `${item.productId}_${idx}`);
         if (recipeInfoForIng) {
           for (const ing of recipeInfoForIng.recipeItems) {
-            const ingEntry = ingredientDocs[ing.ingredientProductId];
+            const ingEntry = ingredientDocs[ing.productId];
             if (ingEntry) {
               const ingData = ingEntry.data;
-              const currentIngStock = stockUpdates[ing.ingredientProductId] !== undefined
-                ? stockUpdates[ing.ingredientProductId]
+              const currentIngStock = stockUpdates[ing.productId] !== undefined
+                ? stockUpdates[ing.productId]
                 : (ingData.stockActual || 0);
 
               let stockToDeduct = 0;
@@ -512,14 +512,14 @@ export const productionRepository = {
               }
 
               const totalDeduct = truncateDecimals(stockToDeduct + mermaQty, 3);
-              stockUpdates[ing.ingredientProductId] = truncateDecimals(currentIngStock - totalDeduct, 3);
+              stockUpdates[ing.productId] = truncateDecimals(currentIngStock - totalDeduct, 3);
 
               // Queue ingredient consumption movement (negative qty, type PRODUCCION)
               const ingMovRef = doc(collection(db, 'stock_movements'));
               queuedMovements.push({
                 ref: ingMovRef,
                 data: {
-                  productId: ing.ingredientProductId,
+                  productId: ing.productId,
                   qty: -stockToDeduct,
                   type: 'PRODUCCION',
                   date: new Date().toISOString(),
@@ -535,7 +535,7 @@ export const productionRepository = {
                 queuedMovements.push({
                   ref: mermaMovRef,
                   data: {
-                    productId: ing.ingredientProductId,
+                    productId: ing.productId,
                     qty: -mermaQty,
                     type: 'MERMA_PRODUCCION',
                     date: new Date().toISOString(),
@@ -686,7 +686,7 @@ export const productionRepository = {
       let recipeItems: any[] = [];
       if (data.recipeItemsOverride !== undefined) {
         recipeItems = data.recipeItemsOverride.map((ing: any) => ({
-          productId: ing.ingredientProductId || ing.productId,
+          productId: ing.productId || ing.productId,
           quantity: ing.quantity,
           unit: ing.unit
         }));
@@ -697,7 +697,7 @@ export const productionRepository = {
           const recipeData = recipeDoc.data();
           const items = recipeData.items || [];
           recipeItems = items.map((ing: any) => ({
-            productId: ing.ingredientProductId,
+            productId: ing.productId,
             quantity: ing.quantity,
             unit: mapRecipeUnitToUnitType(ing.unit)
           }));

@@ -1,4 +1,4 @@
-import { collection, onSnapshot, query, where, doc, setDoc, updateDoc, deleteDoc, orderBy, limit } from 'firebase/firestore';
+import { collection, onSnapshot, query, where, doc, setDoc, updateDoc, orderBy, limit } from 'firebase/firestore';
 import { db, COLLECTIONS } from '../../lib/firebase';
 import type { CajaMovement, Arqueo } from '../../types/domain';
 
